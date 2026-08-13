@@ -10,7 +10,7 @@ proof that expires after 30 minutes.
 1. Enable Google Drive API in a Google Cloud project.
 2. Configure the OAuth consent screen, application homepage, privacy policy, and terms URLs.
 3. Create an OAuth client of type **Web application**.
-4. Add `https://YOUR-SITE/api/google/callback` as an authorized redirect URI.
+4. Add `https://dupesweep.app/api/google/callback` as an authorized redirect URI.
 5. Configure `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and a random 32+ character
    `SESSION_SECRET` as hosting secrets.
 6. Submit the `https://www.googleapis.com/auth/drive` scope for Google verification before public

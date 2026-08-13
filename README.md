@@ -2,6 +2,10 @@
 
 **Duplicate File Cleaner for Windows & Google Drive**
 
+[Use DupeSweep online](https://dupesweep.app) ·
+[Download the Windows installer](https://github.com/kaimeow1114-netizen/dupesweep-duplicate-file-cleaner/releases/latest/download/DupeSweep-Setup.exe) ·
+[View the latest release](https://github.com/kaimeow1114-netizen/dupesweep-duplicate-file-cleaner/releases/latest)
+
 DupeSweep is a safety-first desktop tool for finding exact duplicate files and moving the
 extra copies to the Recycle Bin or Google Drive trash. It is designed for large cleanups:
 scans are streamed, Drive changes are sent in API-compliant batches of 100, and every long
@@ -39,8 +43,9 @@ free download promotion, privacy/terms pages, and AdSense publisher integration.
 
 ## Install and run
 
-Windows users can download the latest installer from
-[GitHub Releases](https://github.com/kaimeow1114-netizen/dupesweep-duplicate-file-cleaner/releases/latest).
+Windows users can download
+[DupeSweep-Setup.exe directly](https://github.com/kaimeow1114-netizen/dupesweep-duplicate-file-cleaner/releases/latest/download/DupeSweep-Setup.exe)
+or visit [GitHub Releases](https://github.com/kaimeow1114-netizen/dupesweep-duplicate-file-cleaner/releases/latest).
 The installer offers an optional desktop shortcut and launches `DupeSweep.exe` directly—Python is
 not required on the user's computer.
 

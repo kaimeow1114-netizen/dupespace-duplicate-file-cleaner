@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 async function render(path = "/") {
@@ -20,7 +21,15 @@ test("renders the DupeSweep product landing page", async () => {
   assert.match(html, /線上清理 Google Drive/);
   assert.match(html, /DupeSweep-Setup\.exe/);
   assert.match(html, /ca-pub-7998471640181666/);
+  assert.match(html, /<a[^>]+href="\/#features"[^>]*>功能<\/a>/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
+});
+
+test("uses native navigation links that work in the deployed Worker", async () => {
+  const source = await readFile(new URL("../app/components/site-shell.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /next\/link|<Link/);
+  assert.match(source, /<a href="\/#features">功能<\/a>/);
+  assert.match(source, /<a className="nav-cta" href="\/cleaner">/);
 });
 
 test("renders legal and cleaner routes with security headers", async () => {
