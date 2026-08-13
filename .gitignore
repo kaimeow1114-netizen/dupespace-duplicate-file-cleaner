@@ -1,0 +1,28 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+build/
+dist/
+*.spec
+
+# OAuth secrets and tokens must never be committed.
+credentials.json
+client_secret*.json
+token.json
+*.token.json
+
+# Local operation data
+.dupesweep/
+.tools/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
