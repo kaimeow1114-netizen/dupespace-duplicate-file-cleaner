@@ -1,5 +1,5 @@
 #define MyAppName "DupeSweep"
-#define MyAppVersion "0.2.0"
+#define MyAppVersion "0.2.1"
 #define MyAppPublisher "DupeSweep contributors"
 #define MyAppURL "https://github.com/kaimeow1114-netizen/dupesweep-duplicate-file-cleaner"
 #define MyAppExeName "DupeSweep.exe"
@@ -29,7 +29,6 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 VersionInfoVersion={#MyAppVersion}
 
 [Languages]
-Name: "chinesetraditional"; MessagesFile: "compiler:Languages\ChineseTraditional.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]

@@ -8,6 +8,8 @@ htmlcov/
 .venv/
 venv/
 build/
+!web/build/
+!web/build/**
 dist/
 *.spec
 !DupeSweep.spec
