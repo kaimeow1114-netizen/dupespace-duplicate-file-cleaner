@@ -41,3 +41,4 @@ yarn-error.log*
 /.dev-server.*
 /outputs/
 /work/
+*.tsbuildinfo

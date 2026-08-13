@@ -9,12 +9,25 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from .grouping import build_duplicate_groups
-from .models import ActionOutcome, ActionReport, FileRecord, ProgressUpdate, ScanReport
+from .models import (
+    ActionOutcome,
+    ActionReport,
+    FileRecord,
+    OperationItem,
+    OperationMode,
+    ProgressUpdate,
+    ScanReport,
+)
+from .windows_safety import DEFAULT_WINDOWS_SAFETY_POLICY, UnsafePathError, WindowsSafetyPolicy
 
 ProgressCallback = Callable[[ProgressUpdate], None]
 
 
 class ScanCancelled(RuntimeError):
+    pass
+
+
+class SnapshotChangedError(OSError):
     pass
 
 
@@ -57,7 +70,7 @@ def _hash_file(path: Path, expected: os.stat_result, chunk_size: int) -> str:
 
     current = path.stat()
     if _metadata_token(current) != _metadata_token(expected):
-        raise OSError("file changed while it was being hashed")
+        raise SnapshotChangedError("file changed while it was being hashed")
     return f"sha256:{digest.hexdigest()}"
 
 
@@ -77,10 +90,15 @@ def _normalize_roots(roots: Iterable[str | os.PathLike[str]]) -> tuple[Path, ...
 class LocalScanner:
     """Two-stage scanner: size bucketing first, then full SHA-256 hashing."""
 
-    def __init__(self, chunk_size: int = 1024 * 1024) -> None:
+    def __init__(
+        self,
+        chunk_size: int = 1024 * 1024,
+        safety_policy: WindowsSafetyPolicy = DEFAULT_WINDOWS_SAFETY_POLICY,
+    ) -> None:
         if chunk_size <= 0:
             raise ValueError("chunk_size must be positive")
         self.chunk_size = chunk_size
+        self.safety_policy = safety_policy
 
     def scan(
         self,
@@ -89,7 +107,9 @@ class LocalScanner:
         progress: ProgressCallback | None = None,
         cancel_event: threading.Event | None = None,
     ) -> ScanReport:
-        normalized_roots = _normalize_roots(roots)
+        normalized_roots = _normalize_roots(
+            self.safety_policy.validate_scan_root(root) for root in roots
+        )
         if not normalized_roots:
             raise ValueError("Choose at least one folder")
 
@@ -111,6 +131,13 @@ class LocalScanner:
                     raise ScanCancelled("Local scan cancelled")
                 directory = stack.pop()
                 try:
+                    if self.safety_policy.is_protected(directory):
+                        skipped += 1
+                        warnings.append(f"已略過受保護位置：{directory}")
+                        continue
+                    if self.safety_policy.has_protected_attributes(directory):
+                        skipped += 1
+                        continue
                     with os.scandir(directory) as entries:
                         for entry in entries:
                             if _is_cancelled(cancel_event):
@@ -120,7 +147,11 @@ class LocalScanner:
                                     skipped += 1
                                     continue
                                 if entry.is_dir(follow_symlinks=False):
-                                    stack.append(Path(entry.path))
+                                    child = Path(entry.path)
+                                    if self.safety_policy.is_protected(child):
+                                        skipped += 1
+                                    elif not self.safety_policy.has_protected_attributes(child):
+                                        stack.append(child)
                                     continue
                                 if not entry.is_file(follow_symlinks=False):
                                     skipped += 1
@@ -129,6 +160,12 @@ class LocalScanner:
                                 # device/inode fields. os.stat() provides the real file identity,
                                 # which is required to distinguish files from hard links.
                                 stat_result = os.stat(entry.path, follow_symlinks=False)
+                                candidate = Path(entry.path)
+                                if self.safety_policy.is_protected(
+                                    candidate
+                                ) or self.safety_policy.has_protected_attributes(candidate):
+                                    skipped += 1
+                                    continue
                                 examined += 1
                                 examined_bytes += stat_result.st_size
                                 identity = _identity(stat_result)
@@ -136,9 +173,7 @@ class LocalScanner:
                                     skipped += 1
                                     continue
                                 seen_physical_files.add(identity)
-                                by_size[stat_result.st_size].append(
-                                    (Path(entry.path), stat_result)
-                                )
+                                by_size[stat_result.st_size].append((Path(entry.path), stat_result))
                                 if examined % 250 == 0:
                                     _emit(
                                         progress,
@@ -155,10 +190,7 @@ class LocalScanner:
                     warnings.append(f"無法讀取 {directory}：{error}")
 
         hash_candidates = [
-            item
-            for bucket in by_size.values()
-            if len(bucket) > 1
-            for item in bucket
+            item for bucket in by_size.values() if len(bucket) > 1 for item in bucket
         ]
         records: list[FileRecord] = []
         for index, (path, expected_stat) in enumerate(hash_candidates, start=1):
@@ -177,6 +209,8 @@ class LocalScanner:
                         created_at=expected_stat.st_ctime,
                         modified_at=expected_stat.st_mtime,
                         metadata_token=_metadata_token(expected_stat),
+                        can_delete=True,
+                        mime_type="application/octet-stream",
                     )
                 )
             except OSError as error:
@@ -215,9 +249,73 @@ class LocalScanner:
         )
 
 
+def _local_key_path(record: FileRecord) -> Path:
+    prefix, separator, raw_path = record.key.partition(":")
+    if prefix != "local" or not separator or not raw_path:
+        raise UnsafePathError("本機檔案識別碼無效。")
+    return Path(raw_path)
+
+
+def _validate_local_snapshot(
+    record: FileRecord,
+    safety_policy: WindowsSafetyPolicy,
+    chunk_size: int,
+) -> Path:
+    path = safety_policy.validate_regular_file(record.location)
+    key_path = safety_policy.validate_regular_file(_local_key_path(record))
+    if os.path.normcase(str(path)) != os.path.normcase(str(key_path)):
+        raise UnsafePathError("檔案路徑與掃描識別碼不一致。")
+    current = path.stat()
+    if record.metadata_token is None:
+        raise SnapshotChangedError("缺少掃描快照，請重新掃描。")
+    if _metadata_token(current) != record.metadata_token:
+        raise SnapshotChangedError("檔案在掃描後已變更，已安全跳過。")
+    if current.st_size != record.size or current.st_mtime != record.modified_at:
+        raise SnapshotChangedError("檔案大小或修改時間已變更，已安全跳過。")
+    checksum = _hash_file(path, current, chunk_size)
+    if checksum != record.checksum:
+        raise SnapshotChangedError("檔案內容校驗碼已變更，已安全跳過。")
+    return path
+
+
+def _preflight_items(
+    items: tuple[OperationItem, ...],
+    safety_policy: WindowsSafetyPolicy,
+    chunk_size: int,
+    operation_mode: OperationMode,
+) -> tuple[list[tuple[OperationItem, Path]], list[ActionOutcome]]:
+    valid: list[tuple[OperationItem, Path]] = []
+    outcomes: list[ActionOutcome] = []
+    keeper_cache: dict[str, str | Exception] = {}
+    for item in items:
+        try:
+            if item.keeper.key not in keeper_cache:
+                _validate_local_snapshot(item.keeper, safety_policy, chunk_size)
+                keeper_cache[item.keeper.key] = item.keeper.checksum
+            keeper_result = keeper_cache[item.keeper.key]
+            if isinstance(keeper_result, Exception):
+                raise keeper_result
+            path = _validate_local_snapshot(item.record, safety_policy, chunk_size)
+            valid.append((item, path))
+        except (SnapshotChangedError, UnsafePathError, OSError) as error:
+            keeper_cache.setdefault(item.keeper.key, error)
+            outcomes.append(
+                ActionOutcome(item.record, "skipped", str(error), operation_mode=operation_mode)
+            )
+    return valid, outcomes
+
+
 class LocalTrashExecutor:
-    def __init__(self, trash_func: Callable[[str], None] | None = None) -> None:
+    def __init__(
+        self,
+        trash_func: Callable[[str], None] | None = None,
+        *,
+        safety_policy: WindowsSafetyPolicy = DEFAULT_WINDOWS_SAFETY_POLICY,
+        chunk_size: int = 1024 * 1024,
+    ) -> None:
         self._trash_func = trash_func
+        self.safety_policy = safety_policy
+        self.chunk_size = chunk_size
 
     def _get_trash_func(self) -> Callable[[str], None]:
         if self._trash_func is not None:
@@ -230,39 +328,101 @@ class LocalTrashExecutor:
 
     def trash(
         self,
-        records: Iterable[FileRecord],
+        items: Iterable[OperationItem],
         *,
         progress: ProgressCallback | None = None,
         cancel_event: threading.Event | None = None,
     ) -> ActionReport:
-        queue = tuple(records)
+        queue = tuple(items)
         trash_func = self._get_trash_func()
-        outcomes: list[ActionOutcome] = []
+        ready, outcomes = _preflight_items(queue, self.safety_policy, self.chunk_size, "trash")
 
-        for index, record in enumerate(queue, start=1):
+        for index, (item, path) in enumerate(ready, start=1):
+            record = item.record
             if _is_cancelled(cancel_event):
                 outcomes.extend(
-                    ActionOutcome(pending, "cancelled", "operation cancelled")
-                    for pending in queue[index - 1 :]
+                    ActionOutcome(pending.record, "cancelled", "operation cancelled")
+                    for pending, _path in ready[index - 1 :]
                 )
                 break
             try:
-                path = Path(record.location)
-                current = path.stat()
-                if record.metadata_token is None:
-                    raise OSError("scan metadata is missing; rescan before cleanup")
-                if _metadata_token(current) != record.metadata_token:
-                    raise OSError("file changed after the scan; rescan before cleanup")
+                # Re-stat immediately before the reversible operation. Permanent deletion has
+                # its own executor and is never used as a fallback here.
+                _validate_local_snapshot(record, self.safety_policy, self.chunk_size)
                 trash_func(str(path))
                 outcomes.append(ActionOutcome(record, "trashed"))
+            except (SnapshotChangedError, UnsafePathError) as error:
+                outcomes.append(ActionOutcome(record, "skipped", str(error)))
             except (OSError, RuntimeError) as error:
                 outcomes.append(ActionOutcome(record, "failed", str(error)))
             _emit(
                 progress,
                 "trashing-local",
                 index,
-                len(queue),
+                len(ready),
                 f"正在移到資源回收筒：{record.name}",
             )
 
-        return ActionReport(source="local", outcomes=tuple(outcomes))
+        return ActionReport(source="local", outcomes=tuple(outcomes), operation_mode="trash")
+
+
+class LocalPermanentDeleteExecutor:
+    """Permanently delete only unchanged regular files after keeper revalidation."""
+
+    def __init__(
+        self,
+        *,
+        safety_policy: WindowsSafetyPolicy = DEFAULT_WINDOWS_SAFETY_POLICY,
+        unlink_func: Callable[[str], None] = os.unlink,
+        chunk_size: int = 1024 * 1024,
+    ) -> None:
+        self.safety_policy = safety_policy
+        self.unlink_func = unlink_func
+        self.chunk_size = chunk_size
+
+    def delete(
+        self,
+        items: Iterable[OperationItem],
+        *,
+        progress: ProgressCallback | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> ActionReport:
+        queue = tuple(items)
+        ready, outcomes = _preflight_items(queue, self.safety_policy, self.chunk_size, "permanent")
+        for index, (item, path) in enumerate(ready, start=1):
+            if _is_cancelled(cancel_event):
+                outcomes.extend(
+                    ActionOutcome(
+                        pending.record,
+                        "cancelled",
+                        "operation cancelled",
+                        operation_mode="permanent",
+                    )
+                    for pending, _pending_path in ready[index - 1 :]
+                )
+                break
+            record = item.record
+            try:
+                # Perform the full snapshot check again at the destructive boundary.
+                _validate_local_snapshot(item.keeper, self.safety_policy, self.chunk_size)
+                current_path = _validate_local_snapshot(record, self.safety_policy, self.chunk_size)
+                if current_path != path:
+                    raise UnsafePathError("檔案實體路徑已變更，已安全跳過。")
+                self.unlink_func(str(current_path))
+                outcomes.append(ActionOutcome(record, "deleted", operation_mode="permanent"))
+            except (SnapshotChangedError, UnsafePathError) as error:
+                outcomes.append(
+                    ActionOutcome(record, "skipped", str(error), operation_mode="permanent")
+                )
+            except (OSError, RuntimeError) as error:
+                outcomes.append(
+                    ActionOutcome(record, "failed", str(error), operation_mode="permanent")
+                )
+            _emit(
+                progress,
+                "deleting-local",
+                index,
+                len(ready),
+                f"正在永久刪除：{record.name}",
+            )
+        return ActionReport(source="local", outcomes=tuple(outcomes), operation_mode="permanent")

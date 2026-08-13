@@ -13,18 +13,57 @@ async function render(path = "/") {
   );
 }
 
-test("renders the DupeSweep product landing page", async () => {
+test("renders the DUPESWEEP product landing page with canonical SEO metadata", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /<title>DupeSweep｜重複檔案清理工具<\/title>/);
+  assert.match(html, /<title>DUPESWEEP｜重複檔案刪除與清理工具<\/title>/);
+  assert.match(html, /rel="canonical" href="https:\/\/dupesweep\.app"/);
+  assert.match(html, /application\/ld\+json/);
+  assert.match(html, /FAQPage/);
+  assert.match(html, /site\.webmanifest/);
   assert.match(html, /線上清理 Google Drive/);
   assert.match(html, /DupeSweep-Setup\.exe/);
   assert.match(html, /ca-pub-7998471640181666/);
   assert.match(html, /<a[^>]+href="\/#features"[^>]*>功能<\/a>/);
   assert.match(html, /translate="no"[^>]*lang="en"[^>]*>DUPE<em>SWEEP<\/em>/);
   assert.match(html, /class="headline-line">把重複檔案掃乾淨，<\/span>/);
+  assert.match(html, /預設移至垃圾桶/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
+});
+
+test("renders independent trash and permanent-delete safety controls", async () => {
+  const response = await render("/cleaner");
+  const html = await response.text();
+  assert.match(html, /移至垃圾桶/);
+
+  const clientSource = await readFile(new URL("../app/components/cleaner-client.tsx", import.meta.url), "utf8");
+  assert.match(clientSource, /立即永久刪除/);
+  assert.match(clientSource, /垃圾桶失敗絕不會自動改成永久刪除/);
+  assert.match(clientSource, /永久刪除 \$\{confirmation\.records\.length\} 個檔案/);
+  assert.match(clientSource, /records\.length >= 500/);
+  assert.match(clientSource, />= GIB/);
+  assert.match(clientSource, /index \+= 100/);
+  assert.match(clientSource, /downloadCsv/);
+
+  const workerSource = await readFile(new URL("../worker/google-drive.ts", import.meta.url), "utf8");
+  assert.match(workerSource, /\/api\/google\/trash/);
+  assert.match(workerSource, /\/api\/google\/delete/);
+  assert.match(workerSource, /method: "DELETE"/);
+  assert.doesNotMatch(workerSource, /trash.*catch[\s\S]{0,200}DELETE/i);
+});
+
+test("ships PWA, crawler, sitemap and ad declarations", async () => {
+  const [manifest, robots, sitemap, ads] = await Promise.all([
+    readFile(new URL("../public/site.webmanifest", import.meta.url), "utf8"),
+    readFile(new URL("../public/robots.txt", import.meta.url), "utf8"),
+    readFile(new URL("../public/sitemap.xml", import.meta.url), "utf8"),
+    readFile(new URL("../public/ads.txt", import.meta.url), "utf8"),
+  ]);
+  assert.match(manifest, /maskable-512x512\.png/);
+  assert.match(robots, /Sitemap: https:\/\/dupesweep\.app\/sitemap\.xml/);
+  assert.match(sitemap, /https:\/\/dupesweep\.app\/cleaner/);
+  assert.match(ads, /google\.com, pub-7998471640181666, DIRECT, f08c47fec0942fa0/);
 });
 
 test("uses native navigation links that work in the deployed Worker", async () => {
@@ -32,6 +71,27 @@ test("uses native navigation links that work in the deployed Worker", async () =
   assert.doesNotMatch(source, /next\/link|<Link/);
   assert.match(source, /<a href="\/#features">功能<\/a>/);
   assert.match(source, /<a className="nav-cta" href="\/cleaner">/);
+});
+
+test("keeps responsive layouts stable and batch sounds bounded", async () => {
+  const [css, cleanerSource] = await Promise.all([
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/cleaner-client.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(css, /body\s*\{[^}]*overflow-x:clip/);
+  assert.match(css, /@media \(max-width:900px\)/);
+  assert.match(css, /@media \(max-width:650px\)/);
+  assert.match(css, /@media \(prefers-reduced-motion:reduce\)/);
+  assert.match(css, /\.brand-name\s*\{[^}]*white-space:nowrap/);
+  assert.match(css, /\.headline-line\s*\{[^}]*white-space:nowrap/);
+
+  const operationBody = cleanerSource.slice(
+    cleanerSource.indexOf("async function executeOperation"),
+    cleanerSource.indexOf("function downloadCsv"),
+  );
+  assert.equal((operationBody.match(/play\(/g) ?? []).length, 3);
+  assert.match(operationBody, /for \(const chunk of chunks\)/);
+  assert.doesNotMatch(operationBody, /for \(const outcome of body\.outcomes\)[\s\S]{0,180}play\(/);
 });
 
 test("renders legal and cleaner routes with security headers", async () => {

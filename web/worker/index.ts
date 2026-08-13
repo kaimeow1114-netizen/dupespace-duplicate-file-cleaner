@@ -30,6 +30,10 @@ const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
+    if (url.hostname.endsWith(".chatgpt.site")) {
+      return Response.redirect(`https://dupesweep.app${url.pathname}${url.search}`, 301);
+    }
+
     const googleResponse = await handleGoogleDriveApi(request, env);
     if (googleResponse) return withSecurityHeaders(googleResponse);
 

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Literal
 
 SourceKind = Literal["local", "drive"]
-OutcomeStatus = Literal["trashed", "failed", "cancelled"]
+OperationMode = Literal["trash", "permanent"]
+OutcomeStatus = Literal["trashed", "deleted", "failed", "skipped", "cancelled"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +23,8 @@ class FileRecord:
     modified_at: float | None = None
     metadata_token: str | None = None
     can_trash: bool = True
+    can_delete: bool = False
+    mime_type: str | None = None
     web_url: str | None = None
 
     @property
@@ -77,12 +81,19 @@ class ActionOutcome:
     record: FileRecord
     status: OutcomeStatus
     error: str | None = None
+    operation_mode: OperationMode = "trash"
+    occurred_at: str = field(
+        default_factory=lambda: (
+            datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
 class ActionReport:
     source: SourceKind
     outcomes: tuple[ActionOutcome, ...] = field(default_factory=tuple)
+    operation_mode: OperationMode = "trash"
 
     @property
     def trashed(self) -> tuple[ActionOutcome, ...]:
@@ -91,6 +102,14 @@ class ActionReport:
     @property
     def failed(self) -> tuple[ActionOutcome, ...]:
         return tuple(outcome for outcome in self.outcomes if outcome.status == "failed")
+
+    @property
+    def deleted(self) -> tuple[ActionOutcome, ...]:
+        return tuple(outcome for outcome in self.outcomes if outcome.status == "deleted")
+
+    @property
+    def skipped(self) -> tuple[ActionOutcome, ...]:
+        return tuple(outcome for outcome in self.outcomes if outcome.status == "skipped")
 
     @property
     def cancelled(self) -> tuple[ActionOutcome, ...]:
@@ -103,3 +122,19 @@ class ProgressUpdate:
     current: int
     total: int | None
     message: str
+
+
+@dataclass(frozen=True, slots=True)
+class OperationItem:
+    """One selected duplicate and the protected keeper that makes it safe to remove."""
+
+    record: FileRecord
+    keeper: FileRecord
+
+    def __post_init__(self) -> None:
+        if self.record.key == self.keeper.key:
+            raise ValueError("A keeper cannot be an operation target")
+        if self.record.source != self.keeper.source:
+            raise ValueError("Target and keeper must use the same source")
+        if self.record.fingerprint != self.keeper.fingerprint:
+            raise ValueError("Target and keeper must have the same fingerprint")

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable, Set
 
-from .models import DuplicateGroup, FileRecord
+from .models import DuplicateGroup, FileRecord, OperationItem, OperationMode
 
 
 def _keeper_rank(record: FileRecord) -> tuple[float, int, str, str]:
@@ -45,18 +45,25 @@ def build_duplicate_groups(records: Iterable[FileRecord]) -> tuple[DuplicateGrou
     )
 
 
-def default_selection(groups: Iterable[DuplicateGroup]) -> set[str]:
+def default_selection(
+    groups: Iterable[DuplicateGroup], operation_mode: OperationMode = "trash"
+) -> set[str]:
     """Select every trashable extra copy while always protecting the keeper."""
 
     return {
         record.key
         for group in groups
         for record in group.records
-        if record.key != group.keeper_key and record.can_trash
+        if record.key != group.keeper_key
+        and (record.can_trash if operation_mode == "trash" else record.can_delete)
     }
 
 
-def validate_selection(groups: Iterable[DuplicateGroup], selected: Set[str]) -> None:
+def validate_selection(
+    groups: Iterable[DuplicateGroup],
+    selected: Set[str],
+    operation_mode: OperationMode = "trash",
+) -> None:
     records: dict[str, FileRecord] = {}
     protected: set[str] = set()
     for group in groups:
@@ -69,19 +76,41 @@ def validate_selection(groups: Iterable[DuplicateGroup], selected: Set[str]) -> 
 
     selected_keepers = set(selected) & protected
     if selected_keepers:
-        raise ValueError("A protected keeper cannot be moved to trash")
+        raise ValueError("A protected keeper cannot be removed")
 
-    forbidden = [key for key in selected if not records[key].can_trash]
+    forbidden = [
+        key
+        for key in selected
+        if not (records[key].can_trash if operation_mode == "trash" else records[key].can_delete)
+    ]
     if forbidden:
-        raise ValueError("Selection contains a file that cannot be moved to trash")
+        action = "moved to trash" if operation_mode == "trash" else "permanently deleted"
+        raise ValueError(f"Selection contains a file that cannot be {action}")
 
 
 def selected_records(
-    groups: Iterable[DuplicateGroup], selected: Set[str]
+    groups: Iterable[DuplicateGroup],
+    selected: Set[str],
+    operation_mode: OperationMode = "trash",
 ) -> tuple[FileRecord, ...]:
-    validate_selection(groups, selected)
+    validate_selection(groups, selected, operation_mode)
+    return tuple(record for group in groups for record in group.records if record.key in selected)
+
+
+def operation_items(
+    groups: Iterable[DuplicateGroup],
+    selected: Set[str],
+    operation_mode: OperationMode = "trash",
+) -> tuple[OperationItem, ...]:
+    """Build an immutable target/keeper plan after validating the current selection."""
+
+    materialized = tuple(groups)
+    validate_selection(materialized, selected, operation_mode)
     return tuple(
-        record for group in groups for record in group.records if record.key in selected
+        OperationItem(record=record, keeper=group.keeper)
+        for group in materialized
+        for record in group.records
+        if record.key in selected
     )
 
 

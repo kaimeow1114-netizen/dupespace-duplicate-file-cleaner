@@ -32,16 +32,31 @@ def write_action_report(
 
     with temporary.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(("source", "status", "name", "location", "size_bytes", "error"))
+        writer.writerow(
+            (
+                "timestamp",
+                "source",
+                "operation_mode",
+                "status",
+                "name",
+                "location",
+                "size_bytes",
+                "checksum",
+                "reason",
+            )
+        )
         for report in reports:
             for outcome in report.outcomes:
                 writer.writerow(
                     (
+                        outcome.occurred_at,
                         outcome.record.source,
+                        outcome.operation_mode,
                         outcome.status,
                         outcome.record.name,
                         outcome.record.location,
                         outcome.record.size,
+                        outcome.record.checksum,
                         outcome.error or "",
                     )
                 )

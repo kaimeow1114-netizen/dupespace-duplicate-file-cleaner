@@ -1,5 +1,5 @@
 #define MyAppName "DupeSweep"
-#define MyAppVersion "0.2.1"
+#define MyAppVersion "0.3.0"
 #define MyAppPublisher "DupeSweep contributors"
 #define MyAppURL "https://github.com/kaimeow1114-netizen/dupesweep-duplicate-file-cleaner"
 #define MyAppExeName "DupeSweep.exe"

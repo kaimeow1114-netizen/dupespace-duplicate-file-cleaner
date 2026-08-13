@@ -40,10 +40,7 @@ def calculate_cleanup_stats(
     group_list = tuple(groups)
     report_list = tuple(reports)
     selected_size = sum(
-        record.size
-        for group in group_list
-        for record in group.records
-        if record.key in selected
+        record.size for group in group_list for record in group.records if record.key in selected
     )
     reclaimable = sum(group.reclaimable_bytes for group in group_list)
     examined = sum(report.examined_bytes for report in report_list)

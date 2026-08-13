@@ -1,48 +1,48 @@
-# DupeSweep safety guide
+# DUPESWEEP safety guide
 
-DupeSweep treats a file as an exact duplicate only when both content size and a full content
-checksum match. Names, extensions, dates, and folders are not enough.
+DUPESWEEP treats files as exact duplicates only when content size and a full content checksum
+match. Names, extensions, dates, and folders are never enough. Every group has one deterministic,
+locked keeper that cannot be selected or removed.
 
-The web cleaner adds encrypted HttpOnly OAuth sessions, 30-minute signed scan proofs, batches of at
-most 100 items, and server-side metadata revalidation of both the selected file and protected
-keeper before each Drive mutation. A browser request can only move a file to Drive trash; no web
-endpoint performs permanent deletion.
+## Two independent operation modes
 
-## Before cleanup
+**Move to trash is always the default and recommended mode.** Windows files go through the
+Recycle Bin API and Google Drive files are updated with `trashed=true`. A failure is reported as a
+failure; it never falls back to permanent deletion.
 
-1. Back up irreplaceable data independently.
-2. Test with a small folder or a small Drive account first.
-3. Close programs that may be editing the scanned files.
-4. Review the protected keeper and every selected copy.
-5. Check available Recycle Bin space and your Google Drive trash policy.
+> **Permanent deletion cannot be undone.** It is an independent advanced mode that the user must
+> actively select. Its warning cannot be disabled. More than five files requires a second red
+> confirmation and the exact phrase `永久刪除 N 個檔案`; 500+ files, 1 GB+, or 5,000+ files also
+> triggers a full summary and countdown.
 
-## Local files
+Before either operation, DUPESWEEP revalidates the target and its keeper. Local checks cover the
+physical path, file type, identity, byte size, modification time, and SHA-256. Drive checks cover
+file ID, version, MIME type, ownership, modification time, size, checksum, keeper status, and the
+specific trash/delete capability. Any changed item is skipped.
 
-- Directory traversal does not follow symbolic links.
-- Multiple directory entries pointing at the same hard-link identity are scanned once.
-- Unreadable or changing files are skipped and reported as scan warnings.
-- Before trashing, DupeSweep verifies the file still has the same filesystem identity, byte size,
-  and nanosecond modification timestamp observed during the scan.
-- `send2trash` asks the operating system to move each item to the Recycle Bin. Recovery behavior
-  ultimately depends on the operating system and filesystem.
+## Windows protected locations
+
+Windows, System32, SysWOW64, WinSxS, Program Files, ProgramData, System Volume Information,
+`$Recycle.Bin`, Recovery, EFI/Boot, Windows Installer/update caches, and OS-managed files are
+excluded. Paths are discovered from Windows APIs, Known Folder/environment data, volume roots, and
+file attributes rather than assuming Windows is installed on `C:`. Symbolic links, junctions,
+mount points, reparse points, shortcuts, folders, hidden/system files, and path aliases cannot
+bypass the restriction. Administrator privileges never disable these rules.
 
 ## Google Drive
 
-- Only owned binary files in My Drive are included by default.
-- Shared-drive items and files shared by someone else are excluded.
-- Native Google Docs, Sheets, Slides, folders, and shortcuts have no usable binary checksum and
-  are excluded.
-- The tool patches `trashed=true`; it does not call permanent-delete or empty-trash endpoints.
-- Requests are split into batches of at most 100, matching the current Drive API limit.
-- A cancelled operation stops before the next batch; the batch already in flight can finish.
+Only owned binary files with a stable checksum are eligible. Native Google Workspace documents,
+folders, shortcuts, shared-drive items, and files without the necessary capability are skipped.
+The web cleaner uses encrypted HttpOnly OAuth sessions, 30-minute HMAC-signed scan proofs, batches
+of at most 100 items, and distinct `/trash` and `/delete` server paths. File contents never pass
+through the DUPESWEEP server.
 
-## Keeper rule
+## Audit and recovery
 
-The oldest item is protected. Ties are resolved by shorter location and then lexical order, making
-the choice deterministic. A protected keeper cannot be toggled into the deletion set.
+Every outcome is written to or downloadable as UTF-8 CSV with timestamp, source, operation mode,
+status, name/path or Drive ID, size, checksum, and reason. Trash recovery depends on Windows and
+Google retention policies. Permanent deletion has no recovery path.
 
-## Large operations
-
-For 500 or more selected files, the UI requires the exact phrase `移除 N`, where `N` is the shown
-file count. Progress and per-item failures remain visible. After any interruption, rescan before
-retrying so the current filesystem and Drive state are evaluated again.
+Before a large cleanup: keep an independent backup, test on a small set, close editors, inspect
+the keeper and every selection, and download the audit report. Safe stop finishes only the current
+file or API batch; rescan before retrying so current state is evaluated again.

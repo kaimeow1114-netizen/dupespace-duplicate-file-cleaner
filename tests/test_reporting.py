@@ -20,13 +20,16 @@ def test_action_report_is_written_as_utf8_csv(tmp_path: Path) -> None:
 
     with destination.open(encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.DictReader(handle))
-    assert rows == [
-        {
-            "source": "local",
-            "status": "trashed",
-            "name": "副本.txt",
-            "location": "C:/資料/副本.txt",
-            "size_bytes": "123",
-            "error": "",
-        }
-    ]
+    assert len(rows) == 1
+    assert rows[0]["timestamp"]
+    assert rows[0] == {
+        "timestamp": rows[0]["timestamp"],
+        "source": "local",
+        "operation_mode": "trash",
+        "status": "trashed",
+        "name": "副本.txt",
+        "location": "C:/資料/副本.txt",
+        "size_bytes": "123",
+        "checksum": "sha256:x",
+        "reason": "",
+    }

@@ -7,7 +7,9 @@ from dupesweep.grouping import (
 from dupesweep.models import FileRecord
 
 
-def record(key: str, created: float, *, can_trash: bool = True) -> FileRecord:
+def record(
+    key: str, created: float, *, can_trash: bool = True, can_delete: bool = True
+) -> FileRecord:
     return FileRecord(
         key=key,
         source="local",
@@ -17,6 +19,7 @@ def record(key: str, created: float, *, can_trash: bool = True) -> FileRecord:
         checksum="sha256:same",
         created_at=created,
         can_trash=can_trash,
+        can_delete=can_delete,
     )
 
 
@@ -40,6 +43,17 @@ def test_keeper_cannot_be_selected() -> None:
 
     try:
         validate_selection(groups, {"old"})
+    except ValueError as error:
+        assert "keeper" in str(error)
+    else:  # pragma: no cover - assertion helper
+        raise AssertionError("keeper selection should fail")
+
+
+def test_keeper_cannot_be_selected_for_permanent_delete() -> None:
+    groups = build_duplicate_groups([record("old", 10), record("new", 20)])
+
+    try:
+        validate_selection(groups, {"old"}, "permanent")
     except ValueError as error:
         assert "keeper" in str(error)
     else:  # pragma: no cover - assertion helper

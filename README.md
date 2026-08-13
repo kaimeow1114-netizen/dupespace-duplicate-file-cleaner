@@ -1,53 +1,58 @@
-# DupeSweep
+# DUPESWEEP
 
 **Duplicate File Cleaner for Windows & Google Drive**
 
-[Use DupeSweep online](https://dupesweep.app) ·
+[Use DUPESWEEP online](https://dupesweep.app) ·
 [Download the Windows installer](https://github.com/kaimeow1114-netizen/dupesweep-duplicate-file-cleaner/releases/latest/download/DupeSweep-Setup.exe) ·
 [View the latest release](https://github.com/kaimeow1114-netizen/dupesweep-duplicate-file-cleaner/releases/latest)
 
-DupeSweep is a safety-first desktop tool for finding exact duplicate files and moving the
-extra copies to the Recycle Bin or Google Drive trash. It is designed for large cleanups:
-scans are streamed, Drive changes are sent in API-compliant batches of 100, and every long
-operation can be cancelled between files or batches.
+DUPESWEEP is a safety-first duplicate file cleaner for everyday users. It finds exact duplicate
+content on Windows and Google Drive, protects one keeper in every group, handles more than 5,000
+results through paging and small batches, and produces a per-file CSV audit report.
 
-The 0.2 release adds a branded Windows installer, an optional desktop shortcut, animated progress
-and reclaimed-space percentages, plus a public website with a browser-based Google Drive cleaner,
-free download promotion, privacy/terms pages, and AdSense publisher integration.
+## Trash and permanent deletion
 
-> DupeSweep never permanently deletes files. It protects one deterministic keeper in every
-> duplicate group and asks for explicit confirmation before moving anything to trash.
+**Move to trash is always the default and recommended mode.** Local files go to the Windows
+Recycle Bin; Drive files go to Google Drive trash. These operations may be recoverable according
+to Windows or Google retention rules.
 
-## What it does
+> **WARNING — permanent deletion cannot be undone.** “Delete permanently now” is a separate,
+> red, high-risk advanced option. It is never preselected, its warning cannot be disabled, and a
+> trash failure never falls back to it. DUPESWEEP never permanently deletes a keeper, protected
+> system object, folder, shortcut, symbolic link, junction, mount point, or reparse point.
 
-- Finds local duplicates by file size and a full SHA-256 content hash.
-- Ignores symbolic links and repeated hard-link identities.
-- Re-checks local file identity, size, and modification time immediately before trashing.
-- Scans owned binary files in My Drive with Google-provided content checksums.
-- Skips Google Docs/Sheets/Slides, shortcuts, shared-drive items, and anything the account
-  cannot trash.
-- Paginates Drive listings at 1,000 items per page and trashes in batches of at most 100.
-- Keeps the oldest copy by default; the protected keeper cannot be selected in the UI.
-- Shows the exact file count and reclaimable bytes before acting.
-- Requires typing a confirmation phrase for large operations (500 or more files).
-- Writes a UTF-8 CSV outcome report under `%LOCALAPPDATA%\DupeSweep\reports`.
-- Animates scan and cleanup progress while quantifying selected bytes, reclaimable percentage,
-  scanned-data percentage, and device/cloud capacity percentage.
-- Ships as `DupeSweep.exe` inside a Windows installer that asks whether to create a desktop shortcut.
+For permanent deletion, DUPESWEEP revalidates the target and protected keeper immediately before
+the operation. Changed files are skipped. More than five files requires a second confirmation and
+the exact phrase `永久刪除 N 個檔案`. Operations involving 500+ files, 1 GB+, or 5,000+ files add
+a full summary and countdown.
 
-## Requirements
+## Highlights
 
-- Windows 10/11 (the core and tests also run on Linux/macOS)
-- Python 3.10 or newer
-- A Google Cloud OAuth desktop credential only if Google Drive support is needed
+- Full SHA-256 comparison for Windows files and stable Google-provided checksums for Drive files.
+- Seven-step, friendly desktop flow with cards, animation, empty/error/success states, safe stop,
+  and metrics for scan count, groups, copies, selected files, estimated/actual bytes, duplicate
+  percentage, and disk/cloud capacity percentage.
+- Progressive result rendering and batches of at most 100 Drive operations.
+- Deterministic locked keeper in every group; every operation independently revalidates both target
+  and keeper identity, size, modification time/version, checksum, ownership, and permission.
+- Strong Windows protection discovered with system APIs, volume roots, Known Folder/environment
+  data, canonical physical paths, and file attributes. Administrator mode does not bypass it.
+- Original low-volume DUPESWEEP sounds for confirmation, trash, permanent warnings/completion,
+  success, and errors. Sound is played once per batch/operation, not once per file.
+- UTF-8 CSV audit outcomes with timestamp, source, mode, status, path/Drive ID, bytes, checksum,
+  and reason.
+- Windows installer with optional first-install desktop shortcut.
+- Free browser cleaner, privacy/terms pages, PWA icon suite, SEO metadata, and AdSense declaration.
 
-## Install and run
+## Requirements and installation
 
-Windows users can download
-[DupeSweep-Setup.exe directly](https://github.com/kaimeow1114-netizen/dupesweep-duplicate-file-cleaner/releases/latest/download/DupeSweep-Setup.exe)
-or visit [GitHub Releases](https://github.com/kaimeow1114-netizen/dupesweep-duplicate-file-cleaner/releases/latest).
-The installer offers an optional desktop shortcut and launches `DupeSweep.exe` directly—Python is
-not required on the user's computer.
+- Windows 10/11 for the desktop app (core tests also run on Linux/macOS)
+- Python 3.10+ when running from source
+- A Google Cloud OAuth desktop credential only for desktop Drive support
+
+Download
+[DupeSweep-Setup.exe](https://github.com/kaimeow1114-netizen/dupesweep-duplicate-file-cleaner/releases/latest/download/DupeSweep-Setup.exe).
+The installer offers an optional desktop shortcut; Python is not required on the user’s computer.
 
 Developers can run from source:
 
@@ -58,36 +63,25 @@ python -m pip install -e .
 dupesweep
 ```
 
-You can also start it without the installed launcher:
+## Google Drive OAuth
 
-```powershell
-python -m dupesweep
-```
+1. Enable Google Drive API in a Google Cloud project.
+2. Configure the OAuth consent screen and add test users until verification is approved.
+3. Create a **Desktop application** client for the Windows app and a separate **Web application**
+   client for `https://dupesweep.app`.
+4. Never put a Web Client Secret in the desktop application or GitHub.
 
-## Connect Google Drive
+DUPESWEEP uses the restricted `https://www.googleapis.com/auth/drive` scope because finding and
+managing pre-existing duplicates cannot use the narrower `drive.file` scope. Both trash and
+permanent deletion use this same scope; permanent deletion does not add another scope. Public
+distribution requires Google verification and may require a security assessment.
 
-1. In Google Cloud Console, create or select a project.
-2. Enable **Google Drive API**.
-3. Configure the OAuth consent screen. While the app is in testing, add your Google account
-   as a test user.
-4. Create an OAuth client with application type **Desktop app**.
-5. Download its JSON file. In DupeSweep, choose that file and click **連接並掃描 Google Drive**.
-6. Review Google's consent screen and approve only if the shown app and permission are yours.
+The web app stores OAuth tokens only inside an encrypted HttpOnly cookie. File content never
+passes through the DUPESWEEP server. The Windows app stores its desktop token only under the
+current user’s local application data. Credentials, secrets, tokens, and user data do not belong
+in Git.
 
-DupeSweep needs the `https://www.googleapis.com/auth/drive` scope because identifying and
-trashing pre-existing files cannot be done with the narrower `drive.file` scope. The OAuth
-token is stored only in `%LOCALAPPDATA%\DupeSweep\token.json`; neither credentials nor tokens
-belong in Git. Publicly distributing an OAuth client that uses this restricted scope can
-require Google verification and, depending on the deployment, a security assessment.
-
-DupeSweep has no telemetry and sends no file contents to its own server. Google Drive metadata
-and mutation requests go directly from the desktop app to Google's API. Local cleanup reports can
-contain filenames and paths, remain on the computer, and should be handled as private data.
-
-## Safety model
-
-Read [docs/SAFETY.md](docs/SAFETY.md) before a large cleanup. Start with a small test folder,
-review every group, and confirm that Recycle Bin / Drive trash retention meets your needs.
+See [docs/SAFETY.md](docs/SAFETY.md) and [docs/WEB_DEPLOYMENT.md](docs/WEB_DEPLOYMENT.md).
 
 ## Tests
 
@@ -95,45 +89,38 @@ review every group, and confirm that Recycle Bin / Drive trash retention meets y
 python -m pip install -e ".[dev]"
 pytest
 ruff check .
+cd web
+npm run lint
+npm test
 ```
 
-The test suite includes a 5,001-file selection scenario and verifies that Drive mutations are
-never placed in batches larger than 100 requests.
+The suite covers keeper protection, no trash-to-delete fallback, system-folder/path-alias defense,
+changed-file skipping, confirmations, session-only trash suppression, safe batching/stopping,
+separate local/Drive operation paths, CSV reporting, sound batching, PWA/SEO assets, navigation,
+and responsive no-overflow rules.
 
-## Build a Windows executable
+## Build a Windows installer
 
 ```powershell
 python -m pip install -e ".[build]"
 python scripts/build_icon.py
 python -m PyInstaller --noconfirm --clean DupeSweep.spec
+powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1
 ```
 
-The executable is written to `dist\DupeSweep\`. Run `scripts\build_windows.ps1` on a system with
-Inno Setup 6 to also create `release\DupeSweep-Setup.exe`. OAuth credentials are deliberately not
-bundled. Tagged GitHub releases build and publish the installer automatically.
+The executable is written to `dist\DupeSweep\`; the installer is
+`release\DupeSweep-Setup.exe`. Tagged GitHub releases build and publish the installer
+automatically. OAuth credentials are deliberately not bundled.
 
-## Browser-based Google Drive cleaner
-
-The `web/` application provides the product website and browser cleaner. It uses encrypted
-HttpOnly OAuth cookies, 30-minute signed scan proofs, batches of at most 100 selected files, and
-server-side revalidation of the selected file and protected keeper before every Drive mutation.
-It never exposes OAuth tokens to browser JavaScript and never permanently deletes files.
-
-Deployment requires a Google OAuth **Web application** client and three hosting secrets:
-`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and a random 32+ character `SESSION_SECRET`. See
-[docs/WEB_DEPLOYMENT.md](docs/WEB_DEPLOYMENT.md). The full Drive scope requires Google's public-app
-verification before accounts outside the configured test-user list can authorize it.
-
-Google AdSense publisher `ca-pub-7998471640181666` and the matching `ads.txt` declaration are
-included. Ads begin serving only after the deployed domain is added to AdSense and approved.
-
-## Limits
+## Known limits
 
 - Google Workspace-native files do not expose a stable binary checksum and are skipped.
-- DupeSweep compares duplicates within each source. It does not delete a unique local file merely
-  because an equivalent Drive copy exists, or vice versa.
-- Moving thousands of files to trash can be rate-limited by Google; failed items are reported and
-  can be retried after rescanning.
+- DUPESWEEP compares duplicates within each source; it does not delete a unique local file only
+  because an equivalent Drive file exists.
+- Google may rate-limit very large operations. Failed items remain unchanged and are recorded;
+  rescan before retrying.
+- Until Google completes restricted-scope verification, only configured test users can authorize
+  the public web app.
 
 ## License
 

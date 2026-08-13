@@ -22,7 +22,7 @@ interface DriveFile {
   ownedByMe?: boolean;
   version?: string;
   trashed?: boolean;
-  capabilities?: { canTrash?: boolean };
+  capabilities?: { canTrash?: boolean; canDelete?: boolean };
   webViewLink?: string;
 }
 
@@ -31,16 +31,27 @@ interface ProofPayload {
   version: string;
   checksum: string;
   size: string;
+  modifiedTime: string;
+  mimeType: string;
   keeperId: string;
   keeperVersion: string;
+  keeperChecksum: string;
+  keeperModifiedTime: string;
   expiresAt: number;
 }
+
+type OperationMode = "trash" | "permanent";
 
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 const SESSION_COOKIE = "dupesweep_session";
 const OAUTH_COOKIE = "dupesweep_oauth";
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
+const FILE_FIELDS = [
+  "id", "name", "mimeType", "size", "md5Checksum", "sha256Checksum", "createdTime",
+  "modifiedTime", "ownedByMe", "version", "trashed", "capabilities(canTrash,canDelete)",
+  "webViewLink",
+].join(",");
 
 function encodeBase64Url(bytes: Uint8Array): string {
   let binary = "";
@@ -77,6 +88,11 @@ function cookie(name: string, value: string, request: Request, maxAge: number): 
 
 function clearCookie(name: string, request: Request): string {
   return cookie(name, "", request, 0);
+}
+
+function requireSameOrigin(request: Request): void {
+  const origin = request.headers.get("origin");
+  if (origin && origin !== new URL(request.url).origin) throw new Error("來源驗證失敗，未執行操作");
 }
 
 async function aesKey(secret: string): Promise<CryptoKey> {
@@ -124,6 +140,17 @@ async function hmac(value: string, secret: string): Promise<string> {
   return encodeBase64Url(new Uint8Array(await crypto.subtle.sign("HMAC", key, textEncoder.encode(value))));
 }
 
+function constantTimeEqual(left: string, right: string): boolean {
+  const a = textEncoder.encode(left);
+  const b = textEncoder.encode(right);
+  let difference = a.length ^ b.length;
+  const length = Math.max(a.length, b.length);
+  for (let index = 0; index < length; index += 1) {
+    difference |= (a[index] ?? 0) ^ (b[index] ?? 0);
+  }
+  return difference === 0;
+}
+
 async function proof(payload: ProofPayload, secret: string): Promise<string> {
   const encoded = encodeBase64Url(textEncoder.encode(JSON.stringify(payload)));
   return `${encoded}.${await hmac(encoded, secret)}`;
@@ -131,7 +158,7 @@ async function proof(payload: ProofPayload, secret: string): Promise<string> {
 
 async function verifyProof(value: string, secret: string): Promise<ProofPayload | null> {
   const [encoded, signature] = value.split(".");
-  if (!encoded || !signature || (await hmac(encoded, secret)) !== signature) return null;
+  if (!encoded || !signature || !constantTimeEqual(await hmac(encoded, secret), signature)) return null;
   try {
     const payload = JSON.parse(textDecoder.decode(decodeBase64Url(encoded))) as ProofPayload;
     return payload.expiresAt > Date.now() ? payload : null;
@@ -149,7 +176,7 @@ function json(body: unknown, status = 200, headers?: HeadersInit): Response {
 
 function requireConfig(env: GoogleDriveEnv): asserts env is Required<GoogleDriveEnv> {
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.SESSION_SECRET) {
-    throw new Error("Google OAuth 尚未完成網站設定");
+    throw new Error("Google OAuth 尚未完成正式環境設定");
   }
   if (env.SESSION_SECRET.length < 32) throw new Error("SESSION_SECRET 必須至少 32 個字元");
 }
@@ -171,7 +198,7 @@ async function refreshSession(session: OAuthSession, env: Required<GoogleDriveEn
       grant_type: "refresh_token",
     }),
   });
-  if (!response.ok) throw new Error("Google 登入權杖更新失敗");
+  if (!response.ok) throw new Error("Google 登入憑證更新失敗，請重新連線");
   const tokens = (await response.json()) as { access_token: string; expires_in?: number };
   return {
     accessToken: tokens.access_token,
@@ -204,6 +231,11 @@ function checksum(file: DriveFile): string | null {
   return null;
 }
 
+function unsupportedType(file: DriveFile): boolean {
+  return file.mimeType === "application/vnd.google-apps.folder" ||
+    file.mimeType === "application/vnd.google-apps.shortcut";
+}
+
 function keeperRank(file: DriveFile): [number, string, string] {
   const timestamp = Date.parse(file.createdTime ?? file.modifiedTime ?? "9999-12-31T23:59:59Z");
   return [Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER, file.name.toLocaleLowerCase(), file.id];
@@ -226,7 +258,7 @@ async function listDrive(session: OAuthSession): Promise<{ files: DriveFile[]; e
       spaces: "drive",
       corpora: "user",
       pageSize: "1000",
-      fields: "nextPageToken,incompleteSearch,files(id,name,mimeType,size,md5Checksum,sha256Checksum,createdTime,modifiedTime,ownedByMe,version,trashed,capabilities(canTrash),webViewLink)",
+      fields: `nextPageToken,incompleteSearch,files(${FILE_FIELDS})`,
     });
     if (pageToken) query.set("pageToken", pageToken);
     const response = await googleFetch(session, `https://www.googleapis.com/drive/v3/files?${query}`);
@@ -234,14 +266,9 @@ async function listDrive(session: OAuthSession): Promise<{ files: DriveFile[]; e
     const page = (await response.json()) as { nextPageToken?: string; files?: DriveFile[] };
     for (const file of page.files ?? []) {
       examined += 1;
-      const digest = checksum(file);
       if (
-        file.mimeType === "application/vnd.google-apps.folder" ||
-        file.mimeType === "application/vnd.google-apps.shortcut" ||
-        !file.ownedByMe ||
-        !file.capabilities?.canTrash ||
-        !file.size ||
-        !digest
+        unsupportedType(file) || !file.ownedByMe || !file.size || !checksum(file) ||
+        (!file.capabilities?.canTrash && !file.capabilities?.canDelete)
       ) {
         skipped += 1;
         continue;
@@ -254,6 +281,7 @@ async function listDrive(session: OAuthSession): Promise<{ files: DriveFile[]; e
 }
 
 async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Response> {
+  requireSameOrigin(request);
   const { session, setCookie } = await authorizedSession(request, env);
   const [{ files, examined, skipped }, aboutResponse] = await Promise.all([
     listDrive(session),
@@ -277,23 +305,31 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
       .map(async ([fingerprint, records]) => {
         records.sort(compareRank);
         const keeper = records[0];
+        const keeperDigest = checksum(keeper) ?? "";
         const output = await Promise.all(records.map(async (file) => ({
           id: file.id,
           name: file.name,
           size: Number(file.size),
           checksum: checksum(file),
           version: file.version ?? "",
+          mimeType: file.mimeType,
           createdTime: file.createdTime ?? null,
           modifiedTime: file.modifiedTime ?? null,
           webViewLink: file.webViewLink ?? null,
+          canTrash: Boolean(file.capabilities?.canTrash),
+          canDelete: Boolean(file.capabilities?.canDelete),
           keeper: file.id === keeper.id,
           proof: await proof({
             id: file.id,
             version: file.version ?? "",
             checksum: checksum(file) ?? "",
             size: file.size,
+            modifiedTime: file.modifiedTime ?? "",
+            mimeType: file.mimeType,
             keeperId: keeper.id,
             keeperVersion: keeper.version ?? "",
+            keeperChecksum: keeperDigest,
+            keeperModifiedTime: keeper.modifiedTime ?? "",
             expiresAt,
           }, env.SESSION_SECRET),
         })));
@@ -305,12 +341,11 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
       }),
   );
   groups.sort((a, b) => b.reclaimableBytes - a.reclaimableBytes);
-  const reclaimableBytes = groups.reduce((total, group) => total + group.reclaimableBytes, 0);
   return json({
     examined,
     skipped,
     duplicateCopies: groups.reduce((total, group) => total + group.records.length - 1, 0),
-    reclaimableBytes,
+    reclaimableBytes: groups.reduce((total, group) => total + group.reclaimableBytes, 0),
     groups,
     storageQuota: about.storageQuota ?? null,
     user: about.user ?? null,
@@ -318,13 +353,13 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
   }, 200, setCookie ? { "set-cookie": setCookie } : undefined);
 }
 
-async function mapConcurrent<T, R>(items: T[], limit: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
+async function mapConcurrent<T, R>(items: T[], limit: number, mapper: (item: T, index: number) => Promise<R>): Promise<R[]> {
   const result = new Array<R>(items.length);
   let next = 0;
   async function worker(): Promise<void> {
     while (next < items.length) {
       const index = next++;
-      result[index] = await mapper(items[index]);
+      result[index] = await mapper(items[index], index);
     }
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
@@ -332,52 +367,98 @@ async function mapConcurrent<T, R>(items: T[], limit: number, mapper: (item: T) 
 }
 
 async function getFile(session: OAuthSession, id: string): Promise<DriveFile> {
-  const fields = "id,name,size,md5Checksum,sha256Checksum,ownedByMe,version,trashed,capabilities(canTrash)";
-  const response = await googleFetch(session, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?fields=${encodeURIComponent(fields)}`);
-  if (!response.ok) throw new Error(`無法重新確認檔案（${response.status}）`);
+  const response = await googleFetch(
+    session,
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?fields=${encodeURIComponent(FILE_FIELDS)}&supportsAllDrives=false`,
+  );
+  if (!response.ok) throw new Error(`無法重新驗證檔案（${response.status}）`);
   return response.json() as Promise<DriveFile>;
 }
 
-async function trash(request: Request, env: Required<GoogleDriveEnv>): Promise<Response> {
+function validateSnapshot(file: DriveFile, payload: ProofPayload, mode: OperationMode): string | null {
+  if (file.id !== payload.id || file.trashed || !file.ownedByMe) return "檔案已移動、刪除或不再由你擁有";
+  if (unsupportedType(file) || file.mimeType !== payload.mimeType) return "資料夾、捷徑或檔案類型變更，已跳過";
+  if (file.version !== payload.version || file.modifiedTime !== payload.modifiedTime) return "檔案版本或修改時間已變更";
+  if (file.size !== payload.size || checksum(file) !== payload.checksum) return "檔案大小或校驗碼已變更";
+  if (mode === "trash" && !file.capabilities?.canTrash) return "沒有移至垃圾桶權限";
+  if (mode === "permanent" && !file.capabilities?.canDelete) return "沒有永久刪除權限";
+  return null;
+}
+
+function validateKeeper(file: DriveFile, payload: ProofPayload): string | null {
+  if (file.id !== payload.keeperId || file.trashed || !file.ownedByMe) return "保留檔案已移動、刪除或不再由你擁有";
+  if (unsupportedType(file)) return "保留項目不是可驗證的一般檔案";
+  if (file.version !== payload.keeperVersion || file.modifiedTime !== payload.keeperModifiedTime) return "保留檔案版本已變更";
+  if (file.size !== payload.size || checksum(file) !== payload.keeperChecksum) return "保留檔案內容已變更";
+  return null;
+}
+
+function auditOutcome(
+  payload: ProofPayload,
+  file: DriveFile | null,
+  mode: OperationMode,
+  status: "trashed" | "deleted" | "failed" | "skipped",
+  reason: string,
+) {
+  return {
+    timestamp: new Date().toISOString(),
+    id: payload.id,
+    name: file?.name ?? "",
+    size: Number(payload.size),
+    checksum: payload.checksum,
+    operationMode: mode,
+    status,
+    reason,
+  };
+}
+
+async function mutate(request: Request, env: Required<GoogleDriveEnv>, mode: OperationMode): Promise<Response> {
+  requireSameOrigin(request);
   const { session, setCookie } = await authorizedSession(request, env);
   const body = await request.json() as { items?: Array<{ id?: string; proof?: string }> };
   if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > 100) {
-    return json({ error: "每個批次必須包含 1 至 100 個檔案" }, 400);
+    return json({ error: "每批必須包含 1 至 100 個檔案" }, 400);
   }
   const verified = await Promise.all(body.items.map(async (item) => {
     const payload = item.proof ? await verifyProof(item.proof, env.SESSION_SECRET) : null;
     return payload && payload.id === item.id && payload.id !== payload.keeperId ? payload : null;
   }));
-  if (verified.some((item) => item === null)) return json({ error: "掃描證明已失效，請重新掃描" }, 409);
+  if (verified.some((item) => item === null)) return json({ error: "掃描證明無效或已過期，請重新掃描" }, 409);
 
-  const payloads = verified as ProofPayload[];
-  const keeperIds = [...new Set(payloads.map((item) => item.keeperId))];
-  const [selectedFiles, keeperFiles] = await Promise.all([
-    mapConcurrent(payloads, 8, (item) => getFile(session, item.id)),
-    mapConcurrent(keeperIds, 8, (id) => getFile(session, id)),
-  ]);
-  const keepers = new Map(keeperFiles.map((file) => [file.id, file]));
+  const outcomes = await mapConcurrent(verified as ProofPayload[], 4, async (payload) => {
+    let current: DriveFile | null = null;
+    try {
+      const [target, keeper] = await Promise.all([
+        getFile(session, payload.id),
+        getFile(session, payload.keeperId),
+      ]);
+      current = target;
+      const targetFailure = validateSnapshot(target, payload, mode);
+      if (targetFailure) return auditOutcome(payload, target, mode, "skipped", targetFailure);
+      const keeperFailure = validateKeeper(keeper, payload);
+      if (keeperFailure) return auditOutcome(payload, target, mode, "skipped", keeperFailure);
 
-  const outcomes = await mapConcurrent(payloads, 6, async (payload, index) => {
-    const current = selectedFiles[index];
-    const keeper = keepers.get(payload.keeperId);
-    if (
-      current.trashed || !current.ownedByMe || !current.capabilities?.canTrash ||
-      current.version !== payload.version || current.size !== payload.size || checksum(current) !== payload.checksum
-    ) return { id: payload.id, status: "failed", error: "檔案在掃描後已變更，請重新掃描" };
-    if (
-      !keeper || keeper.trashed || !keeper.ownedByMe || keeper.version !== payload.keeperVersion ||
-      keeper.size !== payload.size || checksum(keeper) !== payload.checksum
-    ) return { id: payload.id, status: "failed", error: "保留副本已變更，為安全起見未移除" };
-    const response = await googleFetch(
-      session,
-      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(payload.id)}?supportsAllDrives=false&fields=id,trashed`,
-      { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ trashed: true }) },
-    );
-    if (!response.ok) return { id: payload.id, status: "failed", error: `Google Drive 回覆 ${response.status}` };
-    return { id: payload.id, status: "trashed", size: Number(payload.size) };
+      const endpoint = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(payload.id)}?supportsAllDrives=false`;
+      const response = mode === "trash"
+        ? await googleFetch(session, `${endpoint}&fields=id,trashed`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ trashed: true }),
+        })
+        : await googleFetch(session, endpoint, { method: "DELETE" });
+      if (!response.ok) return auditOutcome(payload, target, mode, "failed", `Google Drive API 回覆 ${response.status}`);
+      return auditOutcome(
+        payload,
+        target,
+        mode,
+        mode === "trash" ? "trashed" : "deleted",
+        mode === "trash" ? "已移至 Google Drive 垃圾桶" : "已永久刪除，無法復原",
+      );
+    } catch (error) {
+      return auditOutcome(payload, current, mode, "failed", error instanceof Error ? error.message : "未知錯誤");
+    }
   });
-  return json({ outcomes }, 200, setCookie ? { "set-cookie": setCookie } : undefined);
+  return json({ operationMode: mode, outcomes }, 200, setCookie ? { "set-cookie": setCookie } : undefined);
 }
 
 export async function handleGoogleDriveApi(request: Request, env: GoogleDriveEnv): Promise<Response | null> {
@@ -448,14 +529,16 @@ export async function handleGoogleDriveApi(request: Request, env: GoogleDriveEnv
       return new Response(null, { status: 302, headers });
     }
     if (url.pathname === "/api/google/disconnect" && request.method === "POST") {
+      requireSameOrigin(request);
       return json({ connected: false }, 200, { "set-cookie": clearCookie(SESSION_COOKIE, request) });
     }
     if (url.pathname === "/api/google/scan" && request.method === "POST") return scan(request, env);
-    if (url.pathname === "/api/google/trash" && request.method === "POST") return trash(request, env);
-    return json({ error: "找不到端點" }, 404);
+    if (url.pathname === "/api/google/trash" && request.method === "POST") return mutate(request, env, "trash");
+    if (url.pathname === "/api/google/delete" && request.method === "POST") return mutate(request, env, "permanent");
+    return json({ error: "找不到 API 路徑" }, 404);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "未知錯誤";
-    const status = message.includes("登入") ? 401 : message.includes("設定") ? 503 : 500;
+    const message = error instanceof Error ? error.message : "伺服器處理失敗";
+    const status = message.includes("登入") ? 401 : message.includes("設定") ? 503 : message.includes("來源") ? 403 : 500;
     return json({ error: message }, status);
   }
 }

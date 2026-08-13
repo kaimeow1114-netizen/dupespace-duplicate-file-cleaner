@@ -1,0 +1,17 @@
+{
+  "name": "DUPESWEEP 重複檔案清理工具",
+  "short_name": "DUPESWEEP",
+  "description": "安全搜尋與清理 Windows、Google Drive 重複檔案。",
+  "lang": "zh-Hant-TW",
+  "start_url": "/cleaner",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7faf9",
+  "theme_color": "#082b40",
+  "icons": [
+    { "src": "/pwa-192x192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/pwa-512x512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/maskable-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/maskable-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

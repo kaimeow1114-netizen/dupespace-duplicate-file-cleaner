@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from dupesweep.grouping import default_selection
-from dupesweep.local import LocalScanner, LocalTrashExecutor
+from dupesweep.grouping import default_selection, operation_items
+from dupesweep.local import LocalPermanentDeleteExecutor, LocalScanner, LocalTrashExecutor
 
 
 def test_local_scan_hashes_content_not_just_name_or_size(tmp_path: Path) -> None:
@@ -63,19 +63,17 @@ def test_local_trash_rechecks_metadata(tmp_path: Path) -> None:
     second.write_bytes(b"duplicate")
     report = LocalScanner().scan([tmp_path])
     target = next(
-        record
-        for record in report.groups[0].records
-        if record.key != report.groups[0].keeper_key
+        record for record in report.groups[0].records if record.key != report.groups[0].keeper_key
     )
     Path(target.location).write_bytes(b"something")
 
     moved: list[str] = []
-    action = LocalTrashExecutor(trash_func=moved.append).trash([target])
+    items = operation_items(report.groups, {target.key})
+    action = LocalTrashExecutor(trash_func=moved.append).trash(items)
 
     assert not action.trashed
-    assert len(action.failed) == 1
+    assert len(action.skipped) == 1
     assert moved == []
-    assert "changed" in (action.failed[0].error or "")
 
 
 def test_local_trash_uses_injected_recycle_bin_function(tmp_path: Path) -> None:
@@ -83,13 +81,47 @@ def test_local_trash_uses_injected_recycle_bin_function(tmp_path: Path) -> None:
     (tmp_path / "b.bin").write_bytes(b"duplicate")
     report = LocalScanner().scan([tmp_path])
     target = next(
-        record
-        for record in report.groups[0].records
-        if record.key != report.groups[0].keeper_key
+        record for record in report.groups[0].records if record.key != report.groups[0].keeper_key
     )
     moved: list[str] = []
 
-    action = LocalTrashExecutor(trash_func=moved.append).trash([target])
+    items = operation_items(report.groups, {target.key})
+    action = LocalTrashExecutor(trash_func=moved.append).trash(items)
 
     assert len(action.trashed) == 1
     assert moved == [target.location]
+
+
+def test_local_permanent_delete_never_targets_keeper(tmp_path: Path) -> None:
+    (tmp_path / "keeper.bin").write_bytes(b"duplicate")
+    (tmp_path / "extra.bin").write_bytes(b"duplicate")
+    report = LocalScanner().scan([tmp_path])
+    selected = default_selection(report.groups, "permanent")
+    items = operation_items(report.groups, selected, "permanent")
+    removed: list[str] = []
+
+    action = LocalPermanentDeleteExecutor(unlink_func=removed.append).delete(items)
+
+    assert len(action.deleted) == 1
+    assert report.groups[0].keeper.location not in removed
+
+
+def test_local_permanent_delete_skips_changed_checksum(tmp_path: Path) -> None:
+    first = tmp_path / "first.bin"
+    second = tmp_path / "second.bin"
+    first.write_bytes(b"duplicate")
+    second.write_bytes(b"duplicate")
+    report = LocalScanner().scan([tmp_path])
+    selected = default_selection(report.groups, "permanent")
+    target = next(record for record in report.groups[0].records if record.key in selected)
+    target_path = Path(target.location)
+    original_mtime = target_path.stat().st_mtime_ns
+    target_path.write_bytes(b"DIFFERENT")
+    os.utime(target_path, ns=(original_mtime, original_mtime))
+
+    action = LocalPermanentDeleteExecutor(unlink_func=lambda _path: None).delete(
+        operation_items(report.groups, selected, "permanent")
+    )
+
+    assert not action.deleted
+    assert action.skipped

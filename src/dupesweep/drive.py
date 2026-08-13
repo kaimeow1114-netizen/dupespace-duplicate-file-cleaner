@@ -10,7 +10,15 @@ from pathlib import Path
 from typing import Any
 
 from .grouping import build_duplicate_groups
-from .models import ActionOutcome, ActionReport, FileRecord, ProgressUpdate, ScanReport
+from .models import (
+    ActionOutcome,
+    ActionReport,
+    FileRecord,
+    OperationItem,
+    OperationMode,
+    ProgressUpdate,
+    ScanReport,
+)
 
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 GOOGLE_FOLDER_MIME = "application/vnd.google-apps.folder"
@@ -135,7 +143,8 @@ class GoogleDriveScanner:
     FIELDS = (
         "nextPageToken,incompleteSearch,"
         "files(id,name,mimeType,size,md5Checksum,sha256Checksum,createdTime,"
-        "modifiedTime,parents,ownedByMe,driveId,version,webViewLink,capabilities(canTrash))"
+        "modifiedTime,parents,ownedByMe,driveId,version,webViewLink,"
+        "capabilities(canTrash,canDelete))"
     )
 
     def scan(
@@ -185,6 +194,7 @@ class GoogleDriveScanner:
                 drive_id = item.get("driveId")
                 owned_by_me = item.get("ownedByMe") is True
                 can_trash = bool(item.get("capabilities", {}).get("canTrash"))
+                can_delete = bool(item.get("capabilities", {}).get("canDelete"))
                 checksum_value = item.get("sha256Checksum") or item.get("md5Checksum")
                 checksum_kind = "sha256" if item.get("sha256Checksum") else "md5"
 
@@ -210,6 +220,8 @@ class GoogleDriveScanner:
                         modified_at=_timestamp(item.get("modifiedTime")),
                         metadata_token=str(item.get("version")) if item.get("version") else None,
                         can_trash=can_trash,
+                        can_delete=can_delete,
+                        mime_type=mime_type,
                         web_url=item.get("webViewLink"),
                     )
                 )
@@ -251,8 +263,86 @@ def _drive_file_id(record: FileRecord) -> str:
     return file_id
 
 
-class GoogleDriveTrashExecutor:
-    """Move files to Drive trash in batches no larger than the API's 100-call limit."""
+_PREFLIGHT_FIELDS = (
+    "id,name,mimeType,size,md5Checksum,sha256Checksum,modifiedTime,ownedByMe,"
+    "version,trashed,capabilities(canTrash,canDelete)"
+)
+
+
+def _drive_checksum(item: dict[str, Any]) -> str | None:
+    if item.get("sha256Checksum"):
+        return f"sha256:{item['sha256Checksum']}"
+    if item.get("md5Checksum"):
+        return f"md5:{item['md5Checksum']}"
+    return None
+
+
+def _fetch_drive_files(
+    service: Any, file_ids: Iterable[str]
+) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
+    results: dict[str, dict[str, Any]] = {}
+    errors: dict[str, str] = {}
+    unique_ids = tuple(dict.fromkeys(file_ids))
+    for id_chunk in _chunks(unique_ids, BATCH_LIMIT):
+
+        def callback(request_id: str, response: Any, exception: Exception | None) -> None:
+            if exception is not None:
+                errors[request_id] = str(exception)
+            elif isinstance(response, dict):
+                results[request_id] = response
+            else:
+                errors[request_id] = "Google Drive returned an invalid metadata response"
+
+        batch = service.new_batch_http_request(callback=callback)
+        for file_id in id_chunk:
+            batch.add(
+                service.files().get(
+                    fileId=file_id,
+                    fields=_PREFLIGHT_FIELDS,
+                    supportsAllDrives=False,
+                ),
+                request_id=file_id,
+            )
+        try:
+            batch.execute()
+        except Exception as error:  # noqa: BLE001 - Google transport errors vary
+            for file_id in id_chunk:
+                errors.setdefault(file_id, str(error))
+    return results, errors
+
+
+def _validate_drive_snapshot(
+    current: dict[str, Any] | None,
+    record: FileRecord,
+    capability: str | None = None,
+) -> str | None:
+    if current is None:
+        return "Google Drive metadata could not be revalidated"
+    try:
+        file_id = _drive_file_id(record)
+    except ValueError as error:
+        return str(error)
+    if current.get("id") != file_id:
+        return "Google Drive file ID changed after the scan"
+    if current.get("trashed") is True or current.get("ownedByMe") is not True:
+        return "File is trashed or is no longer owned by this account"
+    if current.get("mimeType") in {GOOGLE_FOLDER_MIME, GOOGLE_SHORTCUT_MIME}:
+        return "Folders and shortcuts are never cleanup targets"
+    if current.get("size") is None or int(current["size"]) != record.size:
+        return "File size changed after the scan"
+    if str(current.get("version") or "") != str(record.metadata_token or ""):
+        return "File version changed after the scan"
+    if _timestamp(current.get("modifiedTime")) != record.modified_at:
+        return "File modification time changed after the scan"
+    if _drive_checksum(current) != record.checksum:
+        return "File checksum changed after the scan"
+    if capability and not bool(current.get("capabilities", {}).get(capability)):
+        return f"Google Drive permission {capability} is not available"
+    return None
+
+
+class _GoogleDriveOperationExecutor:
+    """Shared, fail-closed Drive executor. Trash and delete never call each other."""
 
     def __init__(self, batch_size: int = BATCH_LIMIT, retry_count: int = 3) -> None:
         if not 1 <= batch_size <= BATCH_LIMIT:
@@ -260,28 +350,66 @@ class GoogleDriveTrashExecutor:
         self.batch_size = batch_size
         self.retry_count = retry_count
 
-    def trash(
+    def execute(
         self,
         service: Any,
-        records: Iterable[FileRecord],
+        items: Iterable[OperationItem],
+        operation_mode: OperationMode,
         *,
         progress: ProgressCallback | None = None,
         cancel_event: threading.Event | None = None,
     ) -> ActionReport:
-        queue = tuple(records)
+        queue = tuple(items)
         outcomes: list[ActionOutcome] = []
         processed = 0
 
         for chunk in _chunks(queue, self.batch_size):
             if cancel_event and cancel_event.is_set():
                 outcomes.extend(
-                    ActionOutcome(record, "cancelled", "operation cancelled")
-                    for record in queue[processed:]
+                    ActionOutcome(
+                        item.record,
+                        "cancelled",
+                        "operation cancelled",
+                        operation_mode=operation_mode,
+                    )
+                    for item in queue[processed:]
                 )
                 break
 
+            ids = [
+                file_id
+                for item in chunk
+                for file_id in (_drive_file_id(item.record), _drive_file_id(item.keeper))
+            ]
+            snapshots, fetch_errors = _fetch_drive_files(service, ids)
+            valid: list[OperationItem] = []
+            capability = "canTrash" if operation_mode == "trash" else "canDelete"
+            for item in chunk:
+                target_id = _drive_file_id(item.record)
+                keeper_id = _drive_file_id(item.keeper)
+                error = fetch_errors.get(target_id) or fetch_errors.get(keeper_id)
+                error = error or _validate_drive_snapshot(
+                    snapshots.get(target_id), item.record, capability
+                )
+                error = error or _validate_drive_snapshot(snapshots.get(keeper_id), item.keeper)
+                if error:
+                    outcomes.append(
+                        ActionOutcome(
+                            item.record,
+                            "skipped",
+                            error,
+                            operation_mode=operation_mode,
+                        )
+                    )
+                else:
+                    valid.append(item)
+
+            if not valid:
+                processed += len(chunk)
+                continue
+
             chunk_results: dict[str, ActionOutcome] = {}
-            chunk_by_key = {record.key: record for record in chunk}
+            chunk_by_key = {item.record.key: item.record for item in valid}
 
             def callback(
                 request_id: str,
@@ -293,21 +421,33 @@ class GoogleDriveTrashExecutor:
             ) -> None:
                 record = records[request_id]
                 if exception is None:
-                    results[request_id] = ActionOutcome(record, "trashed")
+                    status = "trashed" if operation_mode == "trash" else "deleted"
+                    results[request_id] = ActionOutcome(
+                        record, status, operation_mode=operation_mode
+                    )
                 else:
-                    results[request_id] = ActionOutcome(record, "failed", str(exception))
+                    results[request_id] = ActionOutcome(
+                        record, "failed", str(exception), operation_mode=operation_mode
+                    )
 
             batch_error: Exception | None = None
             for attempt in range(self.retry_count + 1):
                 chunk_results.clear()
                 batch = service.new_batch_http_request(callback=callback)
-                for record in chunk:
-                    request = service.files().update(
-                        fileId=_drive_file_id(record),
-                        body={"trashed": True},
-                        supportsAllDrives=True,
-                        fields="id,trashed",
-                    )
+                for item in valid:
+                    record = item.record
+                    if operation_mode == "trash":
+                        request = service.files().update(
+                            fileId=_drive_file_id(record),
+                            body={"trashed": True},
+                            supportsAllDrives=False,
+                            fields="id,trashed",
+                        )
+                    else:
+                        request = service.files().delete(
+                            fileId=_drive_file_id(record),
+                            supportsAllDrives=False,
+                        )
                     batch.add(request, request_id=record.key)
                 try:
                     batch.execute()
@@ -320,24 +460,76 @@ class GoogleDriveTrashExecutor:
 
             if batch_error is not None:
                 outcomes.extend(
-                    ActionOutcome(record, "failed", str(batch_error)) for record in chunk
+                    ActionOutcome(
+                        item.record,
+                        "failed",
+                        str(batch_error),
+                        operation_mode=operation_mode,
+                    )
+                    for item in valid
                 )
             else:
-                for record in chunk:
+                for item in valid:
+                    record = item.record
                     outcomes.append(
                         chunk_results.get(
                             record.key,
-                            ActionOutcome(record, "failed", "Drive returned no result"),
+                            ActionOutcome(
+                                record,
+                                "failed",
+                                "Drive returned no result",
+                                operation_mode=operation_mode,
+                            ),
                         )
                     )
 
             processed += len(chunk)
             _emit(
                 progress,
-                "trashing-drive",
+                "trashing-drive" if operation_mode == "trash" else "deleting-drive",
                 processed,
                 len(queue),
                 f"Google Drive 批次完成：{processed:,} / {len(queue):,}",
             )
 
-        return ActionReport(source="drive", outcomes=tuple(outcomes))
+        return ActionReport(source="drive", outcomes=tuple(outcomes), operation_mode=operation_mode)
+
+
+class GoogleDriveTrashExecutor(_GoogleDriveOperationExecutor):
+    """Move files to Drive trash. Failures are reported and never permanently deleted."""
+
+    def trash(
+        self,
+        service: Any,
+        items: Iterable[OperationItem],
+        *,
+        progress: ProgressCallback | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> ActionReport:
+        return self.execute(
+            service,
+            items,
+            "trash",
+            progress=progress,
+            cancel_event=cancel_event,
+        )
+
+
+class GoogleDrivePermanentDeleteExecutor(_GoogleDriveOperationExecutor):
+    """Permanently delete unchanged, user-owned regular Drive files."""
+
+    def delete(
+        self,
+        service: Any,
+        items: Iterable[OperationItem],
+        *,
+        progress: ProgressCallback | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> ActionReport:
+        return self.execute(
+            service,
+            items,
+            "permanent",
+            progress=progress,
+            cancel_event=cancel_event,
+        )
