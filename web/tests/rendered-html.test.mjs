@@ -22,6 +22,8 @@ test("renders the DupeSweep product landing page", async () => {
   assert.match(html, /DupeSweep-Setup\.exe/);
   assert.match(html, /ca-pub-7998471640181666/);
   assert.match(html, /<a[^>]+href="\/#features"[^>]*>功能<\/a>/);
+  assert.match(html, /translate="no"[^>]*lang="en"[^>]*>DUPE<em>SWEEP<\/em>/);
+  assert.match(html, /class="headline-line">把重複檔案掃乾淨，<\/span>/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });
 

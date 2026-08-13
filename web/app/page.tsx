@@ -11,7 +11,7 @@ export default function Home() {
       <section className="hero shell">
         <div className="hero-copy">
           <span className="eyebrow"><i /> 免費・透明・可復原</span>
-          <h1>把重複檔案掃乾淨，<em>空間拿回來。</em></h1>
+          <h1><span className="headline-line">把重複檔案掃乾淨，</span><em className="headline-line">空間拿回來。</em></h1>
           <p>
             DupeSweep 精準比對檔案內容，保留一份原檔，再把多餘副本移到垃圾桶。
             清理 Windows 或直接在線整理 Google Drive，都不會永久刪除。
