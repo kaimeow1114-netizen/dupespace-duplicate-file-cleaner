@@ -10,6 +10,8 @@ venv/
 build/
 dist/
 *.spec
+!DupeSweep.spec
+release/
 
 # OAuth secrets and tokens must never be committed.
 credentials.json

@@ -3,6 +3,11 @@
 DupeSweep treats a file as an exact duplicate only when both content size and a full content
 checksum match. Names, extensions, dates, and folders are not enough.
 
+The web cleaner adds encrypted HttpOnly OAuth sessions, 30-minute signed scan proofs, batches of at
+most 100 items, and server-side metadata revalidation of both the selected file and protected
+keeper before each Drive mutation. A browser request can only move a file to Drive trash; no web
+endpoint performs permanent deletion.
+
 ## Before cleanup
 
 1. Back up irreplaceable data independently.

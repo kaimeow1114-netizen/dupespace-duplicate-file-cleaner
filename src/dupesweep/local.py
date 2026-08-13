@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import threading
 from collections import defaultdict
 from collections.abc import Callable, Iterable
@@ -96,6 +97,7 @@ class LocalScanner:
         seen_physical_files: set[tuple[int, int]] = set()
         warnings: list[str] = []
         examined = 0
+        examined_bytes = 0
         skipped = 0
 
         for root in normalized_roots:
@@ -128,6 +130,7 @@ class LocalScanner:
                                 # which is required to distinguish files from hard links.
                                 stat_result = os.stat(entry.path, follow_symlinks=False)
                                 examined += 1
+                                examined_bytes += stat_result.st_size
                                 identity = _identity(stat_result)
                                 if identity in seen_physical_files:
                                     skipped += 1
@@ -188,6 +191,17 @@ class LocalScanner:
             )
 
         groups = build_duplicate_groups(records)
+        capacity = 0
+        measured_devices: set[int] = set()
+        for root in normalized_roots:
+            try:
+                stat_result = root.stat()
+                if stat_result.st_dev in measured_devices:
+                    continue
+                measured_devices.add(stat_result.st_dev)
+                capacity += shutil.disk_usage(root).total
+            except OSError:
+                continue
         _emit(progress, "complete", examined, examined, "本機掃描完成")
         return ScanReport(
             source="local",
@@ -195,6 +209,8 @@ class LocalScanner:
             examined_files=examined,
             hashed_files=len(records),
             skipped_files=skipped,
+            examined_bytes=examined_bytes,
+            storage_capacity_bytes=capacity or None,
             warnings=tuple(warnings),
         )
 

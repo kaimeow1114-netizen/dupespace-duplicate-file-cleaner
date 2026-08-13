@@ -59,6 +59,8 @@ class ScanReport:
     examined_files: int
     hashed_files: int
     skipped_files: int = 0
+    examined_bytes: int = 0
+    storage_capacity_bytes: int | None = None
     warnings: tuple[str, ...] = ()
 
     @property

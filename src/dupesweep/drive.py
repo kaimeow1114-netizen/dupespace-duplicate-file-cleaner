@@ -152,6 +152,14 @@ class GoogleDriveScanner:
         examined = 0
         skipped = 0
         page_number = 0
+        capacity: int | None = None
+
+        try:
+            quota = service.about().get(fields="storageQuota").execute(num_retries=3)
+            limit = quota.get("storageQuota", {}).get("limit")
+            capacity = int(limit) if limit is not None else None
+        except Exception as error:  # noqa: BLE001 - quota is optional scan context
+            warnings.append(f"無法讀取 Google Drive 容量：{error}")
 
         while True:
             if cancel_event and cancel_event.is_set():
@@ -225,6 +233,8 @@ class GoogleDriveScanner:
             examined_files=examined,
             hashed_files=len(records),
             skipped_files=skipped,
+            examined_bytes=sum(record.size for record in records),
+            storage_capacity_bytes=capacity,
             warnings=tuple(warnings),
         )
 

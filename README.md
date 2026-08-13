@@ -7,6 +7,10 @@ extra copies to the Recycle Bin or Google Drive trash. It is designed for large 
 scans are streamed, Drive changes are sent in API-compliant batches of 100, and every long
 operation can be cancelled between files or batches.
 
+The 0.2 release adds a branded Windows installer, an optional desktop shortcut, animated progress
+and reclaimed-space percentages, plus a public website with a browser-based Google Drive cleaner,
+free download promotion, privacy/terms pages, and AdSense publisher integration.
+
 > DupeSweep never permanently deletes files. It protects one deterministic keeper in every
 > duplicate group and asks for explicit confirmation before moving anything to trash.
 
@@ -23,6 +27,9 @@ operation can be cancelled between files or batches.
 - Shows the exact file count and reclaimable bytes before acting.
 - Requires typing a confirmation phrase for large operations (500 or more files).
 - Writes a UTF-8 CSV outcome report under `%LOCALAPPDATA%\DupeSweep\reports`.
+- Animates scan and cleanup progress while quantifying selected bytes, reclaimable percentage,
+  scanned-data percentage, and device/cloud capacity percentage.
+- Ships as `DupeSweep.exe` inside a Windows installer that asks whether to create a desktop shortcut.
 
 ## Requirements
 
@@ -31,6 +38,13 @@ operation can be cancelled between files or batches.
 - A Google Cloud OAuth desktop credential only if Google Drive support is needed
 
 ## Install and run
+
+Windows users can download the latest installer from
+[GitHub Releases](https://github.com/kaimeow1114-netizen/dupesweep-duplicate-file-cleaner/releases/latest).
+The installer offers an optional desktop shortcut and launches `DupeSweep.exe` directly—Python is
+not required on the user's computer.
+
+Developers can run from source:
 
 ```powershell
 python -m venv .venv
@@ -85,10 +99,28 @@ never placed in batches larger than 100 requests.
 
 ```powershell
 python -m pip install -e ".[build]"
-pyinstaller --noconfirm --windowed --name DupeSweep --paths src src/dupesweep/__main__.py
+python scripts/build_icon.py
+python -m PyInstaller --noconfirm --clean DupeSweep.spec
 ```
 
-The executable is written to `dist\DupeSweep\`. OAuth credentials are deliberately not bundled.
+The executable is written to `dist\DupeSweep\`. Run `scripts\build_windows.ps1` on a system with
+Inno Setup 6 to also create `release\DupeSweep-Setup.exe`. OAuth credentials are deliberately not
+bundled. Tagged GitHub releases build and publish the installer automatically.
+
+## Browser-based Google Drive cleaner
+
+The `web/` application provides the product website and browser cleaner. It uses encrypted
+HttpOnly OAuth cookies, 30-minute signed scan proofs, batches of at most 100 selected files, and
+server-side revalidation of the selected file and protected keeper before every Drive mutation.
+It never exposes OAuth tokens to browser JavaScript and never permanently deletes files.
+
+Deployment requires a Google OAuth **Web application** client and three hosting secrets:
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and a random 32+ character `SESSION_SECRET`. See
+[docs/WEB_DEPLOYMENT.md](docs/WEB_DEPLOYMENT.md). The full Drive scope requires Google's public-app
+verification before accounts outside the configured test-user list can authorize it.
+
+Google AdSense publisher `ca-pub-7998471640181666` and the matching `ads.txt` declaration are
+included. Ads begin serving only after the deployed domain is added to AdSense and approved.
 
 ## Limits
 

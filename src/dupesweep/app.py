@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import queue
+import sys
 import threading
 import tkinter as tk
 from collections.abc import Callable
+from importlib import resources
+from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Any
 
@@ -22,6 +25,7 @@ from .grouping import (
 from .local import LocalScanner, LocalTrashExecutor
 from .models import ActionReport, DuplicateGroup, FileRecord, ProgressUpdate, ScanReport
 from .reporting import write_action_report
+from .stats import calculate_cleanup_stats
 
 
 def _format_bytes(value: int) -> str:
@@ -35,6 +39,91 @@ def _format_bytes(value: int) -> str:
     return f"{value} B"
 
 
+def _asset_path(name: str) -> Path:
+    bundled = getattr(sys, "_MEIPASS", None)
+    if bundled:
+        return Path(bundled) / "dupesweep" / "assets" / name
+    return Path(str(resources.files("dupesweep.assets").joinpath(name)))
+
+
+class AnimatedSpaceMeter(tk.Canvas):
+    """Animate both indeterminate work and the selected reclaim percentage."""
+
+    def __init__(self, master: tk.Misc) -> None:
+        super().__init__(
+            master,
+            height=14,
+            background="#E8EEF3",
+            borderwidth=0,
+            highlightthickness=0,
+        )
+        self._value = 0.0
+        self._target = 0.0
+        self._phase = 0
+        self._busy = False
+        self._timer: str | None = None
+        self.bind("<Configure>", lambda _event: self._draw())
+
+    def start_busy(self) -> None:
+        self._busy = True
+        self._phase = 0
+        self._schedule()
+
+    def set_value(self, value: float) -> None:
+        self._busy = False
+        self._target = min(100.0, max(0.0, value))
+        self._schedule()
+
+    def _schedule(self) -> None:
+        if self._timer is None:
+            self._timer = self.after(24, self._tick)
+
+    def _tick(self) -> None:
+        self._timer = None
+        if self._busy:
+            self._phase = (self._phase + 4) % 140
+            self._draw()
+            self._schedule()
+            return
+        delta = self._target - self._value
+        if abs(delta) < 0.15:
+            self._value = self._target
+            self._draw()
+            return
+        self._value += delta * 0.16
+        self._draw()
+        self._schedule()
+
+    def _draw(self) -> None:
+        width = max(1, self.winfo_width())
+        height = max(1, self.winfo_height())
+        self.delete("all")
+        self.create_rectangle(0, 0, width, height, fill="#E8EEF3", outline="")
+        if self._busy:
+            band_width = max(54, width // 5)
+            left = (self._phase / 140) * (width + band_width) - band_width
+            self.create_rectangle(
+                left,
+                0,
+                min(width, left + band_width),
+                height,
+                fill="#16C7B7",
+                outline="",
+            )
+            return
+        filled = width * self._value / 100
+        self.create_rectangle(0, 0, filled, height, fill="#16C7B7", outline="")
+        if filled > 10:
+            self.create_rectangle(
+                max(0, filled - min(42, filled)),
+                0,
+                filled,
+                height,
+                fill="#71E4D8",
+                outline="",
+            )
+
+
 class DupeSweepApp:
     POLL_MS = 100
 
@@ -44,10 +133,21 @@ class DupeSweepApp:
         self.root.geometry("1120x760")
         self.root.minsize(900, 620)
 
+        try:
+            self.root.iconbitmap(default=str(_asset_path("dupesweep.ico")))
+        except tk.TclError:
+            try:
+                self._icon_image = tk.PhotoImage(file=str(_asset_path("dupesweep-icon.png")))
+                self.root.iconphoto(True, self._icon_image)
+            except (tk.TclError, FileNotFoundError):
+                self._icon_image = None
+
         self.groups_by_source: dict[str, tuple[DuplicateGroup, ...]] = {
             "local": (),
             "drive": (),
         }
+        self.reports_by_source: dict[str, ScanReport] = {}
+        self.session_freed_bytes = 0
         self.selected_keys: set[str] = set()
         self.records_by_key: dict[str, FileRecord] = {}
         self.keeper_keys: set[str] = set()
@@ -61,6 +161,9 @@ class DupeSweepApp:
         self.summary_var = tk.StringVar(value="尚未掃描")
         self.credentials_var = tk.StringVar(value="")
         self.progress_var = tk.DoubleVar(value=0)
+        self.space_var = tk.StringVar(value="預計節省 0 B")
+        self.reclaim_percent_var = tk.StringVar(value="已選可回收空間 0.0%")
+        self.capacity_percent_var = tk.StringVar(value="裝置容量比例 —")
 
         self._configure_style()
         self._build_ui()
@@ -135,6 +238,19 @@ class DupeSweepApp:
             text="連接並掃描 Google Drive",
             command=self._scan_drive,
         ).pack(anchor="e", pady=(8, 0))
+
+        metrics = ttk.Frame(outer)
+        metrics.pack(fill="x", pady=(0, 10))
+        for variable in (
+            self.space_var,
+            self.reclaim_percent_var,
+            self.capacity_percent_var,
+        ):
+            card = ttk.Frame(metrics, padding=(10, 8))
+            card.pack(side="left", fill="x", expand=True, padx=(0, 7))
+            ttk.Label(card, textvariable=variable, style="Summary.TLabel").pack(anchor="w")
+        self.space_meter = AnimatedSpaceMeter(metrics)
+        self.space_meter.pack(side="left", fill="x", expand=True, padx=(6, 0))
 
         results = ttk.LabelFrame(outer, text="2. 檢查重複檔案", padding=8)
         results.pack(fill="both", expand=True)
@@ -257,6 +373,7 @@ class DupeSweepApp:
         self.status_var.set(status)
         self.progress.configure(mode="indeterminate")
         self.progress.start(12)
+        self.space_meter.start_busy()
 
         def worker() -> None:
             try:
@@ -315,6 +432,7 @@ class DupeSweepApp:
         messagebox.showerror("DupeSweep", str(error))
 
     def _accept_scan(self, report: ScanReport) -> None:
+        self.reports_by_source[report.source] = report
         self.groups_by_source[report.source] = report.groups
         self.selected_keys -= {
             key for key in self.selected_keys if key.startswith(f"{report.source}:")
@@ -408,6 +526,28 @@ class DupeSweepApp:
             f"{len(self.groups):,} 組 / {total_records:,} 個相符檔案｜"
             f"已選 {len(self.selected_keys):,} 個，可釋放 {_format_bytes(size)}"
         )
+        stats = calculate_cleanup_stats(
+            self.groups,
+            self.selected_keys,
+            self.reports_by_source.values(),
+        )
+        freed = (
+            f" · 本次已移至垃圾桶 {_format_bytes(self.session_freed_bytes)}"
+            if self.session_freed_bytes
+            else ""
+        )
+        self.space_var.set(f"預計節省 {_format_bytes(stats.selected_bytes)}{freed}")
+        self.reclaim_percent_var.set(
+            f"已選可回收空間 {stats.reclaimable_percent:.1f}%"
+            f" · 掃描資料 {stats.scanned_percent:.2f}%"
+        )
+        if stats.capacity_percent is None:
+            self.capacity_percent_var.set("裝置／雲端容量比例 —")
+        else:
+            self.capacity_percent_var.set(
+                f"佔裝置／雲端總容量 {stats.capacity_percent:.3f}%"
+            )
+        self.space_meter.set_value(stats.reclaimable_percent)
 
     def _trash_selected(self) -> None:
         if self.busy:
@@ -479,6 +619,11 @@ class DupeSweepApp:
             for report in reports
             for outcome in report.trashed
         }
+        self.session_freed_bytes += sum(
+            outcome.record.size
+            for report in reports
+            for outcome in report.trashed
+        )
         failed = [outcome for report in reports for outcome in report.failed]
         cancelled = [outcome for report in reports for outcome in report.cancelled]
 

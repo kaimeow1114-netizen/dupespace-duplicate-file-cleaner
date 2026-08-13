@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dupesweep"
-version = "0.1.0"
+version = "0.2.0"
 description = "A safety-first duplicate file cleaner for Windows and Google Drive."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -32,7 +32,7 @@ dev = [
   "pytest-cov>=6,<8",
   "ruff>=0.12,<1",
 ]
-build = ["pyinstaller>=6.14,<7"]
+build = ["pillow>=11,<13", "pyinstaller>=6.14,<7"]
 
 [project.gui-scripts]
 dupesweep = "dupesweep.app:main"
@@ -42,6 +42,9 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"dupesweep.assets" = ["*.png", "*.ico"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
