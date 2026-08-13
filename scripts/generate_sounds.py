@@ -7,7 +7,7 @@ import wave
 from pathlib import Path
 
 RATE = 44_100
-TARGET = Path(__file__).resolve().parents[1] / "src" / "dupesweep" / "assets"
+TARGET = Path(__file__).resolve().parents[1] / "src" / "dupespace" / "assets"
 
 
 def tone(

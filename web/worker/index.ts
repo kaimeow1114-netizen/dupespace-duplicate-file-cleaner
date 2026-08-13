@@ -5,19 +5,7 @@ import { handleGoogleDriveApi, type GoogleDriveEnv } from "./google-drive";
 
 interface Env extends GoogleDriveEnv {
   ASSETS: Fetcher;
-  DB: D1Database;
-  IMAGES: {
-    input(stream: ReadableStream): {
-      transform(options: Record<string, unknown>): {
-        output(options: { format: string; quality: number }): Promise<{ response(): Response }>;
-      };
-    };
-  };
-}
-
-interface ExecutionContext {
-  waitUntil(promise: Promise<unknown>): void;
-  passThroughOnException(): void;
+  IMAGES: ImagesBinding;
 }
 
 // Image security config. SVG sources with .svg extension auto-skip the
@@ -30,8 +18,16 @@ const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.hostname.endsWith(".chatgpt.site")) {
-      return Response.redirect(`https://dupesweep.app${url.pathname}${url.search}`, 301);
+    const legacyHost = url.hostname === "dupesweep.app" || url.hostname === "www.dupesweep.app" || url.hostname.endsWith(".chatgpt.site");
+    const canonicalWww = url.hostname === "www.dupespace.app";
+    if (legacyHost || canonicalWww) {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return Response.json(
+          { error: "此網域已停用寫入操作，請重新開啟 https://dupespace.app 後再試。" },
+          { status: 409, headers: { "cache-control": "no-store" } },
+        );
+      }
+      return Response.redirect(`https://dupespace.app${url.pathname}${url.search}`, 301);
     }
 
     const googleResponse = await handleGoogleDriveApi(request, env);
@@ -42,7 +38,9 @@ const worker = {
       return withSecurityHeaders(await handleImageOptimization(request, {
         fetchAsset: (path) => env.ASSETS.fetch(new Request(new URL(path, request.url))),
         transformImage: async (body, { width, format, quality }) => {
-          const result = await env.IMAGES.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
+          const outputFormat = format === "image/png" || format === "image/gif" ||
+            format === "image/webp" || format === "image/avif" ? format : "image/jpeg";
+          const result = await env.IMAGES.input(body).transform(width > 0 ? { width } : {}).output({ format: outputFormat, quality });
           return result.response();
         },
       }, allowedWidths));

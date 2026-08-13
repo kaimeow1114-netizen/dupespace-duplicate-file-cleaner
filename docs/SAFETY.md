@@ -1,8 +1,16 @@
-# DUPESWEEP safety guide
+# DUPESPACE safety guide
 
-DUPESWEEP treats files as exact duplicates only when content size and a full content checksum
-match. Names, extensions, dates, and folders are never enough. Every group has one deterministic,
-locked keeper that cannot be selected or removed.
+DUPESPACE treats matching content as a duplicate candidate, not proof that every path is
+disposable. Windows scans require at least one keep root and one clean root. Roots are resolved to
+physical long paths and may not be equal, nested, or overlapping. Only size + full SHA-256 groups
+that cross from keep to clean are shown; clean-only duplicates are completely excluded. All
+keep-root records are locked and every group keeps at least one deterministic keeper.
+
+Zero-byte files are ignored. Files below 1 MiB are visible but not preselected. Project/package
+trees, applications/install resources, backups/snapshots, and sync folders are locked by default.
+A folder can be unlocked only for the current scan after its full path, count, and bytes are shown
+and the exact phrase `允許清理 <資料夾名稱>` is entered. Rescanning or changing roots resets it.
+Offline and recall-on-access cloud placeholders are skipped without opening or hydrating them.
 
 ## Two independent operation modes
 
@@ -15,14 +23,14 @@ failure; it never falls back to permanent deletion.
 > confirmation and the exact phrase `永久刪除 N 個檔案`; 500+ files, 1 GB+, or 5,000+ files also
 > triggers a full summary and countdown.
 
-Before either operation, DUPESWEEP revalidates the target and its keeper. Local checks cover the
+Before either operation, DUPESPACE revalidates the target and its keeper. Local checks cover the
 physical path, file type, identity, byte size, modification time, and SHA-256. Drive checks cover
 file ID, version, MIME type, ownership, modification time, size, checksum, keeper status, and the
 specific trash/delete capability. Any changed item is skipped.
 
 ## Windows protected locations
 
-Windows, System32, SysWOW64, WinSxS, Program Files, ProgramData, System Volume Information,
+Windows, System32, SysWOW64, WinSxS, Program Files, ProgramData, AppData, System Volume Information,
 `$Recycle.Bin`, Recovery, EFI/Boot, Windows Installer/update caches, and OS-managed files are
 excluded. Paths are discovered from Windows APIs, Known Folder/environment data, volume roots, and
 file attributes rather than assuming Windows is installed on `C:`. Symbolic links, junctions,
@@ -35,7 +43,17 @@ Only owned binary files with a stable checksum are eligible. Native Google Works
 folders, shortcuts, shared-drive items, and files without the necessary capability are skipped.
 The web cleaner uses encrypted HttpOnly OAuth sessions, 30-minute HMAC-signed scan proofs, batches
 of at most 100 items, and distinct `/trash` and `/delete` server paths. File contents never pass
-through the DUPESWEEP server.
+through the DUPESPACE server.
+
+Drive uses its separately defined global policy: the oldest file is the keeper, zero-byte files
+are ignored, and files below 1 MiB are not preselected. Permanent mode always clears every
+selection and requires the user to select targets again.
+
+## Windows temporary and junk files
+
+DUPESPACE does not remove general Windows junk, caches, temporary files, update data, or delivery
+optimization data. Those categories depend on operating-system state and should be reviewed with
+Windows Storage Sense or Cleanup recommendations rather than guessed from filenames or folders.
 
 ## Audit and recovery
 

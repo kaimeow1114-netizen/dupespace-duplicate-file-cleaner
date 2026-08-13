@@ -1,8 +1,8 @@
 import csv
 from pathlib import Path
 
-from dupesweep.models import ActionOutcome, ActionReport, FileRecord
-from dupesweep.reporting import write_action_report
+from dupespace.models import ActionOutcome, ActionReport, FileRecord
+from dupespace.reporting import write_action_report
 
 
 def test_action_report_is_written_as_utf8_csv(tmp_path: Path) -> None:

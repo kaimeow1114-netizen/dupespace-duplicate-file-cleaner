@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 class UnsafePathError(ValueError):
-    """Raised when a requested path falls outside DUPESWEEP's safe user-data boundary."""
+    """Raised when a requested path falls outside DupeSpace's safe user-data boundary."""
 
 
 _MANAGED_FILE_NAMES = {
@@ -107,6 +107,18 @@ def is_reparse_point(path: Path) -> bool:
     return bool(_attributes(path) & reparse)
 
 
+def is_cloud_placeholder(path: Path) -> bool:
+    """Detect offline/recall-on-access files without opening or hydrating them."""
+
+    attributes = _attributes(path)
+    offline = int(getattr(stat, "FILE_ATTRIBUTE_OFFLINE", 0x1000))
+    recall_on_open = int(getattr(stat, "FILE_ATTRIBUTE_RECALL_ON_OPEN", 0x40000))
+    recall_on_data_access = int(
+        getattr(stat, "FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS", 0x400000)
+    )
+    return bool(attributes & (offline | recall_on_open | recall_on_data_access))
+
+
 def _existing_components(path: Path) -> Iterable[Path]:
     absolute = Path(os.path.abspath(path))
     current = Path(absolute.anchor)
@@ -143,6 +155,8 @@ def default_protected_roots() -> tuple[Path, ...]:
             roots.add(candidate)
 
     for variable in (
+        "APPDATA",
+        "LOCALAPPDATA",
         "ProgramFiles",
         "ProgramFiles(x86)",
         "ProgramW6432",
@@ -153,6 +167,10 @@ def default_protected_roots() -> tuple[Path, ...]:
         value = os.environ.get(variable)
         if value:
             roots.add(Path(value))
+
+    user_profile = os.environ.get("USERPROFILE")
+    if user_profile:
+        roots.add(Path(user_profile) / "AppData")
 
     if windows:
         roots.update(windows / relative for relative in _WINDOWS_PROTECTED_RELATIVE)
@@ -200,9 +218,9 @@ class WindowsSafetyPolicy:
         if not candidate.is_dir():
             raise UnsafePathError(f"掃描位置不是資料夾：{candidate}")
         if self.is_protected(candidate):
-            raise UnsafePathError("這是 Windows 或電腦製造商管理的重要位置，DUPESWEEP 不會掃描它。")
+            raise UnsafePathError("這是 Windows 或電腦製造商管理的重要位置，DUPESPACE 不會掃描它。")
         if self.has_protected_attributes(candidate):
-            raise UnsafePathError("這個位置具有系統或隱藏屬性，DUPESWEEP 不會掃描它。")
+            raise UnsafePathError("這個位置具有系統或隱藏屬性，DUPESPACE 不會掃描它。")
         return candidate
 
     def has_protected_attributes(self, path: Path) -> bool:

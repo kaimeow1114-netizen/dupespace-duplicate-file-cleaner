@@ -1,5 +1,5 @@
-from dupesweep.models import DuplicateGroup, FileRecord, ScanReport
-from dupesweep.stats import calculate_cleanup_stats
+from dupespace.models import DuplicateGroup, FileRecord, ScanReport
+from dupespace.stats import calculate_cleanup_stats
 
 
 def record(key: str, size: int = 100) -> FileRecord:

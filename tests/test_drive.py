@@ -4,12 +4,13 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
-from dupesweep.drive import (
+from dupespace.drive import (
     GoogleDrivePermanentDeleteExecutor,
     GoogleDriveScanner,
     GoogleDriveTrashExecutor,
 )
-from dupesweep.models import FileRecord, OperationItem
+from dupespace.grouping import default_selection
+from dupespace.models import FileRecord, OperationItem
 
 
 class FakeRequest:
@@ -152,6 +153,38 @@ def test_drive_scanner_paginates_and_skips_unsafe_items() -> None:
     assert report.groups[0].records[0].can_delete
     assert service.files_resource.list_calls[0]["pageSize"] == 1000
     assert service.files_resource.list_calls[1]["pageToken"] == "next"
+
+
+def test_drive_threshold_zero_bytes_and_oldest_keeper_policy() -> None:
+    pages = [
+        {
+            "files": [
+                drive_item("old", size=str(1024 * 1024)),
+                drive_item(
+                    "new",
+                    size=str(1024 * 1024),
+                    createdTime="2026-02-01T00:00:00Z",
+                ),
+                drive_item("zero", size="0", md5Checksum="zero"),
+            ]
+        }
+    ]
+    report = GoogleDriveScanner().scan(FakeService(pages))
+
+    assert len(report.groups) == 1
+    assert report.groups[0].keeper_key == "drive:old"
+    assert default_selection(report.groups) == {"drive:new"}
+    assert default_selection(report.groups, "permanent") == set()
+    assert report.skipped_files == 1
+
+
+def test_drive_files_smaller_than_one_mib_are_shown_but_not_preselected() -> None:
+    report = GoogleDriveScanner().scan(
+        FakeService([{"files": [drive_item("old"), drive_item("new")]}])
+    )
+
+    assert len(report.groups) == 1
+    assert default_selection(report.groups) == set()
 
 
 def make_items(count: int, service: FakeService) -> list[OperationItem]:

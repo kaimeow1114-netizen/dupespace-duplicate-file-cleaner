@@ -1,6 +1,6 @@
 {
-  "name": "dupesweep-web",
-  "version": "0.3.0",
+  "name": "dupespace-web",
+  "version": "0.4.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"

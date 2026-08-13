@@ -3,7 +3,7 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $projectRoot
 
 python scripts/build_icon.py
-python -m PyInstaller --noconfirm --clean DupeSweep.spec
+python -m PyInstaller --noconfirm --clean DupeSpace.spec
 
 $innoCandidates = @(
     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
@@ -11,6 +11,6 @@ $innoCandidates = @(
 )
 $inno = $innoCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if (-not $inno) {
-    throw "Inno Setup 6 is required to build DupeSweep-Setup.exe"
+    throw "Inno Setup 6 is required to build DupeSpace-Setup.exe"
 }
-& $inno "packaging\dupesweep.iss"
+& $inno "packaging\dupespace.iss"

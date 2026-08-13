@@ -1,1 +1,0 @@
-"""Packaged DupeSweep brand assets."""

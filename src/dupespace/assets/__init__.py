@@ -1,0 +1,1 @@
+"""Packaged DupeSpace brand assets."""

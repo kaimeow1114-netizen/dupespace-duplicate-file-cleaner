@@ -1,8 +1,8 @@
-#define MyAppName "DupeSweep"
-#define MyAppVersion "0.3.0"
-#define MyAppPublisher "DupeSweep contributors"
-#define MyAppURL "https://github.com/kaimeow1114-netizen/dupesweep-duplicate-file-cleaner"
-#define MyAppExeName "DupeSweep.exe"
+#define MyAppName "DupeSpace"
+#define MyAppVersion "0.4.0"
+#define MyAppPublisher "DupeSpace contributors"
+#define MyAppURL "https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner"
+#define MyAppExeName "DupeSpace.exe"
 
 [Setup]
 AppId={{90C16F8A-44AF-4B0C-A389-F26143240E0A}
@@ -17,8 +17,8 @@ DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 LicenseFile=..\LICENSE
 OutputDir=..\release
-OutputBaseFilename=DupeSweep-Setup
-SetupIconFile=..\assets\dupesweep.ico
+OutputBaseFilename=DupeSpace-Setup
+SetupIconFile=..\assets\dupespace.ico
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -35,7 +35,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "建立桌面捷徑"; GroupDescription: "其他工作："; Flags: unchecked
 
 [Files]
-Source: "..\dist\DupeSweep\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\DupeSpace\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

@@ -43,8 +43,8 @@ interface ProofPayload {
 type OperationMode = "trash" | "permanent";
 
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
-const SESSION_COOKIE = "dupesweep_session";
-const OAUTH_COOKIE = "dupesweep_oauth";
+const SESSION_COOKIE = "dupespace_session";
+const OAUTH_COOKIE = "dupespace_oauth";
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const FILE_FIELDS = [
@@ -52,6 +52,7 @@ const FILE_FIELDS = [
   "modifiedTime", "ownedByMe", "version", "trashed", "capabilities(canTrash,canDelete)",
   "webViewLink",
 ].join(",");
+const MINIMUM_AUTO_SELECT_BYTES = 1024 * 1024;
 
 function encodeBase64Url(bytes: Uint8Array): string {
   let binary = "";
@@ -267,7 +268,7 @@ async function listDrive(session: OAuthSession): Promise<{ files: DriveFile[]; e
     for (const file of page.files ?? []) {
       examined += 1;
       if (
-        unsupportedType(file) || !file.ownedByMe || !file.size || !checksum(file) ||
+        unsupportedType(file) || !file.ownedByMe || !file.size || Number(file.size) === 0 || !checksum(file) ||
         (!file.capabilities?.canTrash && !file.capabilities?.canDelete)
       ) {
         skipped += 1;
@@ -318,6 +319,7 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
           webViewLink: file.webViewLink ?? null,
           canTrash: Boolean(file.capabilities?.canTrash),
           canDelete: Boolean(file.capabilities?.canDelete),
+          autoSelectable: Boolean(file.capabilities?.canTrash) && Number(file.size) >= MINIMUM_AUTO_SELECT_BYTES,
           keeper: file.id === keeper.id,
           proof: await proof({
             id: file.id,

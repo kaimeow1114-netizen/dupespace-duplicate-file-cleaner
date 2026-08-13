@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /api/
 
-Sitemap: https://dupesweep.app/sitemap.xml
+Sitemap: https://dupespace.app/sitemap.xml

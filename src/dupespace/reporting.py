@@ -13,8 +13,8 @@ from .models import ActionReport
 def default_report_dir() -> Path:
     base = os.getenv("LOCALAPPDATA")
     if base:
-        return Path(base) / "DupeSweep" / "reports"
-    return Path.home() / ".dupesweep" / "reports"
+        return Path(base) / "DupeSpace" / "reports"
+    return Path.home() / ".dupespace" / "reports"
 
 
 def write_action_report(

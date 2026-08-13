@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import struct
 import sys
 import threading
@@ -10,6 +9,8 @@ from contextlib import suppress
 from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Literal
+
+from .migration import migrate_legacy_preferences
 
 SoundEvent = Literal[
     "confirm",
@@ -22,12 +23,11 @@ SoundEvent = Literal[
 
 
 def _settings_path() -> Path:
-    root = os.getenv("APPDATA") or os.getenv("LOCALAPPDATA")
-    return (Path(root) if root else Path.home() / ".dupesweep") / "DupeSweep" / "settings.json"
+    return migrate_legacy_preferences() / "settings.json"
 
 
 class SoundPlayer:
-    """Play original DUPESWEEP sounds once per UI event at a user-controlled volume."""
+    """Play original DUPESPACE sounds once per UI event at a user-controlled volume."""
 
     def __init__(self) -> None:
         self.muted = False
@@ -69,7 +69,7 @@ class SoundPlayer:
         try:
             import winsound
 
-            resource = files("dupesweep.assets").joinpath(f"{event}.wav")
+            resource = files("dupespace.assets").joinpath(f"{event}.wav")
             with as_file(resource) as source:
                 rendered = self._render_volume(source, event)
                 winsound.PlaySound(

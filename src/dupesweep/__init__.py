@@ -1,13 +1,6 @@
-"""DupeSweep: exact duplicate cleanup for local files and Google Drive."""
+"""One-release compatibility shim for migrating DupeSweep preferences to DupeSpace."""
 
-from .models import ActionOutcome, ActionReport, DuplicateGroup, FileRecord, ScanReport
+from dupespace.migration import migrate_legacy_preferences
 
-__all__ = [
-    "ActionOutcome",
-    "ActionReport",
-    "DuplicateGroup",
-    "FileRecord",
-    "ScanReport",
-]
-
-__version__ = "0.3.0"
+__all__ = ["migrate_legacy_preferences"]
+__version__ = "0.4.0"

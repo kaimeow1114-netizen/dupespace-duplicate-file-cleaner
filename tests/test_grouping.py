@@ -1,10 +1,10 @@
-from dupesweep.grouping import (
+from dupespace.grouping import (
     build_duplicate_groups,
     default_selection,
     selected_bytes,
     validate_selection,
 )
-from dupesweep.models import FileRecord
+from dupespace.models import FileRecord
 
 
 def record(

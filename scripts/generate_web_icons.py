@@ -1,11 +1,11 @@
-"""Build the complete DUPESWEEP favicon/PWA set from the branded source icon."""
+"""Build the complete DUPESPACE favicon/PWA set from the branded source icon."""
 
 from pathlib import Path
 
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "assets" / "dupesweep-icon.png"
+SOURCE = ROOT / "assets" / "dupespace-icon.png"
 OUTPUT = ROOT / "web" / "public"
 
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable, Set
+from dataclasses import replace
+from pathlib import Path
 
 from .models import DuplicateGroup, FileRecord, OperationItem, OperationMode
 
@@ -45,17 +47,55 @@ def build_duplicate_groups(records: Iterable[FileRecord]) -> tuple[DuplicateGrou
     )
 
 
+def build_local_duplicate_groups(records: Iterable[FileRecord]) -> tuple[DuplicateGroup, ...]:
+    """Return only exact groups that cross from a keep root into a clean root."""
+
+    buckets: dict[str, list[FileRecord]] = defaultdict(list)
+    for record in records:
+        buckets[record.fingerprint].append(record)
+
+    groups: list[DuplicateGroup] = []
+    for fingerprint, bucket in buckets.items():
+        keepers = sorted(
+            (record for record in bucket if record.root_role == "keep"), key=_keeper_rank
+        )
+        clean = sorted(
+            (record for record in bucket if record.root_role == "clean"), key=_keeper_rank
+        )
+        if not keepers or not clean:
+            continue
+        ordered = tuple(keepers + clean)
+        groups.append(DuplicateGroup(fingerprint, ordered, keepers[0].key))
+
+    return tuple(
+        sorted(
+            groups,
+            key=lambda group: (
+                -group.reclaimable_bytes,
+                group.records[0].name.casefold(),
+                group.fingerprint,
+            ),
+        )
+    )
+
+
 def default_selection(
     groups: Iterable[DuplicateGroup], operation_mode: OperationMode = "trash"
 ) -> set[str]:
-    """Select every trashable extra copy while always protecting the keeper."""
+    """Select only explicitly safe trash targets; permanent delete starts empty."""
+
+    if operation_mode == "permanent":
+        return set()
 
     return {
         record.key
         for group in groups
         for record in group.records
         if record.key != group.keeper_key
-        and (record.can_trash if operation_mode == "trash" else record.can_delete)
+        and record.root_role != "keep"
+        and record.selectable
+        and record.auto_selectable
+        and record.can_trash
     }
 
 
@@ -68,6 +108,7 @@ def validate_selection(
     protected: set[str] = set()
     for group in groups:
         protected.add(group.keeper_key)
+        protected.update(record.key for record in group.records if record.root_role == "keep")
         records.update((record.key, record) for record in group.records)
 
     unknown = set(selected) - records.keys()
@@ -76,7 +117,11 @@ def validate_selection(
 
     selected_keepers = set(selected) & protected
     if selected_keepers:
-        raise ValueError("A protected keeper cannot be removed")
+        raise ValueError("A protected keeper or keep-root file cannot be removed")
+
+    locked = [key for key in selected if not records[key].selectable]
+    if locked:
+        raise ValueError("Selection contains a protected or locked file")
 
     forbidden = [
         key
@@ -118,3 +163,41 @@ def selected_bytes(groups: Iterable[DuplicateGroup], selected: Set[str]) -> int:
     return sum(
         record.size for group in groups for record in group.records if record.key in selected
     )
+
+
+def unlock_locked_folder(
+    groups: Iterable[DuplicateGroup], folder: str, confirmation: str
+) -> tuple[DuplicateGroup, ...]:
+    """Unlock one risk-context folder for this in-memory scan result only."""
+
+    folder_path = Path(folder)
+    required = f"允許清理 {folder_path.name}"
+    if not folder_path.name or confirmation != required:
+        raise ValueError(f"Type exactly: {required}")
+
+    changed = False
+    rebuilt: list[DuplicateGroup] = []
+    for group in groups:
+        records: list[FileRecord] = []
+        for record in group.records:
+            context = record.safety_context
+            if (
+                record.root_role == "clean"
+                and context.locked_folder is not None
+                and Path(context.locked_folder) == folder_path
+            ):
+                records.append(
+                    replace(
+                        record,
+                        selectable=True,
+                        auto_selectable=False,
+                        protection_reason=None,
+                    )
+                )
+                changed = True
+            else:
+                records.append(record)
+        rebuilt.append(replace(group, records=tuple(records)))
+    if not changed:
+        raise ValueError("The requested folder is not locked in this scan")
+    return tuple(rebuilt)

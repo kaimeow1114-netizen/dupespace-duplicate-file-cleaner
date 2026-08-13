@@ -8,7 +8,7 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-from .grouping import build_duplicate_groups
+from .grouping import build_local_duplicate_groups
 from .models import (
     ActionOutcome,
     ActionReport,
@@ -16,9 +16,16 @@ from .models import (
     OperationItem,
     OperationMode,
     ProgressUpdate,
+    SafetyContext,
     ScanReport,
+    ScanRoot,
 )
-from .windows_safety import DEFAULT_WINDOWS_SAFETY_POLICY, UnsafePathError, WindowsSafetyPolicy
+from .windows_safety import (
+    DEFAULT_WINDOWS_SAFETY_POLICY,
+    UnsafePathError,
+    WindowsSafetyPolicy,
+    is_cloud_placeholder,
+)
 
 ProgressCallback = Callable[[ProgressUpdate], None]
 
@@ -74,17 +81,108 @@ def _hash_file(path: Path, expected: os.stat_result, chunk_size: int) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
-def _normalize_roots(roots: Iterable[str | os.PathLike[str]]) -> tuple[Path, ...]:
-    candidates = sorted(
-        {Path(root).expanduser().resolve(strict=False) for root in roots},
-        key=lambda path: (len(path.parts), str(path).casefold()),
-    )
-    normalized: list[Path] = []
-    for candidate in candidates:
-        if any(candidate == parent or parent in candidate.parents for parent in normalized):
-            continue
+MINIMUM_AUTO_SELECT_BYTES = 1024 * 1024
+
+_PROJECT_MARKERS = frozenset(
+    {".git", ".svn", ".hg", "pyproject.toml", "package.json", "cargo.toml", ".csproj"}
+)
+_PACKAGE_DIRECTORY_NAMES = frozenset(
+    {".venv", "venv", "env", "node_modules", "site-packages", "__pycache__", "vendor"}
+)
+_APPLICATION_SUFFIXES = frozenset(
+    {".exe", ".dll", ".sys", ".msi", ".msp", ".appx", ".msix", ".cab"}
+)
+_BACKUP_NAMES = frozenset(
+    {"backup", "backups", "snapshot", "snapshots", "restore", "archives", "system image"}
+)
+_SYNC_NAMES = frozenset(
+    {"onedrive", "dropbox", "google drive", "icloud drive", "syncthing", "nextcloud"}
+)
+
+
+def _path_key(path: Path) -> str:
+    return os.path.normcase(os.path.abspath(str(path))).rstrip("\\/")
+
+
+def _contains_path(parent: Path, child: Path) -> bool:
+    parent_key = _path_key(parent)
+    child_key = _path_key(child)
+    return child_key == parent_key or child_key.startswith(parent_key + os.sep)
+
+
+def normalize_scan_roots(
+    roots: Iterable[ScanRoot], safety_policy: WindowsSafetyPolicy
+) -> tuple[ScanRoot, ...]:
+    """Canonicalize roots and reject every equal, nested, or overlapping pair."""
+
+    normalized: list[ScanRoot] = []
+    for root in roots:
+        if not isinstance(root, ScanRoot):
+            raise TypeError("Local scans require explicit ScanRoot keep/clean roles")
+        physical = safety_policy.validate_scan_root(root.physical_path)
+        candidate = ScanRoot(str(physical), root.role)
+        candidate_path = Path(candidate.physical_path)
+        for existing in normalized:
+            existing_path = Path(existing.physical_path)
+            if _contains_path(existing_path, candidate_path) or _contains_path(
+                candidate_path, existing_path
+            ):
+                raise UnsafePathError("保留區與清理區不可相同、巢狀或重疊")
         normalized.append(candidate)
+
+    roles = {root.role for root in normalized}
+    if "keep" not in roles or "clean" not in roles:
+        raise ValueError("請至少選擇一個保留區和一個清理區")
     return tuple(normalized)
+
+
+def _ancestors_within(path: Path, root: Path) -> tuple[Path, ...]:
+    ancestors: list[Path] = []
+    current = path.parent
+    while _contains_path(root, current):
+        ancestors.append(current)
+        if _path_key(current) == _path_key(root):
+            break
+        current = current.parent
+    return tuple(ancestors)
+
+
+def detect_safety_context(path: Path, root: Path) -> SafetyContext:
+    """Classify semantic contexts where an exact copy may still be required."""
+
+    project_folder: Path | None = None
+    application_folder: Path | None = None
+    backup_folder: Path | None = None
+    sync_folder: Path | None = None
+    for ancestor in _ancestors_within(path, root):
+        folded = ancestor.name.casefold()
+        if project_folder is None and (
+            folded in _PACKAGE_DIRECTORY_NAMES
+            or any((ancestor / marker).exists() for marker in _PROJECT_MARKERS)
+        ):
+            project_folder = ancestor
+        if backup_folder is None and folded in _BACKUP_NAMES:
+            backup_folder = ancestor
+        if sync_folder is None and folded in _SYNC_NAMES:
+            sync_folder = ancestor
+    if path.suffix.casefold() in _APPLICATION_SUFFIXES:
+        application_folder = path.parent
+
+    locked_folder = next(
+        (
+            folder
+            for folder in (project_folder, application_folder, backup_folder, sync_folder)
+            if folder is not None
+        ),
+        None,
+    )
+    return SafetyContext(
+        project=project_folder is not None,
+        application=application_folder is not None,
+        backup=backup_folder is not None,
+        sync=sync_folder is not None,
+        locked_folder=str(locked_folder) if locked_folder else None,
+    )
 
 
 class LocalScanner:
@@ -102,25 +200,22 @@ class LocalScanner:
 
     def scan(
         self,
-        roots: Iterable[str | os.PathLike[str]],
+        roots: Iterable[ScanRoot],
         *,
         progress: ProgressCallback | None = None,
         cancel_event: threading.Event | None = None,
     ) -> ScanReport:
-        normalized_roots = _normalize_roots(
-            self.safety_policy.validate_scan_root(root) for root in roots
-        )
-        if not normalized_roots:
-            raise ValueError("Choose at least one folder")
+        normalized_roots = normalize_scan_roots(roots, self.safety_policy)
 
-        by_size: dict[int, list[tuple[Path, os.stat_result]]] = defaultdict(list)
+        by_size: dict[int, list[tuple[Path, os.stat_result, ScanRoot]]] = defaultdict(list)
         seen_physical_files: set[tuple[int, int]] = set()
         warnings: list[str] = []
         examined = 0
         examined_bytes = 0
         skipped = 0
 
-        for root in normalized_roots:
+        for scan_root in normalized_roots:
+            root = Path(scan_root.physical_path)
             if not root.is_dir():
                 warnings.append(f"不是可讀取的資料夾：{root}")
                 skipped += 1
@@ -135,7 +230,9 @@ class LocalScanner:
                         skipped += 1
                         warnings.append(f"已略過受保護位置：{directory}")
                         continue
-                    if self.safety_policy.has_protected_attributes(directory):
+                    if self.safety_policy.has_protected_attributes(
+                        directory
+                    ) or is_cloud_placeholder(directory):
                         skipped += 1
                         continue
                     with os.scandir(directory) as entries:
@@ -150,8 +247,12 @@ class LocalScanner:
                                     child = Path(entry.path)
                                     if self.safety_policy.is_protected(child):
                                         skipped += 1
-                                    elif not self.safety_policy.has_protected_attributes(child):
+                                    elif not self.safety_policy.has_protected_attributes(
+                                        child
+                                    ) and not is_cloud_placeholder(child):
                                         stack.append(child)
+                                    else:
+                                        skipped += 1
                                     continue
                                 if not entry.is_file(follow_symlinks=False):
                                     skipped += 1
@@ -163,17 +264,24 @@ class LocalScanner:
                                 candidate = Path(entry.path)
                                 if self.safety_policy.is_protected(
                                     candidate
-                                ) or self.safety_policy.has_protected_attributes(candidate):
+                                ) or self.safety_policy.has_protected_attributes(
+                                    candidate
+                                ) or is_cloud_placeholder(candidate):
                                     skipped += 1
                                     continue
                                 examined += 1
                                 examined_bytes += stat_result.st_size
+                                if stat_result.st_size == 0:
+                                    skipped += 1
+                                    continue
                                 identity = _identity(stat_result)
                                 if identity in seen_physical_files:
                                     skipped += 1
                                     continue
                                 seen_physical_files.add(identity)
-                                by_size[stat_result.st_size].append((Path(entry.path), stat_result))
+                                by_size[stat_result.st_size].append(
+                                    (Path(entry.path), stat_result, scan_root)
+                                )
                                 if examined % 250 == 0:
                                     _emit(
                                         progress,
@@ -190,14 +298,27 @@ class LocalScanner:
                     warnings.append(f"無法讀取 {directory}：{error}")
 
         hash_candidates = [
-            item for bucket in by_size.values() if len(bucket) > 1 for item in bucket
+            item
+            for bucket in by_size.values()
+            if {candidate[2].role for candidate in bucket} == {"keep", "clean"}
+            for item in bucket
         ]
         records: list[FileRecord] = []
-        for index, (path, expected_stat) in enumerate(hash_candidates, start=1):
+        for index, (path, expected_stat, scan_root) in enumerate(hash_candidates, start=1):
             if _is_cancelled(cancel_event):
                 raise ScanCancelled("Local scan cancelled")
             try:
                 checksum = _hash_file(path, expected_stat, self.chunk_size)
+                context = detect_safety_context(path, Path(scan_root.physical_path))
+                is_keep = scan_root.role == "keep"
+                is_locked = scan_root.role == "clean" and context.requires_unlock
+                selectable = scan_root.role == "clean" and not is_locked
+                if is_keep:
+                    protection_reason = "保留區檔案永遠保留"
+                elif is_locked:
+                    protection_reason = "此檔案位於程式、專案、備份或同步情境，需逐資料夾解鎖"
+                else:
+                    protection_reason = None
                 records.append(
                     FileRecord(
                         key=f"local:{path}",
@@ -211,6 +332,14 @@ class LocalScanner:
                         metadata_token=_metadata_token(expected_stat),
                         can_delete=True,
                         mime_type="application/octet-stream",
+                        source_root=scan_root.physical_path,
+                        root_role=scan_root.role,
+                        selectable=selectable,
+                        auto_selectable=(
+                            selectable and expected_stat.st_size >= MINIMUM_AUTO_SELECT_BYTES
+                        ),
+                        protection_reason=protection_reason,
+                        safety_context=context,
                     )
                 )
             except OSError as error:
@@ -224,10 +353,11 @@ class LocalScanner:
                 f"正在比對內容：{path.name}",
             )
 
-        groups = build_duplicate_groups(records)
+        groups = build_local_duplicate_groups(records)
         capacity = 0
         measured_devices: set[int] = set()
-        for root in normalized_roots:
+        for scan_root in normalized_roots:
+            root = Path(scan_root.physical_path)
             try:
                 stat_result = root.stat()
                 if stat_result.st_dev in measured_devices:
@@ -262,6 +392,11 @@ def _validate_local_snapshot(
     chunk_size: int,
 ) -> Path:
     path = safety_policy.validate_regular_file(record.location)
+    if record.source_root is None or record.root_role not in {"keep", "clean"}:
+        raise UnsafePathError("檔案缺少經驗證的保留區或清理區資訊")
+    source_root = safety_policy.validate_scan_root(record.source_root)
+    if not _contains_path(source_root, path):
+        raise UnsafePathError("檔案已離開原本掃描根目錄")
     key_path = safety_policy.validate_regular_file(_local_key_path(record))
     if os.path.normcase(str(path)) != os.path.normcase(str(key_path)):
         raise UnsafePathError("檔案路徑與掃描識別碼不一致。")

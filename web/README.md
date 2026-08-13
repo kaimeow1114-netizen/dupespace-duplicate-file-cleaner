@@ -1,6 +1,6 @@
-# DupeSweep Web
+# DupeSpace Web
 
-The public DupeSweep website combines a product landing page, Windows installer download,
+The public DupeSpace website combines a product landing page, Windows installer download,
 Google Drive duplicate cleaner, safety guide, privacy policy, terms, and Google AdSense setup.
 
 ## Runtime configuration

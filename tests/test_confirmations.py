@@ -1,6 +1,6 @@
 import pytest
 
-from dupesweep.confirmations import (
+from dupespace.confirmations import (
     ConfirmationSnapshot,
     TrashReminderSession,
     needs_large_operation_countdown,

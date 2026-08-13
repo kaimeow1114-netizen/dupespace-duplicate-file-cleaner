@@ -2,13 +2,13 @@ from pathlib import Path
 
 
 root = Path(SPECPATH)
-assets = root / "src" / "dupesweep" / "assets"
+assets = root / "src" / "dupespace" / "assets"
 
 a = Analysis(
-    [str(root / "scripts" / "dupesweep_entry.py")],
+    [str(root / "scripts" / "dupespace_entry.py")],
     pathex=[str(root / "src")],
     binaries=[],
-    datas=[(str(assets), "dupesweep/assets")],
+    datas=[(str(assets), "dupespace/assets")],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -23,13 +23,13 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="DupeSweep",
+    name="DupeSpace",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     console=False,
-    icon=str(assets / "dupesweep.ico"),
+    icon=str(assets / "dupespace.ico"),
 )
 coll = COLLECT(
     exe,
@@ -38,5 +38,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name="DupeSweep",
+    name="DupeSpace",
 )

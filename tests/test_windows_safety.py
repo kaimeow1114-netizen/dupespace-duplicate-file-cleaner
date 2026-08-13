@@ -5,9 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from dupesweep import windows_safety
-from dupesweep.local import LocalScanner
-from dupesweep.windows_safety import UnsafePathError, WindowsSafetyPolicy
+from dupespace import windows_safety
+from dupespace.local import LocalScanner
+from dupespace.models import ScanRoot
+from dupespace.windows_safety import UnsafePathError, WindowsSafetyPolicy
 
 
 def test_protected_folder_and_child_cannot_be_scanned(tmp_path: Path) -> None:
@@ -17,7 +18,7 @@ def test_protected_folder_and_child_cannot_be_scanned(tmp_path: Path) -> None:
     policy = WindowsSafetyPolicy([protected])
 
     with pytest.raises(UnsafePathError):
-        LocalScanner(safety_policy=policy).scan([child])
+        LocalScanner(safety_policy=policy).scan([ScanRoot(str(child), "keep")])
 
 
 def test_case_and_dotdot_cannot_bypass_protected_folder(tmp_path: Path) -> None:

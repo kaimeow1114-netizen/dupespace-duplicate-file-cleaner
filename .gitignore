@@ -12,8 +12,9 @@ build/
 !web/build/**
 dist/
 *.spec
-!DupeSweep.spec
+!DupeSpace.spec
 release/
+src/dupespace/_desktop_oauth.py
 
 # OAuth secrets and tokens must never be committed.
 credentials.json
@@ -22,7 +23,7 @@ token.json
 *.token.json
 
 # Local operation data
-.dupesweep/
+.dupespace/
 .tools/
 
 # Editors and operating systems

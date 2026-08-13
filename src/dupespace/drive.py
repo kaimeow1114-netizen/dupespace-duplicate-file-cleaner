@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .grouping import build_duplicate_groups
+from .migration import app_data_dir as dupespace_data_dir
 from .models import (
     ActionOutcome,
     ActionReport,
@@ -19,6 +20,8 @@ from .models import (
     ProgressUpdate,
     ScanReport,
 )
+
+MINIMUM_AUTO_SELECT_BYTES = 1024 * 1024
 
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 GOOGLE_FOLDER_MIME = "application/vnd.google-apps.folder"
@@ -41,10 +44,7 @@ class DriveScanCancelled(RuntimeError):
 
 
 def app_data_dir() -> Path:
-    base = os.getenv("LOCALAPPDATA")
-    if base:
-        return Path(base) / "DupeSweep"
-    return Path.home() / ".dupesweep"
+    return dupespace_data_dir()
 
 
 def default_token_path() -> Path:
@@ -84,27 +84,50 @@ def _load_google_modules() -> tuple[Any, Any, Any, Any]:
     return Request, Credentials, InstalledAppFlow, build
 
 
+def _desktop_oauth_config() -> dict[str, Any]:
+    client_id = os.getenv("DUPESPACE_GOOGLE_DESKTOP_CLIENT_ID", "")
+    client_secret = os.getenv("DUPESPACE_GOOGLE_DESKTOP_CLIENT_SECRET", "")
+    try:
+        from ._desktop_oauth import CLIENT_ID, CLIENT_SECRET
+
+        client_id = CLIENT_ID or client_id
+        client_secret = CLIENT_SECRET or client_secret
+    except ImportError:
+        pass
+    if not client_id or not client_secret:
+        raise DriveAuthenticationError(
+            "這個開發版本尚未注入 DUPESPACE Google Desktop OAuth 設定。"
+        )
+    return {
+        "installed": {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": ["http://localhost"],
+        }
+    }
+
+
 def build_drive_service(
-    credentials_path: str | os.PathLike[str],
+    credentials_path: str | os.PathLike[str] | None = None,
     *,
     token_path: str | os.PathLike[str] | None = None,
 ) -> Any:
-    """Authorize an installed app and build a Drive v3 service.
+    """Authorize DupeSpace Desktop; the new app-data path forces a fresh sign-in."""
 
-    The OAuth client secret is supplied by the user. The refresh token is stored in the
-    per-user application data directory, never in the repository.
-    """
-
-    credentials_file = Path(credentials_path).expanduser().resolve(strict=False)
-    if not credentials_file.is_file():
-        raise DriveAuthenticationError(f"找不到 OAuth 憑證檔：{credentials_file}")
-
-    try:
-        data = json.loads(credentials_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise DriveAuthenticationError(f"OAuth 憑證檔無法讀取：{error}") from error
-    if not isinstance(data, dict) or "installed" not in data:
-        raise DriveAuthenticationError("請使用 Google OAuth Desktop app（installed）JSON 檔")
+    if credentials_path is None:
+        data = _desktop_oauth_config()
+    else:
+        credentials_file = Path(credentials_path).expanduser().resolve(strict=False)
+        if not credentials_file.is_file():
+            raise DriveAuthenticationError(f"找不到 OAuth 憑證檔：{credentials_file}")
+        try:
+            data = json.loads(credentials_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise DriveAuthenticationError(f"OAuth 憑證檔無法讀取：{error}") from error
+        if not isinstance(data, dict) or "installed" not in data:
+            raise DriveAuthenticationError("請使用 Google OAuth Desktop app（installed）JSON 檔")
 
     Request, Credentials, InstalledAppFlow, build = _load_google_modules()
     token_file = Path(token_path) if token_path else default_token_path()
@@ -124,9 +147,7 @@ def build_drive_service(
                 raise DriveAuthenticationError(f"Google 登入權杖更新失敗：{error}") from error
         else:
             try:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    str(credentials_file), [DRIVE_SCOPE]
-                )
+                flow = InstalledAppFlow.from_client_config(data, [DRIVE_SCOPE])
                 creds = flow.run_local_server(port=0, open_browser=True)
             except Exception as error:  # noqa: BLE001 - normalize auth library errors
                 raise DriveAuthenticationError(f"Google OAuth 登入失敗：{error}") from error
@@ -207,6 +228,10 @@ class GoogleDriveScanner:
                 if not checksum_value or item.get("size") is None:
                     skipped += 1
                     continue
+                file_size = int(item["size"])
+                if file_size == 0:
+                    skipped += 1
+                    continue
 
                 records.append(
                     FileRecord(
@@ -214,7 +239,7 @@ class GoogleDriveScanner:
                         source="drive",
                         name=item.get("name") or "(未命名)",
                         location=f"Google Drive / {item.get('name') or '(未命名)'}",
-                        size=int(item["size"]),
+                        size=file_size,
                         checksum=f"{checksum_kind}:{checksum_value}",
                         created_at=_timestamp(item.get("createdTime")),
                         modified_at=_timestamp(item.get("modifiedTime")),
@@ -223,6 +248,13 @@ class GoogleDriveScanner:
                         can_delete=can_delete,
                         mime_type=mime_type,
                         web_url=item.get("webViewLink"),
+                        selectable=can_trash or can_delete,
+                        auto_selectable=(
+                            can_trash and file_size >= MINIMUM_AUTO_SELECT_BYTES
+                        ),
+                        protection_reason=(
+                            None if can_trash or can_delete else "目前帳號沒有垃圾桶或刪除權限"
+                        ),
                     )
                 )
 

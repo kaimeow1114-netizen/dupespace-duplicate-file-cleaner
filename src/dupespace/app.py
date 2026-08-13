@@ -6,7 +6,7 @@ import tkinter as tk
 from collections.abc import Callable
 from importlib.resources import as_file, files
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Any
 
 from .confirmations import (
@@ -23,7 +23,12 @@ from .drive import (
     GoogleDriveTrashExecutor,
     build_drive_service,
 )
-from .grouping import default_selection, operation_items, selected_bytes
+from .grouping import (
+    default_selection,
+    operation_items,
+    selected_bytes,
+    unlock_locked_folder,
+)
 from .local import (
     LocalPermanentDeleteExecutor,
     LocalScanner,
@@ -37,6 +42,7 @@ from .models import (
     OperationMode,
     ProgressUpdate,
     ScanReport,
+    ScanRoot,
 )
 from .reporting import write_action_report
 from .sound import SoundPlayer
@@ -80,17 +86,17 @@ def _format_bytes(value: int) -> str:
     return f"{amount:.{decimals}f} {unit}"
 
 
-class DupeSweepApp(tk.Tk):
+class DupeSpaceApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("DUPESWEEP｜重複檔案清理")
+        self.title("DUPESPACE｜重複檔案清理")
         self.geometry("1220x800")
         self.minsize(980, 680)
         self.configure(bg=CREAM)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        self.folder_paths: list[Path] = []
-        self.oauth_credentials: Path | None = None
+        self.keep_paths: list[Path] = []
+        self.clean_paths: list[Path] = []
         self.drive_service: Any | None = None
         self.groups_by_source: dict[str, tuple[DuplicateGroup, ...]] = {}
         self.reports_by_source: dict[str, ScanReport] = {}
@@ -108,7 +114,7 @@ class DupeSweepApp(tk.Tk):
 
         self.mode_var = tk.StringVar(value="trash")
         self.status_var = tk.StringVar(
-            value="從『加入資料夾』開始，DUPESWEEP 會保護每組的一份原檔。"
+            value="先加入保留區與清理區；保留區內的檔案永遠不可刪除。"
         )
         self.progress_var = tk.DoubleVar(value=0)
         self.page_var = tk.StringVar(value="第 1 / 1 頁")
@@ -166,7 +172,7 @@ class DupeSweepApp(tk.Tk):
 
     def _set_window_icon(self) -> None:
         try:
-            resource = files("dupesweep.assets").joinpath("dupesweep.ico")
+            resource = files("dupespace.assets").joinpath("dupespace.ico")
             with as_file(resource) as icon_path:
                 self.iconbitmap(default=str(icon_path))
         except (OSError, tk.TclError):
@@ -178,7 +184,7 @@ class DupeSweepApp(tk.Tk):
         header.pack_propagate(False)
         brand = tk.Frame(header, bg=NAVY)
         brand.pack(side="left", padx=24)
-        tk.Label(brand, text="DUPESWEEP", bg=NAVY, fg=WHITE, font=("Segoe UI Black", 21)).pack(
+        tk.Label(brand, text="DUPESPACE", bg=NAVY, fg=WHITE, font=("Segoe UI Black", 21)).pack(
             anchor="w"
         )
         tk.Label(
@@ -275,7 +281,10 @@ class DupeSweepApp(tk.Tk):
         ).pack(anchor="w", pady=(3, 0))
         actions = tk.Frame(source_card, bg=WHITE)
         actions.pack(side="right")
-        self._button(actions, "＋ 加入資料夾", self._add_folder, MINT, NAVY).pack(
+        self._button(actions, "＋ 保留區", self._add_keep_folder, MINT_SOFT, NAVY).pack(
+            side="left", padx=4
+        )
+        self._button(actions, "＋ 清理區", self._add_clean_folder, MINT, NAVY).pack(
             side="left", padx=4
         )
         self._button(actions, "掃描本機", self._start_local_scan, NAVY, WHITE).pack(
@@ -381,6 +390,15 @@ class DupeSweepApp(tk.Tk):
             relief="flat",
             bg=WHITE,
             fg=MUTED,
+            cursor="hand2",
+        ).pack(side="right", padx=8)
+        tk.Button(
+            toolbar,
+            text="解鎖風險資料夾",
+            command=self._unlock_selected_folder,
+            relief="flat",
+            bg=WHITE,
+            fg=RED,
             cursor="hand2",
         ).pack(side="right", padx=8)
 
@@ -505,8 +523,15 @@ class DupeSweepApp(tk.Tk):
                 font=("Segoe UI Semibold" if index == self.stage else "Segoe UI", 9),
             )
 
-    def _add_folder(self) -> None:
-        selected = filedialog.askdirectory(title="選擇要掃描的一般資料夾")
+    def _add_keep_folder(self) -> None:
+        self._add_local_root("keep")
+
+    def _add_clean_folder(self) -> None:
+        self._add_local_root("clean")
+
+    def _add_local_root(self, role: str) -> None:
+        label = "保留區" if role == "keep" else "清理區"
+        selected = filedialog.askdirectory(title=f"選擇{label}")
         if not selected:
             return
         try:
@@ -515,40 +540,46 @@ class DupeSweepApp(tk.Tk):
             self.sound.play("error")
             messagebox.showwarning("這個位置受到保護", str(error), parent=self)
             return
-        if safe not in self.folder_paths:
-            self.folder_paths.append(safe)
-        self.location_var.set("本機：" + "、".join(str(path) for path in self.folder_paths))
-        self.status_var.set("位置已加入。按『掃描本機』找出內容完全相同的檔案。")
-
-    def _choose_oauth_file(self) -> bool:
-        selected = filedialog.askopenfilename(
-            title="選擇 Google Desktop OAuth JSON",
-            filetypes=(("JSON", "*.json"), ("所有檔案", "*.*")),
-        )
-        if not selected:
-            return False
-        self.oauth_credentials = Path(selected)
-        return True
+        target = self.keep_paths if role == "keep" else self.clean_paths
+        if safe not in target:
+            target.append(safe)
+            self.groups_by_source.pop("local", None)
+            self.reports_by_source.pop("local", None)
+            self.selected_keys = {
+                key for key in self.selected_keys if not key.startswith("local:")
+            }
+        keep_text = "、".join(str(path) for path in self.keep_paths) or "尚未選擇"
+        clean_text = "、".join(str(path) for path in self.clean_paths) or "尚未選擇"
+        self.location_var.set(f"保留區：{keep_text}\n清理區：{clean_text}")
+        self.status_var.set("位置已更新；重新掃描會清除所有風險資料夾解鎖狀態。")
 
     def _start_local_scan(self) -> None:
-        if not self.folder_paths:
-            messagebox.showinfo("先選擇位置", "請先加入至少一個自己的資料夾。", parent=self)
+        if not self.keep_paths or not self.clean_paths:
+            messagebox.showinfo(
+                "先選擇位置",
+                "請至少加入一個保留區與一個清理區。保留區檔案永遠不會刪除。",
+                parent=self,
+            )
             return
+        roots = [
+            *(ScanRoot(str(path), "keep") for path in self.keep_paths),
+            *(ScanRoot(str(path), "clean") for path in self.clean_paths),
+        ]
+        self.selected_keys = {
+            key for key in self.selected_keys if not key.startswith("local:")
+        }
         self._start_task(
             "scan-local",
             lambda: LocalScanner().scan(
-                self.folder_paths, progress=self._post_progress, cancel_event=self.cancel_event
+                roots, progress=self._post_progress, cancel_event=self.cancel_event
             ),
             2,
             "正在安全掃描本機檔案…",
         )
 
     def _start_drive_scan(self) -> None:
-        if self.oauth_credentials is None and not self._choose_oauth_file():
-            return
-
         def worker() -> tuple[Any, ScanReport]:
-            service = build_drive_service(self.oauth_credentials)
+            service = build_drive_service()
             report = GoogleDriveScanner().scan(
                 service, progress=self._post_progress, cancel_event=self.cancel_event
             )
@@ -640,7 +671,7 @@ class DupeSweepApp(tk.Tk):
         title = (
             "Google Drive 連線失敗"
             if isinstance(error, DriveAuthenticationError)
-            else "DUPESWEEP 遇到問題"
+            else "DUPESPACE 遇到問題"
         )
         self.status_var.set(str(error))
         messagebox.showerror(title, str(error), parent=self)
@@ -662,14 +693,15 @@ class DupeSweepApp(tk.Tk):
         page = self.rows[start : start + PAGE_SIZE]
         mode = self._mode()
         for offset, (group, record) in enumerate(page):
-            keeper = record.key == group.keeper_key
-            allowed = record.can_trash if mode == "trash" else record.can_delete
+            keeper = record.key == group.keeper_key or record.root_role == "keep"
+            has_permission = record.can_trash if mode == "trash" else record.can_delete
+            allowed = has_permission and record.selectable
             selected = record.key in self.selected_keys
             mark = "—" if keeper or not allowed else "☑" if selected else "☐"
             state = (
                 "保留原檔"
                 if keeper
-                else "無權限"
+                else "受保護"
                 if not allowed
                 else "待處理"
                 if selected
@@ -733,9 +765,12 @@ class DupeSweepApp(tk.Tk):
         if not 0 <= index < len(self.rows):
             return "break"
         group, record = self.rows[index]
-        allowed = record.can_trash if self._mode() == "trash" else record.can_delete
-        if record.key == group.keeper_key or not allowed or self.busy:
-            self.status_var.set("這一份受到保護或目前沒有權限，不能選取。")
+        has_permission = record.can_trash if self._mode() == "trash" else record.can_delete
+        allowed = has_permission and record.selectable
+        if record.key == group.keeper_key or record.root_role == "keep" or not allowed or self.busy:
+            self.status_var.set(
+                record.protection_reason or "這一份受到保護或目前沒有權限，不能選取。"
+            )
             return "break"
         if record.key in self.selected_keys:
             self.selected_keys.remove(record.key)
@@ -750,12 +785,57 @@ class DupeSweepApp(tk.Tk):
         start = self.page_index * PAGE_SIZE
         mode = self._mode()
         for group, record in self.rows[start : start + PAGE_SIZE]:
-            allowed = record.can_trash if mode == "trash" else record.can_delete
-            if record.key != group.keeper_key and allowed:
+            has_permission = record.can_trash if mode == "trash" else record.can_delete
+            allowed = has_permission and record.selectable
+            if record.key != group.keeper_key and record.root_role != "keep" and allowed:
                 self.selected_keys.add(record.key)
         self.trash_reminders.invalidate()
         self._render_page()
         self._update_metrics()
+
+    def _unlock_selected_folder(self) -> None:
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showinfo("選擇風險項目", "請先選擇一個受保護的本機檔案。", parent=self)
+            return
+        index = int(selection[0])
+        if not 0 <= index < len(self.rows):
+            return
+        _group, record = self.rows[index]
+        folder = record.safety_context.locked_folder
+        if record.source != "local" or folder is None:
+            messagebox.showinfo(
+                "不需要解鎖", "這個項目不屬於需要逐資料夾解鎖的情境。", parent=self
+            )
+            return
+        affected = [
+            item
+            for groups in self.groups_by_source.values()
+            for group in groups
+            for item in group.records
+            if item.safety_context.locked_folder == folder and item.root_role == "clean"
+        ]
+        total_bytes = sum(item.size for item in affected)
+        phrase = f"允許清理 {Path(folder).name}"
+        typed = simpledialog.askstring(
+            "解鎖風險資料夾",
+            f"完整路徑：{folder}\n檔案數：{len(affected):,}\n容量：{_format_bytes(total_bytes)}\n\n"
+            f"此資料夾可能屬於程式、專案、備份或同步內容。若仍要允許手動選取，請輸入：\n{phrase}",
+            parent=self,
+        )
+        if typed is None:
+            return
+        try:
+            self.groups_by_source["local"] = unlock_locked_folder(
+                self.groups_by_source.get("local", ()), folder, typed
+            )
+        except ValueError as error:
+            self.sound.play("error")
+            messagebox.showwarning("未解鎖", str(error), parent=self)
+            return
+        self.trash_reminders.invalidate()
+        self._rebuild_rows()
+        self.status_var.set("此資料夾只在本次掃描期間解鎖；不會自動選取任何檔案。")
 
     def _clear_selection(self) -> None:
         self.selected_keys.clear()
@@ -1122,16 +1202,26 @@ class DupeSweepApp(tk.Tk):
         ]
         self.session_freed_bytes += actual
         for source, groups in tuple(self.groups_by_source.items()):
-            self.groups_by_source[source] = tuple(
-                DuplicateGroup(
-                    group.fingerprint,
-                    tuple(record for record in group.records if record.key not in succeeded),
-                    group.keeper_key,
+            rebuilt: list[DuplicateGroup] = []
+            for group in groups:
+                remaining = tuple(
+                    record for record in group.records if record.key not in succeeded
                 )
-                for group in groups
-                if len(tuple(record for record in group.records if record.key not in succeeded))
-                >= 2
-            )
+                eligible = (
+                    any(record.root_role == "keep" for record in remaining)
+                    and any(record.root_role == "clean" for record in remaining)
+                    if source == "local"
+                    else len(remaining) >= 2
+                )
+                if eligible:
+                    rebuilt.append(
+                        DuplicateGroup(
+                            group.fingerprint,
+                            remaining,
+                            group.keeper_key,
+                        )
+                    )
+            self.groups_by_source[source] = tuple(rebuilt)
         self.selected_keys -= succeeded
         report_note = ""
         try:
@@ -1210,7 +1300,7 @@ class DupeSweepApp(tk.Tk):
 
 
 def main() -> None:
-    DupeSweepApp().mainloop()
+    DupeSpaceApp().mainloop()
 
 
 if __name__ == "__main__":

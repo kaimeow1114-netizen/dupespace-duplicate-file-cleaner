@@ -7,6 +7,31 @@ from typing import Literal
 SourceKind = Literal["local", "drive"]
 OperationMode = Literal["trash", "permanent"]
 OutcomeStatus = Literal["trashed", "deleted", "failed", "skipped", "cancelled"]
+RootRole = Literal["keep", "clean"]
+
+
+@dataclass(frozen=True, slots=True)
+class ScanRoot:
+    """A canonical scan root with an explicit safety role."""
+
+    physical_path: str
+    role: RootRole
+
+
+@dataclass(frozen=True, slots=True)
+class SafetyContext:
+    """Context that can make an otherwise exact duplicate unsafe to auto-select."""
+
+    project: bool = False
+    application: bool = False
+    backup: bool = False
+    sync: bool = False
+    cloud_placeholder: bool = False
+    locked_folder: str | None = None
+
+    @property
+    def requires_unlock(self) -> bool:
+        return any((self.project, self.application, self.backup, self.sync))
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +51,12 @@ class FileRecord:
     can_delete: bool = False
     mime_type: str | None = None
     web_url: str | None = None
+    source_root: str | None = None
+    root_role: RootRole | None = None
+    selectable: bool = True
+    auto_selectable: bool = True
+    protection_reason: str | None = None
+    safety_context: SafetyContext = field(default_factory=SafetyContext)
 
     @property
     def fingerprint(self) -> str:
@@ -53,7 +84,11 @@ class DuplicateGroup:
 
     @property
     def reclaimable_bytes(self) -> int:
-        return self.records[0].size * (len(self.records) - 1)
+        return sum(
+            record.size
+            for record in self.records
+            if record.key != self.keeper_key and record.root_role != "keep"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,3 +173,10 @@ class OperationItem:
             raise ValueError("Target and keeper must use the same source")
         if self.record.fingerprint != self.keeper.fingerprint:
             raise ValueError("Target and keeper must have the same fingerprint")
+        if self.record.source == "local":
+            if self.keeper.root_role != "keep" or self.record.root_role != "clean":
+                raise ValueError(
+                    "Local operations require a keep-root keeper and clean-root target"
+                )
+            if not self.record.selectable:
+                raise ValueError("A locked local file cannot be an operation target")

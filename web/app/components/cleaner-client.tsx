@@ -15,6 +15,7 @@ type DriveRecord = {
   webViewLink: string | null;
   canTrash: boolean;
   canDelete: boolean;
+  autoSelectable: boolean;
   keeper: boolean;
   proof: string;
 };
@@ -45,6 +46,42 @@ type Confirmation = {
 };
 
 const GIB = 1024 ** 3;
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function errorMessage(value: unknown, fallback: string): string {
+  return isObject(value) && typeof value.error === "string" ? value.error : fallback;
+}
+
+function isDriveRecord(value: unknown): value is DriveRecord {
+  return isObject(value) && typeof value.id === "string" && typeof value.name === "string" &&
+    typeof value.size === "number" && typeof value.checksum === "string" &&
+    typeof value.canTrash === "boolean" && typeof value.canDelete === "boolean" &&
+    typeof value.autoSelectable === "boolean" && typeof value.keeper === "boolean" &&
+    typeof value.proof === "string";
+}
+
+function isDriveGroup(value: unknown): value is DriveGroup {
+  return isObject(value) && typeof value.fingerprint === "string" &&
+    typeof value.reclaimableBytes === "number" && Array.isArray(value.records) &&
+    value.records.every(isDriveRecord);
+}
+
+function isScanResult(value: unknown): value is ScanResult {
+  return isObject(value) && typeof value.examined === "number" &&
+    typeof value.skipped === "number" && typeof value.duplicateCopies === "number" &&
+    typeof value.reclaimableBytes === "number" && Array.isArray(value.groups) &&
+    value.groups.every(isDriveGroup);
+}
+
+function isAuditOutcome(value: unknown): value is AuditOutcome {
+  return isObject(value) && typeof value.timestamp === "string" && typeof value.id === "string" &&
+    typeof value.name === "string" && typeof value.size === "number" &&
+    typeof value.checksum === "string" && typeof value.operationMode === "string" &&
+    typeof value.status === "string" && typeof value.reason === "string";
+}
 
 function formatBytes(value: number): string {
   const units = ["B", "KB", "MB", "GB", "TB", "PB"];
@@ -120,16 +157,17 @@ export function CleanerClient() {
 
   useEffect(() => {
     window.setTimeout(() => {
-      setMuted(localStorage.getItem("dupesweep-muted") === "1");
-      const saved = Number(localStorage.getItem("dupesweep-volume"));
+      setMuted(localStorage.getItem("dupespace-muted") === "1");
+      const saved = Number(localStorage.getItem("dupespace-volume"));
       if (Number.isFinite(saved) && saved >= 0 && saved <= 1) setVolume(saved);
     }, 0);
     fetch("/api/google/status", { cache: "no-store" })
       .then((response) => response.json())
       .then((body) => {
-        setConnected(Boolean(body.connected));
-        setConfigured(body.configured !== false);
-        if (body.configured === false) setStatus("Google OAuth 正在等待網站管理員完成啟用設定");
+        const status = isObject(body) ? body : {};
+        setConnected(Boolean(status.connected));
+        setConfigured(status.configured !== false);
+        if (status.configured === false) setStatus("Google OAuth 正在等待網站管理員完成啟用設定");
       })
       .catch(() => setConnected(false))
       .finally(() => setChecking(false));
@@ -160,13 +198,13 @@ export function CleanerClient() {
 
   function updateMuted(next: boolean): void {
     setMuted(next);
-    localStorage.setItem("dupesweep-muted", next ? "1" : "0");
+    localStorage.setItem("dupespace-muted", next ? "1" : "0");
     if (!next) synthSound("confirm", volume);
   }
 
   function updateVolume(next: number): void {
     setVolume(next);
-    localStorage.setItem("dupesweep-volume", String(next));
+    localStorage.setItem("dupespace-volume", String(next));
   }
 
   function animatedWait(target = 88): number {
@@ -179,10 +217,11 @@ export function CleanerClient() {
     try {
       const response = await fetch("/api/google/scan", { method: "POST" });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "掃描失敗");
+      if (!response.ok) throw new Error(errorMessage(body, "掃描失敗"));
+      if (!isScanResult(body)) throw new Error("Google Drive 回傳了無效的掃描資料");
       setScan(body);
       setMode("trash");
-      setSelected(new Set(body.groups.flatMap((group: DriveGroup) => group.records.filter((record) => !record.keeper && record.canTrash).map((record) => record.id))));
+      setSelected(new Set(body.groups.flatMap((group: DriveGroup) => group.records.filter((record) => !record.keeper && record.canTrash && record.autoSelectable).map((record) => record.id))));
       setStatus(body.duplicateCopies ? `掃描完成：找到 ${body.duplicateCopies.toLocaleString()} 個重複副本` : "掃描完成，目前沒有內容相同的檔案");
       setProgress(100);
       play(body.duplicateCopies ? "confirm" : "success");
@@ -262,8 +301,11 @@ export function CleanerClient() {
           body: JSON.stringify({ items: chunk.map((record) => ({ id: record.id, proof: record.proof })) }),
         });
         const body = await response.json();
-        if (!response.ok) throw new Error(body.error ?? "批次清理失敗");
-        const outcomes = body.outcomes as AuditOutcome[];
+        if (!response.ok) throw new Error(errorMessage(body, "批次清理失敗"));
+        if (!isObject(body) || !Array.isArray(body.outcomes) || !body.outcomes.every(isAuditOutcome)) {
+          throw new Error("Google Drive 回傳了無效的操作結果");
+        }
+        const outcomes = body.outcomes;
         setAudit((current) => [...current, ...outcomes]);
         for (const outcome of outcomes) {
           if (outcome.status === "trashed" || outcome.status === "deleted") {
@@ -294,7 +336,7 @@ export function CleanerClient() {
     const blob = new Blob(["\ufeff", lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
-    anchor.href = url; anchor.download = `DUPESWEEP-audit-${new Date().toISOString().replaceAll(":", "-")}.csv`; anchor.click();
+    anchor.href = url; anchor.download = `DUPESPACE-audit-${new Date().toISOString().replaceAll(":", "-")}.csv`; anchor.click();
     URL.revokeObjectURL(url);
   }
 

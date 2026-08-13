@@ -13,21 +13,23 @@ async function render(path = "/") {
   );
 }
 
-test("renders the DUPESWEEP product landing page with canonical SEO metadata", async () => {
+test("renders the DUPESPACE product landing page with canonical SEO metadata", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /<title>DUPESWEEP｜重複檔案刪除與清理工具<\/title>/);
-  assert.match(html, /rel="canonical" href="https:\/\/dupesweep\.app"/);
+  assert.match(html, /<title>DUPESPACE｜重複檔案刪除與清理工具<\/title>/);
+  assert.match(html, /rel="canonical" href="https:\/\/dupespace\.app"/);
   assert.match(html, /application\/ld\+json/);
   assert.match(html, /FAQPage/);
   assert.match(html, /site\.webmanifest/);
   assert.match(html, /線上清理 Google Drive/);
-  assert.match(html, /DupeSweep-Setup\.exe/);
+  assert.match(html, /DupeSpace-Setup\.exe/);
   assert.match(html, /ca-pub-7998471640181666/);
   assert.match(html, /<a[^>]+href="\/#features"[^>]*>功能<\/a>/);
-  assert.match(html, /translate="no"[^>]*lang="en"[^>]*>DUPE<em>SWEEP<\/em>/);
-  assert.match(html, /class="headline-line">把重複檔案掃乾淨，<\/span>/);
+  assert.match(html, /translate="no"[^>]*lang="en"[^>]*>DUPE<em>SPACE<\/em>/);
+  assert.match(html, /class="headline-line">找出重複檔案，<\/span>/);
+  assert.match(html, /FREE • OPEN SOURCE • PRIVACY-FIRST/);
+  assert.match(html, /設計目標，就是讓誤刪變得困難/);
   assert.match(html, /預設移至垃圾桶/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });
@@ -45,6 +47,7 @@ test("renders independent trash and permanent-delete safety controls", async () 
   assert.match(clientSource, />= GIB/);
   assert.match(clientSource, /index \+= 100/);
   assert.match(clientSource, /downloadCsv/);
+  assert.match(clientSource, /record\.autoSelectable/);
 
   const workerSource = await readFile(new URL("../worker/google-drive.ts", import.meta.url), "utf8");
   assert.match(workerSource, /\/api\/google\/trash/);
@@ -61,8 +64,8 @@ test("ships PWA, crawler, sitemap and ad declarations", async () => {
     readFile(new URL("../public/ads.txt", import.meta.url), "utf8"),
   ]);
   assert.match(manifest, /maskable-512x512\.png/);
-  assert.match(robots, /Sitemap: https:\/\/dupesweep\.app\/sitemap\.xml/);
-  assert.match(sitemap, /https:\/\/dupesweep\.app\/cleaner/);
+  assert.match(robots, /Sitemap: https:\/\/dupespace\.app\/sitemap\.xml/);
+  assert.match(sitemap, /https:\/\/dupespace\.app\/cleaner/);
   assert.match(ads, /google\.com, pub-7998471640181666, DIRECT, f08c47fec0942fa0/);
 });
 
@@ -103,12 +106,30 @@ test("renders legal and cleaner routes with security headers", async () => {
   }
 });
 
+test("excludes AdSense from the cleaner and safely redirects legacy hosts", async () => {
+  const cleaner = await render("/cleaner");
+  assert.doesNotMatch(await cleaner.text(), /adsbygoogle\.js/);
+
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("redirect-test", `${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+  const env = { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } };
+  const ctx = { waitUntil() {}, passThroughOnException() {} };
+  const redirect = await worker.fetch(new Request("https://dupesweep.app/support?q=1"), env, ctx);
+  assert.equal(redirect.status, 301);
+  assert.equal(redirect.headers.get("location"), "https://dupespace.app/support?q=1");
+  const rejected = await worker.fetch(new Request("https://dupesweep.app/api/google/scan", { method: "POST" }), env, ctx);
+  assert.equal(rejected.status, 409);
+  const newSite = await worker.fetch(new Request("https://dupespace.app/"), env, ctx);
+  assert.equal(newSite.status, 200);
+});
+
 test("keeps Google Drive API disconnected until an encrypted session exists", async () => {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("api-test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
   const response = await worker.fetch(
-    new Request("https://dupesweep.example/api/google/status"),
+    new Request("https://dupespace.example/api/google/status"),
     {
       ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) },
       GOOGLE_CLIENT_ID: "test.apps.googleusercontent.com",
@@ -122,7 +143,7 @@ test("keeps Google Drive API disconnected until an encrypted session exists", as
   assert.match(response.headers.get("cache-control") ?? "", /no-store/);
 
   const unconfigured = await worker.fetch(
-    new Request("https://dupesweep.example/api/google/status"),
+    new Request("https://dupespace.example/api/google/status"),
     { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
     { waitUntil() {}, passThroughOnException() {} },
   );
