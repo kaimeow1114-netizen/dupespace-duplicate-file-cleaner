@@ -4,10 +4,14 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
+import dupespace.drive as drive_module
 from dupespace.drive import (
+    DRIVE_SCOPE,
     GoogleDrivePermanentDeleteExecutor,
     GoogleDriveScanner,
     GoogleDriveTrashExecutor,
+    _desktop_oauth_config,
+    build_drive_service,
 )
 from dupespace.grouping import default_selection
 from dupespace.models import FileRecord, OperationItem
@@ -126,6 +130,75 @@ def record(file_id: str) -> FileRecord:
         can_delete=True,
         mime_type="application/octet-stream",
     )
+
+
+def test_desktop_oauth_uses_public_client_id_without_secret(monkeypatch: Any) -> None:
+    monkeypatch.setenv("DUPESPACE_GOOGLE_DESKTOP_CLIENT_ID", "desktop.apps.googleusercontent.com")
+    monkeypatch.setenv("DUPESPACE_GOOGLE_DESKTOP_CLIENT_SECRET", "must-not-be-used")
+
+    config = _desktop_oauth_config()
+
+    assert config["installed"]["client_id"] == "desktop.apps.googleusercontent.com"
+    assert config["installed"]["client_secret"] == ""
+    assert "must-not-be-used" not in str(config)
+
+
+def test_desktop_oauth_enables_pkce_and_strips_json_secret(
+    monkeypatch: Any,
+    tmp_path: Any,
+) -> None:
+    credentials_file = tmp_path / "desktop.json"
+    credentials_file.write_text(
+        '{"installed":{"client_id":"desktop.apps.googleusercontent.com",'
+        '"client_secret":"generated-but-public","auth_uri":"https://accounts.google.com/o/oauth2/auth",'
+        '"token_uri":"https://oauth2.googleapis.com/token","redirect_uris":["http://localhost"]}}',
+        encoding="utf-8",
+    )
+    calls: dict[str, Any] = {}
+
+    class FakeCredentials:
+        valid = True
+
+        def to_json(self) -> str:
+            return "{}"
+
+    class FakeInstalledAppFlow:
+        @classmethod
+        def from_client_config(
+            cls,
+            config: dict[str, Any],
+            scopes: list[str],
+            **kwargs: Any,
+        ) -> FakeInstalledAppFlow:
+            calls["config"] = config
+            calls["scopes"] = scopes
+            calls["kwargs"] = kwargs
+            return cls()
+
+        def run_local_server(self, **kwargs: Any) -> FakeCredentials:
+            calls["server"] = kwargs
+            return FakeCredentials()
+
+    def fake_build(*args: Any, **kwargs: Any) -> str:
+        calls["build"] = (args, kwargs)
+        return "drive-service"
+
+    monkeypatch.setattr(
+        drive_module,
+        "_load_google_modules",
+        lambda: (object, object, FakeInstalledAppFlow, fake_build),
+    )
+
+    service = build_drive_service(
+        credentials_file,
+        token_path=tmp_path / "fresh-token.json",
+    )
+
+    assert service == "drive-service"
+    assert calls["config"]["installed"]["client_secret"] == ""
+    assert calls["scopes"] == [DRIVE_SCOPE]
+    assert calls["kwargs"] == {"autogenerate_code_verifier": True}
+    assert calls["server"] == {"port": 0, "open_browser": True}
 
 
 def test_drive_scanner_paginates_and_skips_unsafe_items() -> None:

@@ -56,7 +56,8 @@ a full summary and countdown.
 
 - Windows 10/11 for the desktop app (core tests also run on Linux/macOS)
 - Python 3.10+ when running from source
-- A release build whose protected GitHub Actions secrets inject the Desktop OAuth client
+- A release build whose protected GitHub Actions configuration injects the public Desktop OAuth
+  Client ID; no Desktop Client Secret is used or bundled
 
 Download
 [DupeSpace-Setup.exe](https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner/releases/latest/download/DupeSpace-Setup.exe).
@@ -78,6 +79,11 @@ dupespace
 3. Create a **Desktop application** client for the Windows app and a separate **Web application**
    client for `https://dupespace.app`.
 4. Never put a Web Client Secret in the desktop application or GitHub.
+
+The Desktop app is a public/native OAuth client: it uses a loopback redirect and PKCE, and does
+not use a client secret. A secret embedded in an EXE could always be extracted, even if it passed
+through GitHub Actions Secrets first. The web client is confidential and keeps its secret only in
+the Sites runtime secret store.
 
 DUPESPACE uses the restricted `https://www.googleapis.com/auth/drive` scope because finding and
 managing pre-existing duplicates cannot use the narrower `drive.file` scope. Both trash and
@@ -119,8 +125,8 @@ powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1
 
 The executable is written to `dist\DupeSpace\`; the installer is
 `release\DupeSpace-Setup.exe`. Tagged GitHub releases build and publish the installer
-automatically. The Desktop OAuth client is injected only from protected Actions secrets during
-the release build; the Web Client Secret is never bundled.
+automatically. Only the public Desktop OAuth Client ID is injected from protected Actions
+configuration during the release build; the Web Client Secret is never bundled.
 
 ## Known limits
 

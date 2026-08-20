@@ -10,7 +10,7 @@ through the hosting provider:
 
 - `GOOGLE_CLIENT_ID`: Google OAuth **Web application** client ID.
 - `GOOGLE_CLIENT_SECRET`: matching OAuth client secret.
-- `SESSION_SECRET`: at least 32 random characters, used to encrypt HttpOnly cookies and sign
+- `SESSION_SECRET`: at least 32 random characters, used to encrypt 30-minute HttpOnly cookies and sign
   short-lived scan proofs.
 
 The OAuth authorized redirect URI is `https://YOUR-SITE/api/google/callback`. The Drive API and

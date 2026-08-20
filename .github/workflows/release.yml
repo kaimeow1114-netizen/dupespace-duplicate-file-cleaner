@@ -18,18 +18,16 @@ jobs:
           python-version: "3.13"
           cache: pip
       - run: python -m pip install -e ".[build]"
-      - name: Inject protected Desktop OAuth client
+      - name: Inject public Desktop OAuth client ID
         shell: pwsh
         env:
           DESKTOP_CLIENT_ID: ${{ secrets.DUPESPACE_GOOGLE_DESKTOP_CLIENT_ID }}
-          DESKTOP_CLIENT_SECRET: ${{ secrets.DUPESPACE_GOOGLE_DESKTOP_CLIENT_SECRET }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:DESKTOP_CLIENT_ID) -or [string]::IsNullOrWhiteSpace($env:DESKTOP_CLIENT_SECRET)) {
-            throw "Required DupeSpace Desktop OAuth secrets are not configured"
+          if ([string]::IsNullOrWhiteSpace($env:DESKTOP_CLIENT_ID)) {
+            throw "Required DupeSpace Desktop OAuth Client ID is not configured"
           }
           $id = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($env:DESKTOP_CLIENT_ID))
-          $secret = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($env:DESKTOP_CLIENT_SECRET))
-          $content = "import base64`nCLIENT_ID = base64.b64decode('$id').decode('utf-8')`nCLIENT_SECRET = base64.b64decode('$secret').decode('utf-8')`n"
+          $content = "import base64`nCLIENT_ID = base64.b64decode('$id').decode('utf-8')`n"
           [IO.File]::WriteAllText("src/dupespace/_desktop_oauth.py", $content, [Text.UTF8Encoding]::new($false))
       - run: python scripts/build_icon.py
       - run: python -m PyInstaller --noconfirm --clean DupeSpace.spec

@@ -45,6 +45,7 @@ type OperationMode = "trash" | "permanent";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 const SESSION_COOKIE = "dupespace_session";
 const OAUTH_COOKIE = "dupespace_oauth";
+const SESSION_MAX_AGE_SECONDS = 30 * 60;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const FILE_FIELDS = [
@@ -216,7 +217,7 @@ async function authorizedSession(request: Request, env: Required<GoogleDriveEnv>
     session: refreshed,
     setCookie: refreshed.accessToken === current.accessToken
       ? undefined
-      : cookie(SESSION_COOKIE, await encrypt(refreshed, env.SESSION_SECRET), request, 30 * 86400),
+      : cookie(SESSION_COOKIE, await encrypt(refreshed, env.SESSION_SECRET), request, SESSION_MAX_AGE_SECONDS),
   };
 }
 
@@ -526,7 +527,7 @@ export async function handleGoogleDriveApi(request: Request, env: GoogleDriveEnv
         expiresAt: Date.now() + (tokens.expires_in ?? 3600) * 1000,
       };
       const headers = new Headers({ location: `${url.origin}/cleaner?connected=1`, "cache-control": "no-store" });
-      headers.append("set-cookie", cookie(SESSION_COOKIE, await encrypt(session, env.SESSION_SECRET), request, 30 * 86400));
+      headers.append("set-cookie", cookie(SESSION_COOKIE, await encrypt(session, env.SESSION_SECRET), request, SESSION_MAX_AGE_SECONDS));
       headers.append("set-cookie", clearCookie(OAUTH_COOKIE, request));
       return new Response(null, { status: 302, headers });
     }

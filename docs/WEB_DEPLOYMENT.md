@@ -23,6 +23,12 @@ proof that expires after 30 minutes.
    users outside the test list cannot be promised access before approval; Google may also require
    an independent security assessment.
 
+The Desktop app uses only its public Client ID, a random loopback redirect, and PKCE. Do not create,
+store, or inject a Desktop Client Secret as a security control: native applications cannot keep one
+confidential after distribution. The web secret remains a Sites secret environment variable and
+must never be printed by builds, request logs, diagnostics, or error pages. Rotate it and
+`SESSION_SECRET` after any suspected exposure. Web login sessions expire after 30 minutes.
+
 The full Drive scope is required to find and manage pre-existing user-selected duplicate files.
 Both trash and permanent deletion use that same already-declared scope; the permanent operation
 does not introduce an additional scope. The application still checks `canTrash` or `canDelete`

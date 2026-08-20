@@ -29,7 +29,7 @@ test("renders the DUPESPACE product landing page with canonical SEO metadata", a
   assert.match(html, /translate="no"[^>]*lang="en"[^>]*>DUPE<em>SPACE<\/em>/);
   assert.match(html, /class="headline-line">找出重複檔案，<\/span>/);
   assert.match(html, /FREE • OPEN SOURCE • PRIVACY-FIRST/);
-  assert.match(html, /設計目標，就是讓誤刪變得困難/);
+  assert.match(html, /class="heading-phrase">設計目標，<\/span><wbr\/><span class="heading-phrase">就是讓誤刪<\/span><wbr\/><span class="heading-phrase">變得困難。<\/span>/);
   assert.match(html, /預設移至垃圾桶/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });
@@ -87,6 +87,8 @@ test("keeps responsive layouts stable and batch sounds bounded", async () => {
   assert.match(css, /@media \(prefers-reduced-motion:reduce\)/);
   assert.match(css, /\.brand-name\s*\{[^}]*white-space:nowrap/);
   assert.match(css, /\.headline-line\s*\{[^}]*white-space:nowrap/);
+  assert.match(css, /\.heading-phrase\s*\{[^}]*white-space:nowrap/);
+  assert.match(css, /line-break:strict/);
 
   const operationBody = cleanerSource.slice(
     cleanerSource.indexOf("async function executeOperation"),
@@ -103,6 +105,7 @@ test("renders legal and cleaner routes with security headers", async () => {
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-security-policy") ?? "", /frame-ancestors 'none'/);
     assert.match(response.headers.get("x-content-type-options") ?? "", /nosniff/);
+    assert.equal(response.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
   }
 });
 
@@ -141,6 +144,10 @@ test("keeps Google Drive API disconnected until an encrypted session exists", as
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { connected: false, configured: true });
   assert.match(response.headers.get("cache-control") ?? "", /no-store/);
+
+  const workerSource = await readFile(new URL("../worker/google-drive.ts", import.meta.url), "utf8");
+  assert.match(workerSource, /SESSION_MAX_AGE_SECONDS = 30 \* 60/);
+  assert.doesNotMatch(workerSource, /30 \* 86400/);
 
   const unconfigured = await worker.fetch(
     new Request("https://dupespace.example/api/google/status"),

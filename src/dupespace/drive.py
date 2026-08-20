@@ -86,22 +86,22 @@ def _load_google_modules() -> tuple[Any, Any, Any, Any]:
 
 def _desktop_oauth_config() -> dict[str, Any]:
     client_id = os.getenv("DUPESPACE_GOOGLE_DESKTOP_CLIENT_ID", "")
-    client_secret = os.getenv("DUPESPACE_GOOGLE_DESKTOP_CLIENT_SECRET", "")
     try:
-        from ._desktop_oauth import CLIENT_ID, CLIENT_SECRET
+        from ._desktop_oauth import CLIENT_ID
 
         client_id = CLIENT_ID or client_id
-        client_secret = CLIENT_SECRET or client_secret
     except ImportError:
         pass
-    if not client_id or not client_secret:
+    if not client_id:
         raise DriveAuthenticationError(
-            "這個開發版本尚未注入 DUPESPACE Google Desktop OAuth 設定。"
+            "這個開發版本尚未注入 DUPESPACE Google Desktop OAuth Client ID。"
         )
     return {
         "installed": {
             "client_id": client_id,
-            "client_secret": client_secret,
+            # A native app cannot keep a client secret. Google authenticates this public
+            # client with the loopback redirect and PKCE instead of a bundled secret.
+            "client_secret": "",
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
             "redirect_uris": ["http://localhost"],
@@ -128,6 +128,12 @@ def build_drive_service(
             raise DriveAuthenticationError(f"OAuth 憑證檔無法讀取：{error}") from error
         if not isinstance(data, dict) or "installed" not in data:
             raise DriveAuthenticationError("請使用 Google OAuth Desktop app（installed）JSON 檔")
+        installed = data["installed"]
+        if not isinstance(installed, dict) or not installed.get("client_id"):
+            raise DriveAuthenticationError("OAuth Desktop app JSON 缺少 Client ID")
+        # Ignore the generated Desktop client secret even when an older Google JSON file
+        # contains one. Native client secrets are public material and must not be relied on.
+        data = {"installed": {**installed, "client_secret": ""}}
 
     Request, Credentials, InstalledAppFlow, build = _load_google_modules()
     token_file = Path(token_path) if token_path else default_token_path()
@@ -147,7 +153,11 @@ def build_drive_service(
                 raise DriveAuthenticationError(f"Google 登入權杖更新失敗：{error}") from error
         else:
             try:
-                flow = InstalledAppFlow.from_client_config(data, [DRIVE_SCOPE])
+                flow = InstalledAppFlow.from_client_config(
+                    data,
+                    [DRIVE_SCOPE],
+                    autogenerate_code_verifier=True,
+                )
                 creds = flow.run_local_server(port=0, open_browser=True)
             except Exception as error:  # noqa: BLE001 - normalize auth library errors
                 raise DriveAuthenticationError(f"Google OAuth 登入失敗：{error}") from error
