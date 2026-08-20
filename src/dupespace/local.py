@@ -84,7 +84,32 @@ def _hash_file(path: Path, expected: os.stat_result, chunk_size: int) -> str:
 MINIMUM_AUTO_SELECT_BYTES = 1024 * 1024
 
 _PROJECT_MARKERS = frozenset(
-    {".git", ".svn", ".hg", "pyproject.toml", "package.json", "cargo.toml", ".csproj"}
+    {
+        ".git",
+        ".svn",
+        ".hg",
+        ".idea",
+        ".vscode",
+        "pyproject.toml",
+        "package.json",
+        "cargo.toml",
+        "go.mod",
+        "composer.json",
+        "gemfile",
+        "pom.xml",
+        "build.gradle",
+        "build.gradle.kts",
+        "settings.gradle",
+        "settings.gradle.kts",
+    }
+)
+_PROJECT_MARKER_SUFFIXES = (
+    ".sln",
+    ".csproj",
+    ".fsproj",
+    ".vbproj",
+    ".vcxproj",
+    ".xcodeproj",
 )
 _PACKAGE_DIRECTORY_NAMES = frozenset(
     {".venv", "venv", "env", "node_modules", "site-packages", "__pycache__", "vendor"}
@@ -147,6 +172,20 @@ def _ancestors_within(path: Path, root: Path) -> tuple[Path, ...]:
     return tuple(ancestors)
 
 
+def _is_project_folder(folder: Path) -> bool:
+    """Recognize common source-control and build roots without following links."""
+
+    try:
+        with os.scandir(folder) as entries:
+            for entry in entries:
+                folded = entry.name.casefold()
+                if folded in _PROJECT_MARKERS or folded.endswith(_PROJECT_MARKER_SUFFIXES):
+                    return True
+    except (OSError, PermissionError):
+        return False
+    return False
+
+
 def detect_safety_context(path: Path, root: Path) -> SafetyContext:
     """Classify semantic contexts where an exact copy may still be required."""
 
@@ -157,8 +196,7 @@ def detect_safety_context(path: Path, root: Path) -> SafetyContext:
     for ancestor in _ancestors_within(path, root):
         folded = ancestor.name.casefold()
         if project_folder is None and (
-            folded in _PACKAGE_DIRECTORY_NAMES
-            or any((ancestor / marker).exists() for marker in _PROJECT_MARKERS)
+            folded in _PACKAGE_DIRECTORY_NAMES or _is_project_folder(ancestor)
         ):
             project_folder = ancestor
         if backup_folder is None and folded in _BACKUP_NAMES:
@@ -308,15 +346,20 @@ class LocalScanner:
             if _is_cancelled(cancel_event):
                 raise ScanCancelled("Local scan cancelled")
             try:
-                checksum = _hash_file(path, expected_stat, self.chunk_size)
                 context = detect_safety_context(path, Path(scan_root.physical_path))
+                # Identical project files can be independently required by separate programs.
+                # Do not hash or surface them as duplicate candidates, even for manual unlock.
+                if context.project:
+                    skipped += 1
+                    continue
+                checksum = _hash_file(path, expected_stat, self.chunk_size)
                 is_keep = scan_root.role == "keep"
                 is_locked = scan_root.role == "clean" and context.requires_unlock
                 selectable = scan_root.role == "clean" and not is_locked
                 if is_keep:
                     protection_reason = "保留區檔案永遠保留"
                 elif is_locked:
-                    protection_reason = "此檔案位於程式、專案、備份或同步情境，需逐資料夾解鎖"
+                    protection_reason = "此檔案位於程式、備份或同步情境，需逐資料夾解鎖"
                 else:
                     protection_reason = None
                 records.append(
@@ -397,6 +440,9 @@ def _validate_local_snapshot(
     source_root = safety_policy.validate_scan_root(record.source_root)
     if not _contains_path(source_root, path):
         raise UnsafePathError("檔案已離開原本掃描根目錄")
+    current_context = detect_safety_context(path, source_root)
+    if current_context.project:
+        raise UnsafePathError("程式碼專案中的檔案屬於硬性保護範圍，不能清理。")
     key_path = safety_policy.validate_regular_file(_local_key_path(record))
     if os.path.normcase(str(path)) != os.path.normcase(str(key_path)):
         raise UnsafePathError("檔案路徑與掃描識別碼不一致。")

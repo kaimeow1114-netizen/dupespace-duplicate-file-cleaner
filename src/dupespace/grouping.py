@@ -52,6 +52,8 @@ def build_local_duplicate_groups(records: Iterable[FileRecord]) -> tuple[Duplica
 
     buckets: dict[str, list[FileRecord]] = defaultdict(list)
     for record in records:
+        if record.safety_context.is_hard_protected:
+            continue
         buckets[record.fingerprint].append(record)
 
     groups: list[DuplicateGroup] = []
@@ -183,6 +185,7 @@ def unlock_locked_folder(
             context = record.safety_context
             if (
                 record.root_role == "clean"
+                and not context.is_hard_protected
                 and context.locked_folder is not None
                 and Path(context.locked_folder) == folder_path
             ):

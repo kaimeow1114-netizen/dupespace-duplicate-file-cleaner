@@ -29,7 +29,14 @@ test("renders the DUPESPACE product landing page with canonical SEO metadata", a
   assert.match(html, /translate="no"[^>]*lang="en"[^>]*>DUPE<em>SPACE<\/em>/);
   assert.match(html, /class="headline-line">找出重複檔案，<\/span>/);
   assert.match(html, /FREE • OPEN SOURCE • PRIVACY-FIRST/);
-  assert.match(html, /class="heading-phrase">設計目標，<\/span><wbr\/><span class="heading-phrase">就是讓誤刪<\/span><wbr\/><span class="heading-phrase">變得困難。<\/span>/);
+  assert.match(html, /href="\/cleaner"[^>]*>線上清理 Google Drive/);
+  assert.match(
+    html,
+    /class="hero-actions"[\s\S]*?href="\/cleaner"[^>]*>線上清理 Google Drive[\s\S]*?DupeSpace-Setup\.exe[^>]*>下載 Windows 版/,
+  );
+  assert.match(html, /class="heading-phrase">先確認每份用途，<\/span><wbr\/><span class="heading-phrase">再放心清出空間。<\/span>/);
+  assert.match(html, /程式碼專案不碰/);
+  assert.match(html, /專案檔案硬性排除，不能解鎖/);
   assert.match(html, /預設移至垃圾桶/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });

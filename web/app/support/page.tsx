@@ -17,7 +17,7 @@ export default function SupportPage() {
         <article><span>01</span><h2>重要來源放進保留區</h2><p>把照片原始檔、工作文件、正式匯出檔或主要資料庫備份所在位置指定為保留區。保留區的每一份檔案永遠不可勾選或刪除。</p></article>
         <article><span>02</span><h2>只把候選位置放進清理區</h2><p>下載資料夾、手動複製的暫存整理區或已確認可減少副本的位置才適合當清理區。兩種根目錄不可相同、巢狀或重疊。</p></article>
         <article><span>03</span><h2>看內容，不只看檔名</h2><p>相同檔名可能是不同版本；不同檔名也可能內容完全一致。Windows 版使用完整 SHA-256，但仍應查看完整路徑與用途。</p></article>
-        <article><span>04</span><h2>程式、專案與備份預設鎖定</h2><p>Git／SVN、套件、虛擬環境、執行檔、安裝資源、備份、快照與同步資料夾中的副本可能各有用途，因此不會自動選取。</p></article>
+        <article><span>04</span><h2>程式碼專案一律硬性保護</h2><p>Git／SVN、常見建置專案、套件目錄與虛擬環境中的設定、依賴或外掛可能被不同專案各自需要，因此不雜湊、不列為候選，也不能解鎖。執行檔、備份與同步資料夾則維持預設鎖定。</p></article>
         <article><span>05</span><h2>預設使用垃圾桶</h2><p>先用少量測試副本確認流程。垃圾桶失敗只會記錄失敗，不會自動改用永久刪除；永久刪除永遠要重新手動選取。</p></article>
         <article><span>06</span><h2>暫存與系統垃圾交給 Windows</h2><p>DUPESPACE 不碰系統管理資料。請改用 Windows 的「設定 → 系統 → 儲存體 → 清理建議」或儲存空間感知，並逐項查看建議。</p><a href="https://support.microsoft.com/en-us/windows/free-up-drive-space-in-windows-85529ccb-c365-490d-b548-831022bc9b32">查看 Microsoft 官方釋放空間指南 →</a></article>
       </section>

@@ -13,8 +13,10 @@ oldest-file keeper policy. Both surfaces page large result sets and produce per-
 
 Content equality means “duplicate candidate”, not “safe to delete everywhere.” Clean-root-only
 groups are not shown. Zero-byte files are ignored; files smaller than 1 MiB can be reviewed but
-are never preselected. Project, application, backup, and sync contexts are locked until the user
-reviews the full folder path, count, and bytes and types a folder-specific phrase.
+are never preselected. Source-code projects and package environments are hard-excluded because
+identical configuration, dependency, and plug-in files can be independently required by different
+projects. Application, backup, and sync contexts remain locked until the user reviews the full
+folder path, count, and bytes and types a folder-specific phrase.
 
 ## Trash and permanent deletion
 
@@ -92,9 +94,8 @@ distribution requires Google verification and may require a security assessment.
 
 The web app stores OAuth tokens only inside an encrypted HttpOnly cookie. File content never
 passes through the DUPESPACE server. The Windows app stores its desktop token only under the
-current user’s DupeSpace local application data. DupeSweep sound preferences migrate atomically,
-but old OAuth tokens never migrate: v0.4.0 requires a fresh Google sign-in. Credentials, secrets,
-tokens, and user data do not belong in Git.
+current user’s DupeSpace local application data. Credentials, secrets, tokens, and user data do
+not belong in Git.
 
 See [docs/SAFETY.md](docs/SAFETY.md) and [docs/WEB_DEPLOYMENT.md](docs/WEB_DEPLOYMENT.md).
 

@@ -31,7 +31,15 @@ class SafetyContext:
 
     @property
     def requires_unlock(self) -> bool:
-        return any((self.project, self.application, self.backup, self.sync))
+        """Whether a non-project risk folder may be unlocked for this scan only."""
+
+        return any((self.application, self.backup, self.sync))
+
+    @property
+    def is_hard_protected(self) -> bool:
+        """Contexts that can never become an operation target."""
+
+        return self.project or self.cloud_placeholder
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,3 +188,7 @@ class OperationItem:
                 )
             if not self.record.selectable:
                 raise ValueError("A locked local file cannot be an operation target")
+            if self.record.safety_context.is_hard_protected:
+                raise ValueError(
+                    "A project or cloud-placeholder file cannot be an operation target"
+                )

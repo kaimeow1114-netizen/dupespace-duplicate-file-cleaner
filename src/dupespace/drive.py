@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from .grouping import build_duplicate_groups
-from .migration import app_data_dir as dupespace_data_dir
 from .models import (
     ActionOutcome,
     ActionReport,
@@ -20,6 +19,7 @@ from .models import (
     ProgressUpdate,
     ScanReport,
 )
+from .paths import app_data_dir as dupespace_data_dir
 
 MINIMUM_AUTO_SELECT_BYTES = 1024 * 1024
 

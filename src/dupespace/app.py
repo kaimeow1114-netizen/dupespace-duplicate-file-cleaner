@@ -803,6 +803,14 @@ class DupeSpaceApp(tk.Tk):
             return
         _group, record = self.rows[index]
         folder = record.safety_context.locked_folder
+        if record.safety_context.project:
+            messagebox.showinfo(
+                "程式碼專案受到保護",
+                "不同專案即使有相同設定、依賴或外掛檔案，也可能各自不可或缺。"
+                "DUPESPACE 不會將程式碼專案內的檔案列為清理候選，也不能解鎖。",
+                parent=self,
+            )
+            return
         if record.source != "local" or folder is None:
             messagebox.showinfo(
                 "不需要解鎖", "這個項目不屬於需要逐資料夾解鎖的情境。", parent=self
@@ -820,7 +828,7 @@ class DupeSpaceApp(tk.Tk):
         typed = simpledialog.askstring(
             "解鎖風險資料夾",
             f"完整路徑：{folder}\n檔案數：{len(affected):,}\n容量：{_format_bytes(total_bytes)}\n\n"
-            f"此資料夾可能屬於程式、專案、備份或同步內容。若仍要允許手動選取，請輸入：\n{phrase}",
+            f"此資料夾可能屬於程式、備份或同步內容。若仍要允許手動選取，請輸入：\n{phrase}",
             parent=self,
         )
         if typed is None:

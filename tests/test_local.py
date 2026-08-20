@@ -8,7 +8,6 @@ import pytest
 from dupespace.grouping import (
     default_selection,
     operation_items,
-    unlock_locked_folder,
     validate_selection,
 )
 from dupespace.local import LocalPermanentDeleteExecutor, LocalScanner, LocalTrashExecutor
@@ -212,32 +211,42 @@ def test_one_mib_safe_clean_copy_is_preselected(tmp_path: Path) -> None:
     assert default_selection(report.groups, "permanent") == set()
 
 
-def test_project_context_requires_exact_session_unlock(tmp_path: Path) -> None:
+def test_identical_files_in_independent_projects_are_never_candidates(tmp_path: Path) -> None:
     keep, clean, roots = scan_roots(tmp_path)
-    project = clean / "photo-project"
-    (project / ".git").mkdir(parents=True)
-    content = b"p" * (1024 * 1024)
-    (keep / "source.bin").write_bytes(content)
-    (project / "required-copy.bin").write_bytes(content)
+    first_project = keep / "service-one"
+    second_project = clean / "service-two"
+    (first_project / ".git").mkdir(parents=True)
+    (second_project / ".git").mkdir(parents=True)
+    content = b'{"sharedPlugin":"required-by-this-project"}' * 30_000
+    (first_project / "settings.json").write_bytes(content)
+    (second_project / "settings.json").write_bytes(content)
 
     report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
-    target = next(record for record in report.groups[0].records if record.root_role == "clean")
-    assert target.safety_context.project
-    assert target.safety_context.locked_folder == str(project)
-    assert not target.selectable
-    assert default_selection(report.groups) == set()
-    with pytest.raises(ValueError):
-        unlock_locked_folder(report.groups, str(project), "允許清理 other")
 
-    unlocked = unlock_locked_folder(
-        report.groups, str(project), "允許清理 photo-project"
+    assert report.groups == ()
+    assert report.hashed_files == 0
+    assert report.skipped_files >= 2
+    assert default_selection(report.groups) == set()
+
+
+def test_project_marker_added_after_scan_blocks_operation(tmp_path: Path) -> None:
+    keep, clean, roots = scan_roots(tmp_path)
+    target_folder = clean / "ordinary-folder"
+    target_folder.mkdir()
+    (keep / "keeper.bin").write_bytes(b"duplicate")
+    (target_folder / "copy.bin").write_bytes(b"duplicate")
+    report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
+    target = next(record for record in report.groups[0].records if record.root_role == "clean")
+    (target_folder / ".git").mkdir()
+
+    moved: list[str] = []
+    action = LocalTrashExecutor(trash_func=moved.append, safety_policy=TEST_POLICY).trash(
+        operation_items(report.groups, {target.key})
     )
-    unlocked_target = next(
-        record for record in unlocked[0].records if record.root_role == "clean"
-    )
-    assert unlocked_target.selectable
-    assert not unlocked_target.auto_selectable
-    validate_selection(unlocked, {unlocked_target.key})
+
+    assert moved == []
+    assert len(action.skipped) == 1
+    assert "程式碼專案" in (action.skipped[0].error or "")
 
 
 @pytest.mark.parametrize(

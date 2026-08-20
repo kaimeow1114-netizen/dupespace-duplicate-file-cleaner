@@ -10,7 +10,7 @@ from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Literal
 
-from .migration import migrate_legacy_preferences
+from .paths import app_data_dir
 
 SoundEvent = Literal[
     "confirm",
@@ -23,7 +23,7 @@ SoundEvent = Literal[
 
 
 def _settings_path() -> Path:
-    return migrate_legacy_preferences() / "settings.json"
+    return app_data_dir() / "settings.json"
 
 
 class SoundPlayer:
