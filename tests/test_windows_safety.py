@@ -50,10 +50,12 @@ def test_symlink_or_junction_cannot_bypass_protection(tmp_path: Path) -> None:
 def test_short_path_alias_is_expanded_before_protection_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Create the simulated alias first. On Windows volumes with 8.3 names enabled,
+    # creating the long directory first can make PROTEC~1 an existing system alias.
+    alias = tmp_path / "DUPEQA~1"
+    alias.mkdir()
     protected = tmp_path / "Protected Program Files"
     protected.mkdir()
-    alias = tmp_path / "PROTEC~1"
-    alias.mkdir()
 
     def expand(path: Path) -> Path:
         return protected if path.name == alias.name else path
