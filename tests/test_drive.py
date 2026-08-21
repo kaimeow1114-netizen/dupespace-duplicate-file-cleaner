@@ -116,7 +116,7 @@ def drive_item(file_id: str, checksum: str = "abc", **overrides: Any) -> dict[st
     return item
 
 
-def record(file_id: str) -> FileRecord:
+def record(file_id: str, parent_ids: tuple[str, ...] = ()) -> FileRecord:
     return FileRecord(
         key=f"drive:{file_id}",
         source="drive",
@@ -129,6 +129,7 @@ def record(file_id: str) -> FileRecord:
         can_trash=True,
         can_delete=True,
         mime_type="application/octet-stream",
+        parent_ids=parent_ids,
     )
 
 
@@ -260,6 +261,76 @@ def test_drive_files_smaller_than_one_mib_are_shown_but_not_preselected() -> Non
     assert default_selection(report.groups) == set()
 
 
+def test_drive_identical_files_in_independent_projects_are_never_candidates() -> None:
+    size = str(1024 * 1024)
+    pages = [
+        {
+            "files": [
+                drive_item(
+                    "project-one",
+                    name="service-one",
+                    mimeType="application/vnd.google-apps.folder",
+                    size=None,
+                    md5Checksum=None,
+                ),
+                drive_item(
+                    "git-one",
+                    name=".git",
+                    mimeType="application/vnd.google-apps.folder",
+                    size=None,
+                    md5Checksum=None,
+                    parents=["project-one"],
+                ),
+                drive_item(
+                    "settings-one",
+                    name="settings.json",
+                    size=size,
+                    checksum="project-config",
+                    parents=["project-one"],
+                ),
+                drive_item(
+                    "project-two",
+                    name="service-two",
+                    mimeType="application/vnd.google-apps.folder",
+                    size=None,
+                    md5Checksum=None,
+                ),
+                drive_item(
+                    "package-two",
+                    name="package.json",
+                    checksum="package-marker",
+                    parents=["project-two"],
+                ),
+                drive_item(
+                    "settings-two",
+                    name="settings.json",
+                    size=size,
+                    checksum="project-config",
+                    parents=["project-two"],
+                ),
+                drive_item("ordinary-old", size=size, checksum="ordinary"),
+                drive_item(
+                    "ordinary-new",
+                    size=size,
+                    checksum="ordinary",
+                    createdTime="2026-02-01T00:00:00Z",
+                ),
+            ]
+        }
+    ]
+
+    report = GoogleDriveScanner().scan(FakeService(pages))
+
+    assert len(report.groups) == 1
+    assert {record.key for record in report.groups[0].records} == {
+        "drive:ordinary-old",
+        "drive:ordinary-new",
+    }
+    assert default_selection(report.groups) == {"drive:ordinary-new"}
+    assert all("settings" not in record.name for group in report.groups for record in group.records)
+    assert any("程式碼專案" in warning for warning in report.warnings)
+
+
 def make_items(count: int, service: FakeService) -> list[OperationItem]:
     keeper = record("keeper")
     service.files_resource.metadata["keeper"] = drive_item("keeper")
@@ -306,6 +377,20 @@ def test_drive_permanent_delete_uses_delete_path_and_revalidates_version() -> No
     assert len(report.deleted) == 1
     assert len(report.skipped) == 1
     assert [call["fileId"] for call in service.files_resource.delete_calls] == ["id-0"]
+    assert service.files_resource.update_calls == []
+
+
+def test_drive_operation_skips_file_moved_after_scan() -> None:
+    service = FakeService()
+    keeper = record("keeper", ("keep-folder",))
+    target = record("target", ("clean-folder",))
+    service.files_resource.metadata["keeper"] = drive_item("keeper", parents=["keep-folder"])
+    service.files_resource.metadata["target"] = drive_item("target", parents=["project-folder"])
+
+    report = GoogleDriveTrashExecutor(retry_count=0).trash(service, [OperationItem(target, keeper)])
+
+    assert len(report.skipped) == 1
+    assert "different Google Drive folder" in (report.skipped[0].error or "")
     assert service.files_resource.update_calls == []
 
 

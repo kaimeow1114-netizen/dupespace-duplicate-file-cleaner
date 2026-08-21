@@ -13,10 +13,11 @@ oldest-file keeper policy. Both surfaces page large result sets and produce per-
 
 Content equality means “duplicate candidate”, not “safe to delete everywhere.” Clean-root-only
 groups are not shown. Zero-byte files are ignored; files smaller than 1 MiB can be reviewed but
-are never preselected. Source-code projects and package environments are hard-excluded because
-identical configuration, dependency, and plug-in files can be independently required by different
-projects. Application, backup, and sync contexts remain locked until the user reviews the full
-folder path, count, and bytes and types a folder-specific phrase.
+are never preselected. On Windows and Google Drive, recognized source-code projects and package
+environments are hard-excluded because identical configuration, dependency, and plug-in files can
+be independently required by different projects. Application, backup, and sync contexts remain
+locked until the user reviews the full folder path, count, and bytes and types a folder-specific
+phrase.
 
 ## Trash and permanent deletion
 

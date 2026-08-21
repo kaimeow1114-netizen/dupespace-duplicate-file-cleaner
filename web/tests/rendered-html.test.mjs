@@ -61,6 +61,9 @@ test("renders independent trash and permanent-delete safety controls", async () 
   assert.match(workerSource, /\/api\/google\/delete/);
   assert.match(workerSource, /method: "DELETE"/);
   assert.doesNotMatch(workerSource, /trash.*catch[\s\S]{0,200}DELETE/i);
+  assert.match(workerSource, /"webViewLink", "parents"/);
+  assert.match(workerSource, /driveProjectProtectedIds\(listed\)/);
+  assert.match(workerSource, /projectProtected: protectedIds\.size/);
 });
 
 test("ships PWA, crawler, sitemap and ad declarations", async () => {

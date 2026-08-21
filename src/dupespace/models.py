@@ -59,6 +59,7 @@ class FileRecord:
     can_delete: bool = False
     mime_type: str | None = None
     web_url: str | None = None
+    parent_ids: tuple[str, ...] = ()
     source_root: str | None = None
     root_role: RootRole | None = None
     selectable: bool = True

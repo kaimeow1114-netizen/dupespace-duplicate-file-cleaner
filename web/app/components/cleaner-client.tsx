@@ -23,6 +23,7 @@ type DriveGroup = { fingerprint: string; reclaimableBytes: number; records: Driv
 type ScanResult = {
   examined: number;
   skipped: number;
+  projectProtected: number;
   duplicateCopies: number;
   reclaimableBytes: number;
   groups: DriveGroup[];
@@ -71,7 +72,8 @@ function isDriveGroup(value: unknown): value is DriveGroup {
 
 function isScanResult(value: unknown): value is ScanResult {
   return isObject(value) && typeof value.examined === "number" &&
-    typeof value.skipped === "number" && typeof value.duplicateCopies === "number" &&
+    typeof value.skipped === "number" && typeof value.projectProtected === "number" &&
+    typeof value.duplicateCopies === "number" &&
     typeof value.reclaimableBytes === "number" && Array.isArray(value.groups) &&
     value.groups.every(isDriveGroup);
 }
@@ -388,7 +390,7 @@ export function CleanerClient() {
           </div>
         </section>
         <div className="results-toolbar">
-          <div><b>{scan.groups.length.toLocaleString()} 組 · {scan.duplicateCopies.toLocaleString()} 個重複副本</b><span>掃描 {scan.examined.toLocaleString()} 個項目，略過 {scan.skipped.toLocaleString()} 個不適用項目</span></div>
+          <div><b>{scan.groups.length.toLocaleString()} 組 · {scan.duplicateCopies.toLocaleString()} 個重複副本</b><span>掃描 {scan.examined.toLocaleString()} 個項目，略過 {scan.skipped.toLocaleString()} 個不適用項目；其中 {scan.projectProtected.toLocaleString()} 個專案項目受到硬性保護</span></div>
           <div><button className="text-button" onClick={() => setSelected(new Set(records.filter((record) => selectable(record)).map((record) => record.id)))} disabled={mode === "permanent"}>選取全部可處理副本</button><button className="text-button" onClick={() => setSelected(new Set())}>清除選取</button></div>
         </div>
         {!scan.groups.length && <div className="empty-state"><span>✦</span><h3>目前很乾淨</h3><p>沒有找到可安全比對的重複檔案。</p></div>}

@@ -24,6 +24,7 @@ interface DriveFile {
   trashed?: boolean;
   capabilities?: { canTrash?: boolean; canDelete?: boolean };
   webViewLink?: string;
+  parents?: string[];
 }
 
 interface ProofPayload {
@@ -33,10 +34,12 @@ interface ProofPayload {
   size: string;
   modifiedTime: string;
   mimeType: string;
+  parents: string[];
   keeperId: string;
   keeperVersion: string;
   keeperChecksum: string;
   keeperModifiedTime: string;
+  keeperParents: string[];
   expiresAt: number;
 }
 
@@ -51,9 +54,18 @@ const textDecoder = new TextDecoder();
 const FILE_FIELDS = [
   "id", "name", "mimeType", "size", "md5Checksum", "sha256Checksum", "createdTime",
   "modifiedTime", "ownedByMe", "version", "trashed", "capabilities(canTrash,canDelete)",
-  "webViewLink",
+  "webViewLink", "parents",
 ].join(",");
 const MINIMUM_AUTO_SELECT_BYTES = 1024 * 1024;
+const PROJECT_MARKERS = new Set([
+  ".git", ".svn", ".hg", ".idea", ".vscode", "pyproject.toml", "package.json",
+  "cargo.toml", "go.mod", "composer.json", "gemfile", "pom.xml", "build.gradle",
+  "build.gradle.kts", "settings.gradle", "settings.gradle.kts",
+]);
+const PROJECT_SUFFIXES = [".sln", ".csproj", ".fsproj", ".vbproj", ".vcxproj", ".xcodeproj"];
+const PACKAGE_DIRECTORIES = new Set([
+  ".venv", "venv", "env", "node_modules", "site-packages", "__pycache__", "vendor",
+]);
 
 function encodeBase64Url(bytes: Uint8Array): string {
   let binary = "";
@@ -238,6 +250,47 @@ function unsupportedType(file: DriveFile): boolean {
     file.mimeType === "application/vnd.google-apps.shortcut";
 }
 
+function isProjectMarkerName(name: string): boolean {
+  const folded = name.toLocaleLowerCase("en-US");
+  return PROJECT_MARKERS.has(folded) || PROJECT_SUFFIXES.some((suffix) => folded.endsWith(suffix));
+}
+
+function driveProjectProtectedIds(files: DriveFile[]): Set<string> {
+  const knownIds = new Set(files.map((file) => file.id));
+  const children = new Map<string, Set<string>>();
+  const roots = new Set<string>();
+  const protectedIds = new Set<string>();
+  for (const file of files) {
+    const parents = file.parents ?? [];
+    for (const parent of parents) {
+      const bucket = children.get(parent) ?? new Set<string>();
+      bucket.add(file.id);
+      children.set(parent, bucket);
+    }
+    const folder = file.mimeType === "application/vnd.google-apps.folder";
+    const folded = file.name.toLocaleLowerCase("en-US");
+    if (isProjectMarkerName(file.name)) {
+      protectedIds.add(file.id);
+      for (const parent of parents) if (knownIds.has(parent)) roots.add(parent);
+    }
+    if (folder && PACKAGE_DIRECTORIES.has(folded)) {
+      protectedIds.add(file.id);
+      roots.add(file.id);
+      for (const parent of parents) if (knownIds.has(parent)) roots.add(parent);
+    }
+  }
+  const queue = [...roots];
+  const visited = new Set<string>();
+  while (queue.length) {
+    const id = queue.shift() as string;
+    if (visited.has(id)) continue;
+    visited.add(id);
+    protectedIds.add(id);
+    queue.push(...(children.get(id) ?? []));
+  }
+  return protectedIds;
+}
+
 function keeperRank(file: DriveFile): [number, string, string] {
   const timestamp = Date.parse(file.createdTime ?? file.modifiedTime ?? "9999-12-31T23:59:59Z");
   return [Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER, file.name.toLocaleLowerCase(), file.id];
@@ -249,10 +302,14 @@ function compareRank(left: DriveFile, right: DriveFile): number {
   return a[0] - b[0] || a[1].localeCompare(b[1]) || a[2].localeCompare(b[2]);
 }
 
-async function listDrive(session: OAuthSession): Promise<{ files: DriveFile[]; examined: number; skipped: number }> {
-  const files: DriveFile[] = [];
+async function listDrive(session: OAuthSession): Promise<{
+  files: DriveFile[];
+  examined: number;
+  skipped: number;
+  projectProtected: number;
+}> {
+  const listed: DriveFile[] = [];
   let examined = 0;
-  let skipped = 0;
   let pageToken = "";
   do {
     const query = new URLSearchParams({
@@ -268,24 +325,26 @@ async function listDrive(session: OAuthSession): Promise<{ files: DriveFile[]; e
     const page = (await response.json()) as { nextPageToken?: string; files?: DriveFile[] };
     for (const file of page.files ?? []) {
       examined += 1;
-      if (
-        unsupportedType(file) || !file.ownedByMe || !file.size || Number(file.size) === 0 || !checksum(file) ||
-        (!file.capabilities?.canTrash && !file.capabilities?.canDelete)
-      ) {
-        skipped += 1;
-        continue;
-      }
-      files.push(file);
+      listed.push(file);
     }
     pageToken = page.nextPageToken ?? "";
   } while (pageToken);
-  return { files, examined, skipped };
+  const protectedIds = driveProjectProtectedIds(listed);
+  let skipped = 0;
+  const files = listed.filter((file) => {
+    const unsupported = protectedIds.has(file.id) || unsupportedType(file) || !file.ownedByMe ||
+      !file.size || Number(file.size) === 0 || !checksum(file) ||
+      (!file.capabilities?.canTrash && !file.capabilities?.canDelete);
+    if (unsupported) skipped += 1;
+    return !unsupported;
+  });
+  return { files, examined, skipped, projectProtected: protectedIds.size };
 }
 
 async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Response> {
   requireSameOrigin(request);
   const { session, setCookie } = await authorizedSession(request, env);
-  const [{ files, examined, skipped }, aboutResponse] = await Promise.all([
+  const [{ files, examined, skipped, projectProtected }, aboutResponse] = await Promise.all([
     listDrive(session),
     googleFetch(session, "https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress,photoLink),storageQuota"),
   ]);
@@ -329,10 +388,12 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
             size: file.size,
             modifiedTime: file.modifiedTime ?? "",
             mimeType: file.mimeType,
+            parents: [...(file.parents ?? [])].sort(),
             keeperId: keeper.id,
             keeperVersion: keeper.version ?? "",
             keeperChecksum: keeperDigest,
             keeperModifiedTime: keeper.modifiedTime ?? "",
+            keeperParents: [...(keeper.parents ?? [])].sort(),
             expiresAt,
           }, env.SESSION_SECRET),
         })));
@@ -347,6 +408,7 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
   return json({
     examined,
     skipped,
+    projectProtected,
     duplicateCopies: groups.reduce((total, group) => total + group.records.length - 1, 0),
     reclaimableBytes: groups.reduce((total, group) => total + group.reclaimableBytes, 0),
     groups,
@@ -382,6 +444,7 @@ function validateSnapshot(file: DriveFile, payload: ProofPayload, mode: Operatio
   if (file.id !== payload.id || file.trashed || !file.ownedByMe) return "檔案已移動、刪除或不再由你擁有";
   if (unsupportedType(file) || file.mimeType !== payload.mimeType) return "資料夾、捷徑或檔案類型變更，已跳過";
   if (file.version !== payload.version || file.modifiedTime !== payload.modifiedTime) return "檔案版本或修改時間已變更";
+  if (JSON.stringify([...(file.parents ?? [])].sort()) !== JSON.stringify(payload.parents)) return "檔案已移至不同的 Google Drive 資料夾";
   if (file.size !== payload.size || checksum(file) !== payload.checksum) return "檔案大小或校驗碼已變更";
   if (mode === "trash" && !file.capabilities?.canTrash) return "沒有移至垃圾桶權限";
   if (mode === "permanent" && !file.capabilities?.canDelete) return "沒有永久刪除權限";
@@ -392,6 +455,7 @@ function validateKeeper(file: DriveFile, payload: ProofPayload): string | null {
   if (file.id !== payload.keeperId || file.trashed || !file.ownedByMe) return "保留檔案已移動、刪除或不再由你擁有";
   if (unsupportedType(file)) return "保留項目不是可驗證的一般檔案";
   if (file.version !== payload.keeperVersion || file.modifiedTime !== payload.keeperModifiedTime) return "保留檔案版本已變更";
+  if (JSON.stringify([...(file.parents ?? [])].sort()) !== JSON.stringify(payload.keeperParents)) return "保留檔案已移至不同的 Google Drive 資料夾";
   if (file.size !== payload.size || checksum(file) !== payload.keeperChecksum) return "保留檔案內容已變更";
   return null;
 }

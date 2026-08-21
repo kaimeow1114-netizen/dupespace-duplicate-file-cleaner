@@ -20,6 +20,7 @@ from .models import (
     ScanReport,
     ScanRoot,
 )
+from .project_safety import is_package_directory_name, is_project_marker_name
 from .windows_safety import (
     DEFAULT_WINDOWS_SAFETY_POLICY,
     UnsafePathError,
@@ -83,37 +84,6 @@ def _hash_file(path: Path, expected: os.stat_result, chunk_size: int) -> str:
 
 MINIMUM_AUTO_SELECT_BYTES = 1024 * 1024
 
-_PROJECT_MARKERS = frozenset(
-    {
-        ".git",
-        ".svn",
-        ".hg",
-        ".idea",
-        ".vscode",
-        "pyproject.toml",
-        "package.json",
-        "cargo.toml",
-        "go.mod",
-        "composer.json",
-        "gemfile",
-        "pom.xml",
-        "build.gradle",
-        "build.gradle.kts",
-        "settings.gradle",
-        "settings.gradle.kts",
-    }
-)
-_PROJECT_MARKER_SUFFIXES = (
-    ".sln",
-    ".csproj",
-    ".fsproj",
-    ".vbproj",
-    ".vcxproj",
-    ".xcodeproj",
-)
-_PACKAGE_DIRECTORY_NAMES = frozenset(
-    {".venv", "venv", "env", "node_modules", "site-packages", "__pycache__", "vendor"}
-)
 _APPLICATION_SUFFIXES = frozenset(
     {".exe", ".dll", ".sys", ".msi", ".msp", ".appx", ".msix", ".cab"}
 )
@@ -178,8 +148,7 @@ def _is_project_folder(folder: Path) -> bool:
     try:
         with os.scandir(folder) as entries:
             for entry in entries:
-                folded = entry.name.casefold()
-                if folded in _PROJECT_MARKERS or folded.endswith(_PROJECT_MARKER_SUFFIXES):
+                if is_project_marker_name(entry.name):
                     return True
     except (OSError, PermissionError):
         return False
@@ -196,7 +165,7 @@ def detect_safety_context(path: Path, root: Path) -> SafetyContext:
     for ancestor in _ancestors_within(path, root):
         folded = ancestor.name.casefold()
         if project_folder is None and (
-            folded in _PACKAGE_DIRECTORY_NAMES or _is_project_folder(ancestor)
+            is_package_directory_name(folded) or _is_project_folder(ancestor)
         ):
             project_folder = ancestor
         if backup_folder is None and folded in _BACKUP_NAMES:
@@ -300,11 +269,11 @@ class LocalScanner:
                                 # which is required to distinguish files from hard links.
                                 stat_result = os.stat(entry.path, follow_symlinks=False)
                                 candidate = Path(entry.path)
-                                if self.safety_policy.is_protected(
-                                    candidate
-                                ) or self.safety_policy.has_protected_attributes(
-                                    candidate
-                                ) or is_cloud_placeholder(candidate):
+                                if (
+                                    self.safety_policy.is_protected(candidate)
+                                    or self.safety_policy.has_protected_attributes(candidate)
+                                    or is_cloud_placeholder(candidate)
+                                ):
                                     skipped += 1
                                     continue
                                 examined += 1

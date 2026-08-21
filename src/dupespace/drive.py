@@ -4,6 +4,7 @@ import json
 import os
 import threading
 import time
+from collections import defaultdict, deque
 from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +21,7 @@ from .models import (
     ScanReport,
 )
 from .paths import app_data_dir as dupespace_data_dir
+from .project_safety import is_package_directory_name, is_project_marker_name
 
 MINIMUM_AUTO_SELECT_BYTES = 1024 * 1024
 
@@ -41,6 +43,44 @@ class DriveAuthenticationError(RuntimeError):
 
 class DriveScanCancelled(RuntimeError):
     pass
+
+
+def drive_project_protected_ids(items: Iterable[dict[str, Any]]) -> set[str]:
+    """Return every Drive item inside a recognized source-code project tree."""
+
+    materialized = tuple(items)
+    known_ids = {str(item["id"]) for item in materialized if item.get("id")}
+    children: dict[str, set[str]] = defaultdict(set)
+    project_roots: set[str] = set()
+    protected: set[str] = set()
+
+    for item in materialized:
+        item_id = str(item.get("id") or "")
+        if not item_id:
+            continue
+        parents = tuple(str(parent) for parent in item.get("parents", []) if parent)
+        for parent in parents:
+            children[parent].add(item_id)
+        name = str(item.get("name") or "")
+        is_folder = item.get("mimeType") == GOOGLE_FOLDER_MIME
+        if is_project_marker_name(name):
+            protected.add(item_id)
+            project_roots.update(parent for parent in parents if parent in known_ids)
+        if is_folder and is_package_directory_name(name):
+            protected.add(item_id)
+            project_roots.add(item_id)
+            project_roots.update(parent for parent in parents if parent in known_ids)
+
+    queue = deque(project_roots)
+    visited: set[str] = set()
+    while queue:
+        item_id = queue.popleft()
+        if item_id in visited:
+            continue
+        visited.add(item_id)
+        protected.add(item_id)
+        queue.extend(children.get(item_id, ()))
+    return protected
 
 
 def app_data_dir() -> Path:
@@ -187,7 +227,7 @@ class GoogleDriveScanner:
         include_shared_drives: bool = False,
     ) -> ScanReport:
         page_token: str | None = None
-        records: list[FileRecord] = []
+        listed_items: list[dict[str, Any]] = []
         warnings: list[str] = []
         examined = 0
         skipped = 0
@@ -221,52 +261,7 @@ class GoogleDriveScanner:
 
             for item in response.get("files", []):
                 examined += 1
-                mime_type = item.get("mimeType", "")
-                drive_id = item.get("driveId")
-                owned_by_me = item.get("ownedByMe") is True
-                can_trash = bool(item.get("capabilities", {}).get("canTrash"))
-                can_delete = bool(item.get("capabilities", {}).get("canDelete"))
-                checksum_value = item.get("sha256Checksum") or item.get("md5Checksum")
-                checksum_kind = "sha256" if item.get("sha256Checksum") else "md5"
-
-                if mime_type in {GOOGLE_FOLDER_MIME, GOOGLE_SHORTCUT_MIME}:
-                    skipped += 1
-                    continue
-                if (drive_id and not include_shared_drives) or not owned_by_me:
-                    skipped += 1
-                    continue
-                if not checksum_value or item.get("size") is None:
-                    skipped += 1
-                    continue
-                file_size = int(item["size"])
-                if file_size == 0:
-                    skipped += 1
-                    continue
-
-                records.append(
-                    FileRecord(
-                        key=f"drive:{item['id']}",
-                        source="drive",
-                        name=item.get("name") or "(未命名)",
-                        location=f"Google Drive / {item.get('name') or '(未命名)'}",
-                        size=file_size,
-                        checksum=f"{checksum_kind}:{checksum_value}",
-                        created_at=_timestamp(item.get("createdTime")),
-                        modified_at=_timestamp(item.get("modifiedTime")),
-                        metadata_token=str(item.get("version")) if item.get("version") else None,
-                        can_trash=can_trash,
-                        can_delete=can_delete,
-                        mime_type=mime_type,
-                        web_url=item.get("webViewLink"),
-                        selectable=can_trash or can_delete,
-                        auto_selectable=(
-                            can_trash and file_size >= MINIMUM_AUTO_SELECT_BYTES
-                        ),
-                        protection_reason=(
-                            None if can_trash or can_delete else "目前帳號沒有垃圾桶或刪除權限"
-                        ),
-                    )
-                )
+                listed_items.append(item)
 
             _emit(
                 progress,
@@ -278,6 +273,61 @@ class GoogleDriveScanner:
             page_token = response.get("nextPageToken")
             if not page_token:
                 break
+
+        project_protected = drive_project_protected_ids(listed_items)
+        if project_protected:
+            warnings.append(f"已硬性略過 {len(project_protected):,} 個程式碼專案或套件環境項目。")
+
+        records: list[FileRecord] = []
+        for item in listed_items:
+            if str(item.get("id") or "") in project_protected:
+                skipped += 1
+                continue
+            mime_type = item.get("mimeType", "")
+            drive_id = item.get("driveId")
+            owned_by_me = item.get("ownedByMe") is True
+            can_trash = bool(item.get("capabilities", {}).get("canTrash"))
+            can_delete = bool(item.get("capabilities", {}).get("canDelete"))
+            checksum_value = item.get("sha256Checksum") or item.get("md5Checksum")
+            checksum_kind = "sha256" if item.get("sha256Checksum") else "md5"
+
+            if mime_type in {GOOGLE_FOLDER_MIME, GOOGLE_SHORTCUT_MIME}:
+                skipped += 1
+                continue
+            if (drive_id and not include_shared_drives) or not owned_by_me:
+                skipped += 1
+                continue
+            if not checksum_value or item.get("size") is None:
+                skipped += 1
+                continue
+            file_size = int(item["size"])
+            if file_size == 0:
+                skipped += 1
+                continue
+
+            records.append(
+                FileRecord(
+                    key=f"drive:{item['id']}",
+                    source="drive",
+                    name=item.get("name") or "(未命名)",
+                    location=f"Google Drive / {item.get('name') or '(未命名)'}",
+                    size=file_size,
+                    checksum=f"{checksum_kind}:{checksum_value}",
+                    created_at=_timestamp(item.get("createdTime")),
+                    modified_at=_timestamp(item.get("modifiedTime")),
+                    metadata_token=str(item.get("version")) if item.get("version") else None,
+                    can_trash=can_trash,
+                    can_delete=can_delete,
+                    mime_type=mime_type,
+                    web_url=item.get("webViewLink"),
+                    parent_ids=tuple(sorted(str(parent) for parent in item.get("parents", []))),
+                    selectable=can_trash or can_delete,
+                    auto_selectable=(can_trash and file_size >= MINIMUM_AUTO_SELECT_BYTES),
+                    protection_reason=(
+                        None if can_trash or can_delete else "目前帳號沒有垃圾桶或刪除權限"
+                    ),
+                )
+            )
 
         groups = build_duplicate_groups(records)
         _emit(progress, "complete", examined, examined, "Google Drive 掃描完成")
@@ -307,7 +357,7 @@ def _drive_file_id(record: FileRecord) -> str:
 
 _PREFLIGHT_FIELDS = (
     "id,name,mimeType,size,md5Checksum,sha256Checksum,modifiedTime,ownedByMe,"
-    "version,trashed,capabilities(canTrash,canDelete)"
+    "version,parents,trashed,capabilities(canTrash,canDelete)"
 )
 
 
@@ -374,6 +424,9 @@ def _validate_drive_snapshot(
         return "File size changed after the scan"
     if str(current.get("version") or "") != str(record.metadata_token or ""):
         return "File version changed after the scan"
+    current_parents = tuple(sorted(str(parent) for parent in current.get("parents", [])))
+    if current_parents != record.parent_ids:
+        return "File moved to a different Google Drive folder after the scan"
     if _timestamp(current.get("modifiedTime")) != record.modified_at:
         return "File modification time changed after the scan"
     if _drive_checksum(current) != record.checksum:
