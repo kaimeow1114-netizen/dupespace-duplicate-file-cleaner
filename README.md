@@ -67,6 +67,9 @@ a full summary and countdown.
   and reason.
 - Windows installer with optional first-install desktop shortcut.
 - Free browser cleaner, privacy/terms pages, PWA icon suite, SEO metadata, and AdSense declaration.
+- A shared teal motion language across web and desktop: spring dashboard entrance, subtle SHA-256
+  particles, animated space counters, staggered safety cards, pointer-following glow, and a complete
+  reduced-motion fallback that never hides safety information.
 
 ## Requirements and installation
 
@@ -135,6 +138,8 @@ folder TOCTOU cancellation, owner/shared-drive protection, no trash-to-delete fa
 system-folder/path-alias defense, changed-file skipping, confirmations, session-only trash
 suppression, safe batching/stopping, separate local/Drive operation paths, CSV reporting, sound
 batching, persistent encrypted login, PWA/SEO assets, navigation, and responsive no-overflow rules.
+The web suite also locks the motion primitives and verifies that the server-rendered homepage still
+contains its full product-purpose and privacy copy for search engines and Google brand review.
 
 ## Build a Windows installer
 

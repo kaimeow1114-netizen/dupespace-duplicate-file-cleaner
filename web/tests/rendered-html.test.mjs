@@ -129,6 +129,33 @@ test("keeps responsive layouts stable and batch sounds bounded", async () => {
   assert.doesNotMatch(operationBody, /for \(const outcome of body\.outcomes\)[\s\S]{0,180}play\(/);
 });
 
+test("ships the high-fidelity motion system with an accessible static fallback", async () => {
+  const [dashboard, showcase, css] = await Promise.all([
+    readFile(new URL("../app/components/hero-dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/motion-showcase.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(dashboard, /scale: 0\.9/);
+  assert.match(dashboard, /type: "spring"/);
+  assert.match(dashboard, /animate\(0, 18\.6/);
+  assert.match(dashboard, /className="hash-particles"/);
+  assert.match(dashboard, /useReducedMotion/);
+  assert.match(showcase, /viewport=\{\{ once: true, amount: 0\.25 \}\}/);
+  assert.match(showcase, /staggerChildren: 0\.1/);
+  assert.match(showcase, /whileHover=\{reducedMotion \? undefined : \{ y: -3 \}\}/);
+  assert.match(showcase, /--glow-x/);
+  assert.match(showcase, /useSpring/);
+  assert.match(css, /\.hash-particles/);
+  assert.match(css, /\.magnetic-surface::before/);
+  assert.match(css, /@media \(prefers-reduced-motion:reduce\)/);
+
+  const response = await render();
+  const html = await response.text();
+  assert.match(html, /DUPESPACE 是一套免費、開源的重複檔案清理工具/);
+  assert.match(html, /代碼專案自動排除/);
+  assert.match(html, /儀表板示意 · 預計可安全釋放/);
+});
+
 test("renders legal and cleaner routes with security headers", async () => {
   for (const path of ["/cleaner", "/download", "/privacy", "/terms", "/support"]) {
     const response = await render(path);

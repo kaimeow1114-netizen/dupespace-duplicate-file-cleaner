@@ -1,5 +1,6 @@
 import { AdPanel } from "./components/ad-panel";
 import { HeroDashboard } from "./components/hero-dashboard";
+import { MotionHeroActions, SafetyMotionGrid } from "./components/motion-showcase";
 import { SiteFooter, SiteHeader } from "./components/site-shell";
 
 const repo = "https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner";
@@ -25,7 +26,7 @@ export default function Home() {
           <h1><span className="headline-line">找出重複檔案，</span><span className="headline-line gradient-text">把寶貴空間徹底拿回來。</span></h1>
           <p className="hero-english" lang="en">Find duplicate files. Free up your space.</p>
           <p className="purpose-statement"><strong>DUPESPACE 是一套免費、開源的重複檔案清理工具。</strong>協助你找出、檢查並安全移除 Windows 本機與 Google Drive 中內容相同的重複檔案與重複資料夾。預設只移至垃圾桶，每組至少保留一份；Google Drive 檔案內容不會上傳到 DUPESPACE 伺服器。</p>
-          <div className="hero-actions"><a className="button primary hero-primary" href="/cleaner">⚡ 立即線上清理 Google Drive <span>→</span></a><a className="button secondary" href="/download">▣ 了解 Windows 版</a></div>
+          <MotionHeroActions />
           <div className="trust-row"><span>✓ 免安裝開始</span><span>✓ 預設可復原</span><span>✓ 每組保留一份</span><a href="/privacy">隱私權政策</a></div>
         </div>
         <div className="hero-dashboard-wrap"><HeroDashboard /></div>
@@ -33,7 +34,7 @@ export default function Home() {
 
       <section className="stats-strip"><div className="shell stats-grid"><div><strong>100%</strong><span>內容級精確比對</span></div><div><strong>2</strong><span>檔案與資料夾</span></div><div><strong>1+</strong><span>每組至少保留一份</span></div><div><strong>0</strong><span>預設永久刪除</span></div></div></section>
 
-      <section className="section shell" id="features"><div className="section-heading"><span className="eyebrow"><i /> SAFE BY DESIGN</span><h2><span className="heading-phrase">讓每次清理，</span><wbr /><span className="heading-phrase">都有清楚的安全邊界。</span></h2><p>內容相同只能成為候選。DUPESPACE 先保護用途、來源與目錄情境，再讓使用者決定要處理哪一份。</p></div><div className="safety-grid bento-grid"><article><span className="pillar-icon">↙</span><b>01 · RECOVERABLE</b><h3>預設不永久刪除</h3><p>檔案與鏡像資料夾先進 Windows 資源回收筒或 Google Drive 垃圾桶；失敗不會降級成永久刪除。</p></article><article><span className="pillar-icon">♢</span><b>02 · PROTECTED</b><h3>保留來源絕對保護</h3><p>Windows 採保留區對清理區的單向比對；保留區內每一份檔案與資料夾都不可勾選。</p></article><article><span className="pillar-icon">&lt;/&gt;</span><b>03 · CONTEXT AWARE</b><h3>代碼專案自動排除</h3><p>Git、SVN、套件目錄、虛擬環境、程式資源、備份及同步情境不會成為整體清理候選。</p></article><article><span className="pillar-icon">◎</span><b>04 · REVALIDATED</b><h3>變更即中止</h3><p>操作前再次複驗 ID、權限、檔案數、容量、最新修改時間與內容校驗碼；任何變化都取消。</p></article></div></section>
+      <section className="section shell" id="features"><div className="section-heading"><span className="eyebrow"><i /> SAFE BY DESIGN</span><h2><span className="heading-phrase">讓每次清理，</span><wbr /><span className="heading-phrase">都有清楚的安全邊界。</span></h2><p>內容相同只能成為候選。DUPESPACE 先保護用途、來源與目錄情境，再讓使用者決定要處理哪一份。</p></div><SafetyMotionGrid /></section>
 
       <section className="section alternate"><div className="shell split"><div><span className="eyebrow light"><i /> HOW IT WORKS</span><h2><span className="heading-phrase">比對檔案內容，</span><wbr /><span className="heading-phrase">不靠檔名猜測。</span></h2><p>Windows 使用完整 SHA-256；Google Drive 使用 API 提供的內容校驗碼。重複資料夾還會逐一核對相對路徑、檔案大小與校驗碼，只有 100% 鏡像一致才會顯示。</p><a className="button mint" href="/support">閱讀安全整理指南</a></div><ol className="steps"><li><span>1</span><div><b>掃描</b><small>只讀取比對需要的中繼資料與校驗碼</small></div></li><li><span>2</span><div><b>檢查</b><small>查看完整路徑、預覽與雙樹鏡像差異</small></div></li><li><span>3</span><div><b>回收空間</b><small>預設移至垃圾桶，保留復原機會</small></div></li></ol></div></section>
 

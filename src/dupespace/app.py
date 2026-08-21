@@ -49,16 +49,16 @@ from .sound import SoundPlayer
 from .stats import calculate_cleanup_stats
 from .windows_safety import UnsafePathError
 
-NAVY = "#082B40"
-NAVY_2 = "#123E55"
-MINT = "#16C7B7"
-MINT_SOFT = "#DDF8F4"
+NAVY = "#073B3C"
+NAVY_2 = "#0A4C49"
+MINT = "#2DD4BF"
+MINT_SOFT = "#CCFBF1"
 GOLD = "#F7C948"
-CREAM = "#F6FAF9"
+CREAM = "#EFF8F6"
 WHITE = "#FFFFFF"
-INK = "#183543"
-MUTED = "#68828C"
-LINE = "#D9E7E8"
+INK = "#153B3C"
+MUTED = "#5F7D7C"
+LINE = "#CBE7E1"
 RED = "#C83D4D"
 RED_SOFT = "#FFF0F2"
 PAGE_SIZE = 240
@@ -117,6 +117,7 @@ class DupeSpaceApp(tk.Tk):
         self.status_var = tk.StringVar(
             value="先加入保留區與清理區；保留區內的檔案永遠不可刪除。"
         )
+        self.hash_status_var = tk.StringVar(value="● SAFE SCAN · SHA-256 READY")
         self.progress_var = tk.DoubleVar(value=0)
         self.page_var = tk.StringVar(value="第 1 / 1 頁")
         self.location_var = tk.StringVar(value="尚未選擇掃描位置")
@@ -180,7 +181,8 @@ class DupeSpaceApp(tk.Tk):
             return
 
     def _build_ui(self) -> None:
-        header = tk.Frame(self, bg=NAVY, height=78)
+        tk.Frame(self, bg=MINT, height=3).pack(fill="x")
+        header = tk.Frame(self, bg=NAVY, height=86)
         header.pack(fill="x")
         header.pack_propagate(False)
         brand = tk.Frame(header, bg=NAVY)
@@ -189,8 +191,25 @@ class DupeSpaceApp(tk.Tk):
             anchor="w"
         )
         tk.Label(
-            brand, text="把空間還給重要的事", bg=NAVY, fg="#9FD9D4", font=("Segoe UI", 9)
+            brand, text="FIND · REVIEW · RECLAIM", bg=NAVY, fg="#9FF3E8", font=("Segoe UI", 8)
         ).pack(anchor="w")
+
+        scan_chip = tk.Frame(
+            header,
+            bg=NAVY_2,
+            padx=14,
+            pady=8,
+            highlightbackground="#1A6A63",
+            highlightthickness=1,
+        )
+        scan_chip.pack(side="left", padx=28)
+        tk.Label(
+            scan_chip,
+            textvariable=self.hash_status_var,
+            bg=NAVY_2,
+            fg="#9FF3E8",
+            font=("Consolas", 9, "bold"),
+        ).pack()
 
         sound_box = tk.Frame(header, bg=NAVY)
         sound_box.pack(side="right", padx=22)
@@ -223,30 +242,35 @@ class DupeSpaceApp(tk.Tk):
 
         body = tk.Frame(self, bg=CREAM)
         body.pack(fill="both", expand=True)
-        self.step_frame = tk.Frame(body, bg="#EAF4F3", width=205)
+        self.step_frame = tk.Frame(body, bg=NAVY_2, width=205)
         self.step_frame.pack(side="left", fill="y")
         self.step_frame.pack_propagate(False)
         tk.Label(
             self.step_frame,
             text="安全清理流程",
-            bg="#EAF4F3",
-            fg=NAVY,
+            bg=NAVY_2,
+            fg=WHITE,
             font=("Segoe UI Semibold", 12),
         ).pack(anchor="w", padx=20, pady=(22, 12))
         self.step_labels: list[tk.Label] = []
         for index, label in enumerate(STAGES, start=1):
-            row = tk.Frame(self.step_frame, bg="#EAF4F3")
+            row = tk.Frame(self.step_frame, bg=NAVY_2)
             row.pack(fill="x", padx=14, pady=3)
             badge = tk.Label(
-                row, text=str(index), width=2, bg=WHITE, fg=MUTED, font=("Segoe UI Semibold", 9)
+                row,
+                text=str(index),
+                width=2,
+                bg="#0D5B56",
+                fg="#BDEDE7",
+                font=("Segoe UI Semibold", 9),
             )
             badge.pack(side="left", ipady=4)
             text = tk.Label(
                 row,
                 text=label,
                 anchor="w",
-                bg="#EAF4F3",
-                fg=MUTED,
+                bg=NAVY_2,
+                fg="#8EB9B5",
                 font=("Segoe UI", 9),
                 wraplength=140,
             )
@@ -256,8 +280,8 @@ class DupeSpaceApp(tk.Tk):
             self.step_frame,
             text="✓ Keeper 永遠保留\n✓ 預設移至垃圾桶\n✓ 永久刪除無法略過警告",
             justify="left",
-            bg="#EAF4F3",
-            fg="#4C6C75",
+            bg=NAVY_2,
+            fg="#9FD9D4",
             font=("Segoe UI", 8),
         ).pack(side="bottom", anchor="w", padx=20, pady=20)
 
@@ -494,7 +518,7 @@ class DupeSpaceApp(tk.Tk):
             bg=WHITE,
             padx=padding,
             pady=padding,
-            highlightbackground=LINE,
+            highlightbackground="#B8E5DE",
             highlightthickness=1,
         )
 
@@ -508,7 +532,7 @@ class DupeSpaceApp(tk.Tk):
         *,
         compact: bool = False,
     ) -> tk.Button:
-        return tk.Button(
+        button = tk.Button(
             parent,
             text=text,
             command=command,
@@ -522,7 +546,12 @@ class DupeSpaceApp(tk.Tk):
             pady=6 if compact else 9,
             cursor="hand2",
             font=("Segoe UI Semibold", 8 if compact else 9),
+            highlightbackground=MINT,
+            highlightthickness=0,
         )
+        button.bind("<Enter>", lambda _event: button.configure(highlightthickness=2))
+        button.bind("<Leave>", lambda _event: button.configure(highlightthickness=0))
+        return button
 
     def _save_sound_settings(self) -> None:
         self.sound.configure(muted=self.muted_var.get(), volume=self.volume_var.get() / 100)
@@ -531,7 +560,7 @@ class DupeSpaceApp(tk.Tk):
         self.stage = max(1, min(7, stage))
         for index, label in enumerate(self.step_labels, start=1):
             label.configure(
-                fg=NAVY if index == self.stage else MINT if index < self.stage else MUTED,
+                fg=WHITE if index == self.stage else MINT if index < self.stage else "#8EB9B5",
                 font=("Segoe UI Semibold" if index == self.stage else "Segoe UI", 9),
             )
 
@@ -1314,6 +1343,10 @@ class DupeSpaceApp(tk.Tk):
         )
         if self.busy:
             self._animation_phase = (self._animation_phase + 12) % 360
+            pulse = "." * (1 + (self._animation_phase // 36) % 3)
+            self.hash_status_var.set(f"● SCANNING · SHA-256{pulse}")
+        else:
+            self.hash_status_var.set("● SAFE SCAN · SHA-256 READY")
         self.after(80, self._animate_sweep)
 
     def _on_close(self) -> None:
