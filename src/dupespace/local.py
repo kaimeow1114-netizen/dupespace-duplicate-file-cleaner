@@ -6,12 +6,14 @@ import shutil
 import threading
 from collections import defaultdict
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
 from .grouping import build_local_duplicate_groups
 from .models import (
     ActionOutcome,
     ActionReport,
+    DuplicateGroup,
     FileRecord,
     OperationItem,
     OperationMode,
@@ -25,7 +27,9 @@ from .windows_safety import (
     DEFAULT_WINDOWS_SAFETY_POLICY,
     UnsafePathError,
     WindowsSafetyPolicy,
+    canonical_path,
     is_cloud_placeholder,
+    is_reparse_point,
 )
 
 ProgressCallback = Callable[[ProgressUpdate], None]
@@ -93,6 +97,25 @@ _BACKUP_NAMES = frozenset(
 _SYNC_NAMES = frozenset(
     {"onedrive", "dropbox", "google drive", "icloud drive", "syncthing", "nextcloud"}
 )
+_SYSTEM_METADATA_NAMES = frozenset({".ds_store", "thumbs.db", "desktop.ini"})
+_SHORTCUT_SUFFIXES = frozenset({".lnk", ".url"})
+
+
+@dataclass(frozen=True, slots=True)
+class _FolderSnapshot:
+    checksum: str
+    comparable_count: int
+    ignored_metadata_count: int
+    actual_count: int
+    actual_bytes: int
+    latest_mtime_ns: int
+
+    @property
+    def metadata_token(self) -> str:
+        return (
+            f"folder-v1:{self.actual_count}:{self.actual_bytes}:"
+            f"{self.latest_mtime_ns}"
+        )
 
 
 def _path_key(path: Path) -> str:
@@ -192,6 +215,194 @@ def detect_safety_context(path: Path, root: Path) -> SafetyContext:
     )
 
 
+def _folder_snapshot(
+    folder: Path,
+    root: Path,
+    *,
+    safety_policy: WindowsSafetyPolicy,
+    chunk_size: int,
+    ignore_system_metadata: bool,
+    checksum_cache: dict[tuple[int, int], str] | None = None,
+    hash_content: bool = True,
+) -> _FolderSnapshot:
+    """Create a deterministic, content-based folder manifest without following links."""
+
+    if not _contains_path(root, folder) or _path_key(root) == _path_key(folder):
+        raise UnsafePathError("掃描根目錄本身不可作為重複資料夾候選。")
+    if is_reparse_point(folder) or safety_policy.is_protected(folder):
+        raise UnsafePathError("符號連結、junction 或受保護資料夾不可清理。")
+    context = detect_safety_context(folder / "__dupespace_probe__", root)
+    if any((context.project, context.application, context.backup, context.sync)):
+        raise UnsafePathError("程式、專案、備份或同步資料夾不列入整資料夾清理。")
+
+    cache = checksum_cache if checksum_cache is not None else {}
+    rows: list[str] = []
+    ignored = 0
+    actual_count = 0
+    actual_bytes = 0
+    latest_mtime_ns = 0
+    stack: list[Path] = [folder]
+    while stack:
+        current = stack.pop()
+        if (
+            is_reparse_point(current)
+            or safety_policy.is_protected(current)
+            or safety_policy.has_protected_attributes(current)
+            or is_cloud_placeholder(current)
+        ):
+            raise UnsafePathError("資料夾含受保護、雲端預留或重新解析項目。")
+        with os.scandir(current) as entries:
+            for entry in entries:
+                candidate = Path(entry.path)
+                folded = entry.name.casefold()
+                if entry.is_symlink() or is_reparse_point(candidate):
+                    raise UnsafePathError("資料夾含捷徑、符號連結、junction 或 reparse point。")
+                if entry.is_dir(follow_symlinks=False):
+                    if is_project_marker_name(entry.name) or is_package_directory_name(folded):
+                        raise UnsafePathError("程式碼專案或套件資料夾不可整體清理。")
+                    if folded in _BACKUP_NAMES or folded in _SYNC_NAMES:
+                        raise UnsafePathError("備份或同步資料夾不可整體清理。")
+                    stack.append(candidate)
+                    continue
+                if not entry.is_file(follow_symlinks=False):
+                    raise UnsafePathError("資料夾含無法驗證的非一般檔案。")
+                stat_result = os.stat(candidate, follow_symlinks=False)
+                actual_count += 1
+                actual_bytes += stat_result.st_size
+                latest_mtime_ns = max(latest_mtime_ns, stat_result.st_mtime_ns)
+                if ignore_system_metadata and folded in _SYSTEM_METADATA_NAMES:
+                    ignored += 1
+                    continue
+                if (
+                    safety_policy.is_protected(candidate)
+                    or safety_policy.has_protected_attributes(candidate)
+                    or is_cloud_placeholder(candidate)
+                ):
+                    raise UnsafePathError("資料夾含受保護或未完整下載的檔案。")
+                if (
+                    is_project_marker_name(entry.name)
+                    or candidate.suffix.casefold() in _APPLICATION_SUFFIXES
+                    or candidate.suffix.casefold() in _SHORTCUT_SUFFIXES
+                ):
+                    raise UnsafePathError("資料夾含程式、專案標記或捷徑。")
+                identity = _identity(stat_result)
+                file_checksum = cache.get(identity)
+                if file_checksum is None:
+                    file_checksum = (
+                        _hash_file(candidate, stat_result, chunk_size)
+                        if hash_content
+                        else "metadata-only"
+                    )
+                    cache[identity] = file_checksum
+                relative = candidate.relative_to(folder).as_posix()
+                rows.append(f"{relative}\0{stat_result.st_size}\0{file_checksum}")
+
+    rows.sort(key=str.casefold)
+    digest = hashlib.sha256()
+    for row in rows:
+        digest.update(row.encode("utf-8", errors="surrogatepass"))
+        digest.update(b"\n")
+    return _FolderSnapshot(
+        checksum=f"folder-sha256:{digest.hexdigest()}",
+        comparable_count=len(rows),
+        ignored_metadata_count=ignored,
+        actual_count=actual_count,
+        actual_bytes=actual_bytes,
+        latest_mtime_ns=latest_mtime_ns,
+    )
+
+
+def _folder_records(
+    roots: tuple[ScanRoot, ...],
+    *,
+    safety_policy: WindowsSafetyPolicy,
+    chunk_size: int,
+    ignore_system_metadata: bool,
+    warnings: list[str],
+) -> tuple[FileRecord, ...]:
+    records: list[FileRecord] = []
+    checksum_cache: dict[tuple[int, int], str] = {}
+    for scan_root in roots:
+        root = Path(scan_root.physical_path)
+        candidates: list[Path] = []
+        for current, directory_names, _file_names in os.walk(root, topdown=True, followlinks=False):
+            current_path = Path(current)
+            safe_names: list[str] = []
+            for name in directory_names:
+                candidate = current_path / name
+                if is_reparse_point(candidate) or safety_policy.is_protected(candidate):
+                    continue
+                safe_names.append(name)
+                candidates.append(candidate)
+            directory_names[:] = safe_names
+        for folder in candidates:
+            try:
+                snapshot = _folder_snapshot(
+                    folder,
+                    root,
+                    safety_policy=safety_policy,
+                    chunk_size=chunk_size,
+                    ignore_system_metadata=ignore_system_metadata,
+                    checksum_cache=checksum_cache,
+                )
+                if snapshot.comparable_count == 0:
+                    continue
+                stat_result = folder.stat()
+                is_keep = scan_root.role == "keep"
+                records.append(
+                    FileRecord(
+                        key=f"local:{folder}",
+                        source="local",
+                        name=folder.name,
+                        location=str(folder),
+                        size=snapshot.actual_bytes,
+                        checksum=snapshot.checksum,
+                        item_kind="folder",
+                        entry_count=snapshot.comparable_count,
+                        ignored_metadata_count=snapshot.ignored_metadata_count,
+                        system_metadata_ignored=ignore_system_metadata,
+                        created_at=stat_result.st_ctime,
+                        modified_at=snapshot.latest_mtime_ns / 1_000_000_000,
+                        metadata_token=snapshot.metadata_token,
+                        can_trash=True,
+                        can_delete=False,
+                        mime_type="inode/directory",
+                        source_root=scan_root.physical_path,
+                        root_role=scan_root.role,
+                        selectable=not is_keep,
+                        auto_selectable=(
+                            not is_keep and snapshot.actual_bytes >= MINIMUM_AUTO_SELECT_BYTES
+                        ),
+                        protection_reason="保留區資料夾永遠保留" if is_keep else None,
+                    )
+                )
+            except (OSError, UnsafePathError) as error:
+                warnings.append(f"重複資料夾略過 {folder}：{error}")
+    return tuple(records)
+
+
+def _without_nested_folder_groups(
+    groups: Iterable[DuplicateGroup],
+) -> tuple[DuplicateGroup, ...]:
+    selected: list[DuplicateGroup] = []
+    covered: list[Path] = []
+    ordered = sorted(
+        groups,
+        key=lambda group: min(len(Path(record.location).parts) for record in group.records),
+    )
+    for group in ordered:
+        if any(
+            _contains_path(parent, Path(record.location))
+            and _path_key(parent) != _path_key(Path(record.location))
+            for parent in covered
+            for record in group.records
+        ):
+            continue
+        selected.append(group)
+        covered.extend(Path(record.location) for record in group.records)
+    return tuple(selected)
+
+
 class LocalScanner:
     """Two-stage scanner: size bucketing first, then full SHA-256 hashing."""
 
@@ -209,6 +420,7 @@ class LocalScanner:
         self,
         roots: Iterable[ScanRoot],
         *,
+        ignore_system_metadata: bool = False,
         progress: ProgressCallback | None = None,
         cancel_event: threading.Event | None = None,
     ) -> ScanReport:
@@ -365,7 +577,55 @@ class LocalScanner:
                 f"正在比對內容：{path.name}",
             )
 
-        groups = build_local_duplicate_groups(records)
+        file_groups = build_local_duplicate_groups(records)
+        folder_groups = _without_nested_folder_groups(
+            build_local_duplicate_groups(
+                _folder_records(
+                    normalized_roots,
+                    safety_policy=self.safety_policy,
+                    chunk_size=self.chunk_size,
+                    ignore_system_metadata=ignore_system_metadata,
+                    warnings=warnings,
+                )
+            )
+        )
+        clean_folder_targets = [
+            Path(record.location)
+            for group in folder_groups
+            for record in group.records
+            if record.root_role == "clean"
+        ]
+        file_groups = tuple(
+            group
+            for group in file_groups
+            if not any(
+                _contains_path(folder, Path(record.location))
+                for folder in clean_folder_targets
+                for record in group.records
+                if record.root_role == "clean"
+            )
+        )
+        groups = tuple(
+            sorted(
+                (*folder_groups, *file_groups),
+                key=lambda group: (
+                    -group.reclaimable_bytes,
+                    group.records[0].name.casefold(),
+                    group.fingerprint,
+                ),
+            )
+        )
+        if ignore_system_metadata:
+            ignored_metadata = sum(
+                record.ignored_metadata_count
+                for group in folder_groups
+                for record in group.records
+            )
+            if ignored_metadata:
+                warnings.append(
+                    f"已依使用者選擇忽略 {ignored_metadata:,} 個系統暫存中繼資料檔；"
+                    "移除資料夾時會連同它們移至資源回收筒。"
+                )
         capacity = 0
         measured_devices: set[int] = set()
         for scan_root in normalized_roots:
@@ -403,10 +663,44 @@ def _validate_local_snapshot(
     safety_policy: WindowsSafetyPolicy,
     chunk_size: int,
 ) -> Path:
-    path = safety_policy.validate_regular_file(record.location)
     if record.source_root is None or record.root_role not in {"keep", "clean"}:
         raise UnsafePathError("檔案缺少經驗證的保留區或清理區資訊")
     source_root = safety_policy.validate_scan_root(record.source_root)
+    if record.item_kind == "folder":
+        if record.can_delete:
+            raise UnsafePathError("資料夾只能移至資源回收筒，不能永久刪除。")
+        path = canonical_path(record.location)
+        if not path.is_dir() or is_reparse_point(path):
+            raise UnsafePathError("資料夾已不存在或已變成重新解析點。")
+        if safety_policy.is_protected(path) or safety_policy.has_protected_attributes(path):
+            raise UnsafePathError("受保護的資料夾不可清理。")
+        if not _contains_path(source_root, path):
+            raise UnsafePathError("資料夾已離開原本掃描根目錄")
+        key_path = canonical_path(_local_key_path(record))
+        if _path_key(path) != _path_key(key_path):
+            raise UnsafePathError("資料夾路徑與掃描識別碼不一致。")
+        current = _folder_snapshot(
+            path,
+            source_root,
+            safety_policy=safety_policy,
+            chunk_size=chunk_size,
+            ignore_system_metadata=record.system_metadata_ignored,
+            # Rebuild the full manifest at the mutation boundary. The lightweight
+            # count/bytes/latest-time token catches ordinary TOCTOU changes quickly;
+            # the digest also catches same-size edits with preserved timestamps.
+            hash_content=True,
+        )
+        if record.metadata_token is None or current.metadata_token != record.metadata_token:
+            raise SnapshotChangedError("資料夾內容已變更，操作已取消。")
+        if (
+            current.checksum != record.checksum
+            or current.comparable_count != record.entry_count
+            or current.ignored_metadata_count != record.ignored_metadata_count
+        ):
+            raise SnapshotChangedError("資料夾內容已變更，操作已取消。")
+        return path
+
+    path = safety_policy.validate_regular_file(record.location)
     if not _contains_path(source_root, path):
         raise UnsafePathError("檔案已離開原本掃描根目錄")
     current_context = detect_safety_context(path, source_root)

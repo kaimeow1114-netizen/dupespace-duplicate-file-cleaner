@@ -313,3 +313,142 @@ def test_all_keep_root_copies_are_unselectable(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         validate_selection(report.groups, {keep_record.key})
+
+
+def test_identical_folder_trees_are_recycle_bin_candidates(tmp_path: Path) -> None:
+    keep, clean, roots = scan_roots(tmp_path)
+    original = keep / "photos-original"
+    duplicate = clean / "photos-copy"
+    for folder in (original, duplicate):
+        (folder / "album").mkdir(parents=True)
+        (folder / "album" / "image.bin").write_bytes(b"p" * (1024 * 1024))
+        (folder / "notes.txt").write_text("same", encoding="utf-8")
+
+    report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
+    folder_group = next(
+        group for group in report.groups if group.records[0].item_kind == "folder"
+    )
+    target = next(record for record in folder_group.records if record.root_role == "clean")
+
+    assert target.entry_count == 2
+    assert target.can_trash
+    assert not target.can_delete
+    assert target.key in default_selection(report.groups)
+    moved: list[str] = []
+    action = LocalTrashExecutor(trash_func=moved.append, safety_policy=TEST_POLICY).trash(
+        operation_items(report.groups, {target.key})
+    )
+    assert len(action.trashed) == 1
+    assert moved == [str(duplicate)]
+
+
+def test_one_different_folder_file_prevents_folder_match(tmp_path: Path) -> None:
+    keep, clean, roots = scan_roots(tmp_path)
+    original = keep / "album"
+    duplicate = clean / "album-copy"
+    original.mkdir()
+    duplicate.mkdir()
+    (original / "photo.jpg").write_bytes(b"original")
+    (duplicate / "photo.jpg").write_bytes(b"different")
+
+    report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
+
+    assert all(group.records[0].item_kind == "file" for group in report.groups)
+
+
+def test_system_metadata_is_strict_by_default_and_optional_with_warning(
+    tmp_path: Path,
+) -> None:
+    keep, clean, roots = scan_roots(tmp_path)
+    original = keep / "album"
+    duplicate = clean / "album-copy"
+    original.mkdir()
+    duplicate.mkdir()
+    payload = b"p" * (1024 * 1024)
+    (original / "photo.jpg").write_bytes(payload)
+    (duplicate / "photo.jpg").write_bytes(payload)
+    (original / ".DS_Store").write_bytes(b"one")
+    (duplicate / ".DS_Store").write_bytes(b"two")
+
+    strict = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
+    relaxed = LocalScanner(safety_policy=TEST_POLICY).scan(
+        roots, ignore_system_metadata=True
+    )
+
+    assert not any(group.records[0].item_kind == "folder" for group in strict.groups)
+    folder_group = next(
+        group for group in relaxed.groups if group.records[0].item_kind == "folder"
+    )
+    assert all(record.ignored_metadata_count == 1 for record in folder_group.records)
+    assert any("系統暫存中繼資料" in warning for warning in relaxed.warnings)
+
+
+def test_folder_toctou_change_cancels_recycle_bin_move(tmp_path: Path) -> None:
+    keep, clean, roots = scan_roots(tmp_path)
+    original = keep / "album"
+    duplicate = clean / "album-copy"
+    original.mkdir()
+    duplicate.mkdir()
+    payload = b"p" * (1024 * 1024)
+    (original / "photo.jpg").write_bytes(payload)
+    (duplicate / "photo.jpg").write_bytes(payload)
+    report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
+    group = next(group for group in report.groups if group.records[0].item_kind == "folder")
+    target = next(record for record in group.records if record.root_role == "clean")
+    (duplicate / "new.txt").write_text("changed after scan", encoding="utf-8")
+    moved: list[str] = []
+
+    action = LocalTrashExecutor(trash_func=moved.append, safety_policy=TEST_POLICY).trash(
+        operation_items(report.groups, {target.key})
+    )
+
+    assert moved == []
+    assert len(action.skipped) == 1
+    assert "資料夾內容已變更" in (action.skipped[0].error or "")
+
+
+def test_folder_toctou_same_size_edit_with_preserved_time_cancels(tmp_path: Path) -> None:
+    keep, clean = tmp_path / "keep", tmp_path / "clean"
+    keep.mkdir()
+    clean.mkdir()
+    original, duplicate = keep / "Original", clean / "Copy"
+    original.mkdir()
+    duplicate.mkdir()
+    (original / "data.bin").write_bytes(b"A" * (1024 * 1024))
+    target_file = duplicate / "data.bin"
+    target_file.write_bytes(b"A" * (1024 * 1024))
+    report = LocalScanner(safety_policy=WindowsSafetyPolicy(protected_roots=())).scan(
+        (ScanRoot(str(keep), "keep"), ScanRoot(str(clean), "clean"))
+    )
+    group = next(group for group in report.groups if group.records[0].item_kind == "folder")
+    target = next(record for record in group.records if record.root_role == "clean")
+    before = target_file.stat()
+    target_file.write_bytes(b"B" * before.st_size)
+    os.utime(target_file, ns=(before.st_atime_ns, before.st_mtime_ns))
+
+    moved: list[str] = []
+    action = LocalTrashExecutor(
+        trash_func=moved.append,
+        safety_policy=WindowsSafetyPolicy(protected_roots=()),
+    ).trash(operation_items(report.groups, {target.key}))
+
+    assert moved == []
+    assert action.trashed == ()
+    assert "資料夾內容已變更" in (action.skipped[0].error or "")
+
+
+def test_folder_can_never_be_selected_for_permanent_delete(tmp_path: Path) -> None:
+    keep, clean, roots = scan_roots(tmp_path)
+    original = keep / "album"
+    duplicate = clean / "album-copy"
+    original.mkdir()
+    duplicate.mkdir()
+    payload = b"p" * (1024 * 1024)
+    (original / "photo.jpg").write_bytes(payload)
+    (duplicate / "photo.jpg").write_bytes(payload)
+    report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
+    group = next(group for group in report.groups if group.records[0].item_kind == "folder")
+    target = next(record for record in group.records if record.root_role == "clean")
+
+    with pytest.raises(ValueError):
+        operation_items(report.groups, {target.key}, "permanent")

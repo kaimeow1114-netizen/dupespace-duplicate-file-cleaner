@@ -1,5 +1,6 @@
 /* eslint-disable @next/next/no-html-link-for-pages -- Native navigation avoids Vinext's deployed Link interception bug. */
 import Image from "next/image";
+import { GitHubStars } from "./github-stars";
 
 const repo = "https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner";
 
@@ -9,9 +10,9 @@ export function SiteHeader() {
       <div className="shell nav">
         <a className="brand" href="/" aria-label="DUPESPACE"><Image src="/dupespace-icon.png" alt="" width={38} height={38} /><span className="brand-name notranslate" translate="no" lang="en">DUPE<em>SPACE</em></span></a>
         <nav aria-label="主要導覽">
-          <a href="/#features">功能</a><a href="/cleaner">線上清理</a><a href="/download">Windows 版</a><a href="/support">整理指南</a>
+          <a href="/#features">功能特色</a><a href="/cleaner">線上清理</a><a href="/download">Windows 客戶端</a><a href="/support">安全整理指南</a><a href="/#faq">常見問題</a>
         </nav>
-        <a className="nav-cta" href="/cleaner">開始清理 <span>→</span></a>
+        <div className="nav-actions"><GitHubStars /><a className="nav-cta" href="/cleaner">立即清理 <span>→</span></a></div>
       </div>
     </header>
   );

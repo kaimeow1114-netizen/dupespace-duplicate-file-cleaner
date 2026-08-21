@@ -113,6 +113,7 @@ class DupeSpaceApp(tk.Tk):
         self._animation_phase = 0
 
         self.mode_var = tk.StringVar(value="trash")
+        self.ignore_metadata_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(
             value="先加入保留區與清理區；保留區內的檔案永遠不可刪除。"
         )
@@ -293,6 +294,17 @@ class DupeSpaceApp(tk.Tk):
         self._button(actions, "連接 Google Drive", self._start_drive_scan, GOLD, NAVY).pack(
             side="left", padx=4
         )
+        tk.Checkbutton(
+            left,
+            text="進階：忽略 .DS_Store、Thumbs.db、desktop.ini（移除資料夾時仍會一併進回收筒）",
+            variable=self.ignore_metadata_var,
+            bg=WHITE,
+            fg="#A16207",
+            activebackground=WHITE,
+            activeforeground="#A16207",
+            selectcolor=WHITE,
+            font=("Segoe UI", 8),
+        ).pack(anchor="w", pady=(8, 0))
 
         metrics = tk.Frame(workspace, bg=CREAM)
         metrics.pack(fill="x", pady=10)
@@ -411,7 +423,7 @@ class DupeSpaceApp(tk.Tk):
         for column, text, width, anchor in (
             ("pick", "選取", 55, "center"),
             ("state", "保護狀態", 90, "center"),
-            ("name", "檔案名稱", 180, "w"),
+            ("name", "檔案／資料夾", 180, "w"),
             ("location", "位置", 380, "w"),
             ("size", "大小", 90, "e"),
             ("group", "群組", 65, "center"),
@@ -571,17 +583,23 @@ class DupeSpaceApp(tk.Tk):
         self._start_task(
             "scan-local",
             lambda: LocalScanner().scan(
-                roots, progress=self._post_progress, cancel_event=self.cancel_event
+                roots,
+                ignore_system_metadata=self.ignore_metadata_var.get(),
+                progress=self._post_progress,
+                cancel_event=self.cancel_event,
             ),
             2,
-            "正在安全掃描本機檔案…",
+            "正在安全掃描本機檔案與資料夾…",
         )
 
     def _start_drive_scan(self) -> None:
         def worker() -> tuple[Any, ScanReport]:
             service = build_drive_service()
             report = GoogleDriveScanner().scan(
-                service, progress=self._post_progress, cancel_event=self.cancel_event
+                service,
+                ignore_system_metadata=self.ignore_metadata_var.get(),
+                progress=self._post_progress,
+                cancel_event=self.cancel_event,
             )
             return service, report
 
@@ -723,7 +741,7 @@ class DupeSpaceApp(tk.Tk):
                 values=(
                     mark,
                     state,
-                    record.name,
+                    f"[資料夾] {record.name}" if record.item_kind == "folder" else record.name,
                     record.location,
                     _format_bytes(record.size),
                     start + offset + 1,

@@ -6,7 +6,7 @@
 [Read the Windows download guide](https://dupespace.app/download) ·
 [View the latest release](https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner/releases/latest)
 
-DUPESPACE is a free, open-source, safety-first duplicate file cleaner. Windows scans use explicit
+DUPESPACE is a free, open-source, safety-first duplicate file and mirror-folder cleaner. Windows scans use explicit
 **keep roots** and **clean roots**: a result is shown only when the same size and full SHA-256
 content exist in both roles. Every keep-root file is protected. Google Drive keeps its global,
 oldest-file keeper policy. Both surfaces page large result sets and produce per-file CSV audits.
@@ -17,9 +17,16 @@ reviewed but are never preselected. The Google Drive web scan preselects every t
 non-keeper duplicate so a recoverable trash operation takes one click after review. On Windows
 and Google Drive, recognized source-code projects and package
 environments are hard-excluded because identical configuration, dependency, and plug-in files can
-be independently required by different projects. Application, backup, and sync contexts remain
-locked until the user reviews the full folder path, count, and bytes and types a folder-specific
-phrase.
+be independently required by different projects. Application, backup, sync, project, package,
+shortcut, reparse-point, and cloud-placeholder contexts are excluded from whole-folder matching.
+
+An entire folder is a duplicate candidate only when both trees have the same relative paths,
+byte sizes, and full content checksums. The folder is always moved to trash as one recoverable
+operation and can never enter permanent-delete mode. Immediately before the move, DUPESPACE
+rechecks the tree's file count, total bytes, newest modification time, and manifest checksum; any
+change cancels the operation. The optional system-metadata rule is off by default. If explicitly
+enabled, `.DS_Store`, `Thumbs.db`, and `desktop.ini` are ignored for comparison but still travel
+with the folder to trash.
 
 ## Trash and permanent deletion
 
@@ -30,7 +37,8 @@ to Windows or Google retention rules.
 > **WARNING — permanent deletion cannot be undone.** “Delete permanently now” is a separate,
 > red, high-risk advanced option. It is never preselected, its warning cannot be disabled, and a
 > trash failure never falls back to it. DUPESPACE never permanently deletes a keeper, protected
-> system object, folder, shortcut, symbolic link, junction, mount point, or reparse point.
+> system object, shortcut, symbolic link, junction, mount point, or reparse point. Verified mirror
+> folders are trash-only and never participate in permanent deletion.
 
 For permanent deletion, DUPESPACE revalidates the target and protected keeper immediately before
 the operation. Changed files are skipped. More than five files requires a second confirmation and
@@ -39,7 +47,8 @@ a full summary and countdown.
 
 ## Highlights
 
-- Full SHA-256 comparison for Windows files and stable Google-provided checksums for Drive files.
+- Full SHA-256 comparison for Windows files and stable Google-provided checksums for Drive files;
+  mirror folders also require identical relative trees.
 - Seven-step, friendly desktop flow with cards, animation, empty/error/success states, safe stop,
   and metrics for scan count, groups, copies, selected files, estimated/actual bytes, duplicate
   percentage, and disk/cloud capacity percentage.
@@ -101,7 +110,9 @@ managing pre-existing duplicates cannot use the narrower `drive.file` scope. Bot
 permanent deletion use this same scope; permanent deletion does not add another scope. Public
 distribution requires Google verification and may require a security assessment.
 
-The web app stores OAuth tokens only inside an encrypted HttpOnly cookie. File content never
+The web app stores OAuth tokens only inside an encrypted Secure, HttpOnly, SameSite cookie with a
+sliding maximum age of 30 days. Short-lived signed scan proofs still expire after 30 minutes, and
+disconnecting attempts to revoke the Google token before clearing the session. File content never
 passes through the DUPESPACE server. The Windows app stores its desktop token only under the
 current user’s DupeSpace local application data. Credentials, secrets, tokens, and user data do
 not belong in Git.
@@ -119,10 +130,11 @@ npm run lint
 npm test
 ```
 
-The suite covers keeper protection, no trash-to-delete fallback, system-folder/path-alias defense,
-changed-file skipping, confirmations, session-only trash suppression, safe batching/stopping,
-separate local/Drive operation paths, CSV reporting, sound batching, PWA/SEO assets, navigation,
-and responsive no-overflow rules.
+The suite covers keeper protection, mirror-folder matching, strict/optional metadata handling,
+folder TOCTOU cancellation, owner/shared-drive protection, no trash-to-delete fallback,
+system-folder/path-alias defense, changed-file skipping, confirmations, session-only trash
+suppression, safe batching/stopping, separate local/Drive operation paths, CSV reporting, sound
+batching, persistent encrypted login, PWA/SEO assets, navigation, and responsive no-overflow rules.
 
 ## Build a Windows installer
 
@@ -140,7 +152,9 @@ configuration during the release build; the Web Client Secret is never bundled.
 
 ## Known limits
 
-- Google Workspace-native files do not expose a stable binary checksum and are skipped.
+- Google Workspace-native files do not expose a stable binary checksum and are skipped. Shortcuts,
+  non-owner folders, shared drives, project/package trees, and unverifiable folder descendants are
+  excluded from whole-folder cleanup.
 - DUPESPACE compares duplicates within each source. A local clean-root candidate must have an
   equivalent keep-root copy; a Drive candidate follows the separate oldest-keeper policy.
 - DUPESPACE does not guess at temporary or junk files. Use Windows Storage Sense or Cleanup

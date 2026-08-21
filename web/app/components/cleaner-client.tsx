@@ -10,6 +10,10 @@ type DriveRecord = {
   checksum: string;
   version: string;
   mimeType: string;
+  itemKind: "file" | "folder";
+  entryCount: number;
+  ignoredMetadataCount: number;
+  systemMetadataIgnored: boolean;
   createdTime: string | null;
   modifiedTime: string | null;
   webViewLink: string | null;
@@ -21,7 +25,14 @@ type DriveRecord = {
   keeper: boolean;
   proof: string;
 };
-type DriveGroup = { fingerprint: string; reclaimableBytes: number; records: DriveRecord[] };
+type FolderTreeEntry = { relativePath: string; size: number; checksum: string };
+type DriveGroup = {
+  itemKind: "file" | "folder";
+  fingerprint: string;
+  reclaimableBytes: number;
+  tree: FolderTreeEntry[];
+  records: DriveRecord[];
+};
 type ScanResult = {
   examined: number;
   skipped: number;
@@ -31,6 +42,7 @@ type ScanResult = {
   groups: DriveGroup[];
   storageQuota: { limit?: string; usage?: string } | null;
   user: { displayName?: string; emailAddress?: string; photoLink?: string } | null;
+  ignoreSystemMetadata: boolean;
 };
 type AuditOutcome = {
   timestamp: string;
@@ -42,6 +54,7 @@ type AuditOutcome = {
   operationMode: OperationMode;
   status: string;
   reason: string;
+  itemKind: "file" | "folder";
 };
 type Confirmation = {
   mode: OperationMode;
@@ -66,6 +79,8 @@ function isDriveRecord(value: unknown): value is DriveRecord {
   return isObject(value) && typeof value.id === "string" && typeof value.name === "string" &&
     typeof value.size === "number" && typeof value.checksum === "string" &&
     typeof value.path === "string" &&
+    (value.itemKind === "file" || value.itemKind === "folder") &&
+    typeof value.entryCount === "number" &&
     typeof value.canTrash === "boolean" && typeof value.canDelete === "boolean" &&
     typeof value.autoSelectable === "boolean" && typeof value.keeper === "boolean" &&
     typeof value.proof === "string";
@@ -73,6 +88,7 @@ function isDriveRecord(value: unknown): value is DriveRecord {
 
 function isDriveGroup(value: unknown): value is DriveGroup {
   return isObject(value) && typeof value.fingerprint === "string" &&
+    (value.itemKind === "file" || value.itemKind === "folder") && Array.isArray(value.tree) &&
     typeof value.reclaimableBytes === "number" && Array.isArray(value.records) &&
     value.records.every(isDriveRecord);
 }
@@ -89,6 +105,7 @@ function isAuditOutcome(value: unknown): value is AuditOutcome {
   return isObject(value) && typeof value.timestamp === "string" && typeof value.id === "string" &&
     typeof value.name === "string" && typeof value.size === "number" &&
     typeof value.path === "string" &&
+    (value.itemKind === "file" || value.itemKind === "folder") &&
     typeof value.checksum === "string" && typeof value.operationMode === "string" &&
     typeof value.status === "string" && typeof value.reason === "string";
 }
@@ -175,6 +192,9 @@ export function CleanerClient() {
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [confirmationText, setConfirmationText] = useState("");
   const [countdown, setCountdown] = useState(0);
+  const [ignoreSystemMetadata, setIgnoreSystemMetadata] = useState(false);
+  const [treeDrawer, setTreeDrawer] = useState<DriveGroup | null>(null);
+  const [treeLimit, setTreeLimit] = useState(200);
   const cancelRef = useRef(false);
 
   useEffect(() => {
@@ -229,15 +249,23 @@ export function CleanerClient() {
     setRunning(true); setProgress(2); setStatus("正在讀取 Google Drive 中的檔案與校驗碼…");
     const timer = animatedWait();
     try {
-      const response = await fetch("/api/google/scan", { method: "POST" });
+      const response = await fetch("/api/google/scan", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ignoreSystemMetadata }),
+      });
       const body = await response.json();
       if (!response.ok) throw new Error(errorMessage(body, "掃描失敗"));
       if (!isScanResult(body)) throw new Error("Google Drive 回傳了無效的掃描資料");
       setScan(body);
       setAccount(body.user);
       setMode("trash");
-      setSelected(new Set(body.groups.flatMap((group: DriveGroup) => group.records.filter((record) => !record.keeper && record.canTrash).map((record) => record.id))));
-      setStatus(body.duplicateCopies ? `掃描完成：找到 ${body.duplicateCopies.toLocaleString()} 個重複副本` : "掃描完成，目前沒有內容相同的檔案");
+      setSelected(new Set(body.groups.flatMap((group: DriveGroup) => group.records
+        .filter((record) => !record.keeper && record.canTrash && record.autoSelectable)
+        .map((record) => record.id))));
+      setStatus(body.duplicateCopies
+        ? `掃描完成：找到 ${body.duplicateCopies.toLocaleString()} 個重複檔案或資料夾副本`
+        : "掃描完成，目前沒有內容完全相同的檔案或資料夾");
       setProgress(100);
       play(body.duplicateCopies ? "confirm" : "success");
     } catch (error) {
@@ -256,7 +284,7 @@ export function CleanerClient() {
     if (running || mode === next) return;
     setMode(next);
     setSelected(next === "trash"
-      ? new Set(records.filter((record) => !record.keeper && record.canTrash).map((record) => record.id))
+      ? new Set(records.filter((record) => !record.keeper && record.canTrash && record.autoSelectable).map((record) => record.id))
       : new Set());
     setStatus(next === "trash" ? "已選取全部可移至垃圾桶的重複副本" : "永久刪除無法復原；請主動選取要永久刪除的副本");
     play(next === "permanent" ? "warning" : "confirm");
@@ -357,9 +385,9 @@ export function CleanerClient() {
   }
 
   function downloadCsv(): void {
-    const columns = ["timestamp", "source", "operation_mode", "status", "name", "path", "file_id", "size", "checksum", "reason"];
+    const columns = ["timestamp", "source", "operation_mode", "status", "item_kind", "name", "path", "file_id", "size", "checksum", "reason"];
     const lines = [columns.map(csvCell).join(","), ...audit.map((item) => [
-      item.timestamp, "google_drive", item.operationMode, item.status, item.name, item.path, item.id,
+      item.timestamp, "google_drive", item.operationMode, item.status, item.itemKind, item.name, item.path, item.id,
       item.size, item.checksum, item.reason,
     ].map(csvCell).join(","))];
     const blob = new Blob(["\ufeff", lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
@@ -393,6 +421,22 @@ export function CleanerClient() {
           <div><b>{account?.displayName ?? (connected ? "Google Drive 已連線" : "尚未連線")}</b><small>{account?.emailAddress ?? "登入帳號顯示於此"}</small></div>
         </div>
       </section>
+      <label className="metadata-option">
+        <input
+          type="checkbox"
+          aria-label="忽略系統暫存檔"
+          checked={ignoreSystemMetadata}
+          disabled={running}
+          onChange={(event) => {
+            setIgnoreSystemMetadata(event.target.checked);
+            setScan(null);
+            setSelected(new Set());
+            setTreeDrawer(null);
+            setStatus("系統暫存檔規則已變更，請重新掃描 Google Drive");
+          }}
+        />
+        <span><b>進階：忽略系統暫存檔</b><small>預設關閉。開啟後，.DS_Store、Thumbs.db、desktop.ini 不參與資料夾鏡像比對；移除資料夾時仍會一併進垃圾桶。</small></span>
+      </label>
 
       <section className="metric-grid">
         <article><span>預估節省容量</span><strong>{formatBytes(selectedBytes)}</strong><small>實際已釋放 {formatBytes(actualBytes)}</small></article>
@@ -408,7 +452,7 @@ export function CleanerClient() {
 
       {scan && <>
         <section className="mode-section" aria-labelledby="mode-title">
-          <div><span className="eyebrow"><i /> 步驟 4</span><h2 id="mode-title">選擇檔案處理方式</h2><p>兩種模式完全獨立；垃圾桶失敗絕不會自動改成永久刪除。</p></div>
+          <div><span className="eyebrow"><i /> 步驟 4</span><h2 id="mode-title">選擇處理方式</h2><p>檔案與完整鏡像資料夾都可移至垃圾桶；資料夾永遠不能永久刪除。垃圾桶失敗絕不會自動改成永久刪除。</p></div>
           <div className="mode-options">
             <label htmlFor="mode-trash" className={`mode-card recommended ${mode === "trash" ? "selected" : ""}`}><span className="sr-only">選擇移至垃圾桶</span><input id="mode-trash" aria-label="移至垃圾桶" type="radio" name="mode" checked={mode === "trash"} onChange={() => chooseMode("trash")} disabled={running} /><span><b>移至垃圾桶</b><small>預設、建議。仍可從 Google Drive 垃圾桶復原。</small><em>建議</em></span></label>
             <label htmlFor="mode-permanent" className={`mode-card high-risk ${mode === "permanent" ? "selected" : ""}`}><span className="sr-only">選擇立即永久刪除</span><input id="mode-permanent" aria-label="立即永久刪除" type="radio" name="mode" checked={mode === "permanent"} onChange={() => chooseMode("permanent")} disabled={running} /><span><b>立即永久刪除</b><small>高風險進階功能，刪除後沒有任何復原方式。</small><em>無法復原</em></span></label>
@@ -418,20 +462,21 @@ export function CleanerClient() {
           <div><b>{scan.groups.length.toLocaleString()} 組 · {scan.duplicateCopies.toLocaleString()} 個重複副本</b><span>掃描 {scan.examined.toLocaleString()} 個項目，略過 {scan.skipped.toLocaleString()} 個不適用項目；其中 {scan.projectProtected.toLocaleString()} 個專案項目受到硬性保護</span></div>
           <div><button className="text-button" onClick={() => setSelected(new Set(records.filter((record) => selectable(record)).map((record) => record.id)))} disabled={mode === "permanent"}>選取全部重複副本</button><button className="text-button" onClick={() => setSelected(new Set())}>清除選取</button></div>
         </div>
-        {!scan.groups.length && <div className="empty-state"><span>✦</span><h3>目前很乾淨</h3><p>沒有找到可安全比對的重複檔案。</p></div>}
+        {!scan.groups.length && <div className="empty-state"><span>✦</span><h3>目前很乾淨</h3><p>沒有找到可安全比對的重複檔案或完整鏡像資料夾。</p></div>}
         <div className="group-list">
           {scan.groups.slice(0, visibleGroups).map((group, groupIndex) => {
             const key = `${group.fingerprint}-${groupIndex}`;
             const limit = recordLimits[key] ?? 80;
             return <details className="duplicate-group" key={key} open={groupIndex < 3}>
-              <summary><span><b>重複群組 {groupIndex + 1}</b><small>{group.records.length.toLocaleString()} 份相同內容</small></span><strong>{formatBytes(group.reclaimableBytes)}</strong></summary>
+              <summary><span><b>{group.itemKind === "folder" ? "重複資料夾" : "重複檔案"}群組 {groupIndex + 1}</b><small>{group.records.length.toLocaleString()} 份相同內容{group.itemKind === "folder" ? ` · ${group.tree.length.toLocaleString()} 個檔案 100% 鏡像對齊` : ""}</small></span><strong>{formatBytes(group.reclaimableBytes)}</strong></summary>
+              {group.itemKind === "folder" && <div className="folder-match-banner"><span>✓ 100% 鏡像對齊</span><b>{group.tree.length.toLocaleString()} 個檔案，完整路徑、大小與校驗碼一致</b><button className="text-button" onClick={() => { setTreeDrawer(group); setTreeLimit(200); }}>開啟雙樹比對</button></div>}
               <div className="record-list">
                 {group.records.slice(0, limit).map((record) => <label className={`record ${record.keeper ? "keeper" : selected.has(record.id) ? "selected" : ""}`} key={record.id}>
                   <input type="checkbox" checked={!record.keeper && selected.has(record.id)} disabled={!selectable(record) || running} onChange={() => toggle(record)} />
-                  <span className="file-preview">{record.thumbnailLink ? <img src={record.thumbnailLink} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : <span>{record.name.includes(".") ? record.name.split(".").pop()?.slice(0, 4).toUpperCase() : "FILE"}</span>}</span>{/* eslint-disable-line @next/next/no-img-element */}
-                  <span className="record-name"><b>{record.name}</b><small className="record-path">{record.path}</small><small>{record.modifiedTime ? new Date(record.modifiedTime).toLocaleString("zh-TW") : "日期不明"}{record.webViewLink ? <> · <a href={record.webViewLink} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>在 Drive 預覽</a></> : null}</small></span>
+                  <span className="file-preview">{record.thumbnailLink ? <img src={record.thumbnailLink} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : <span>{record.itemKind === "folder" ? "DIR" : record.name.includes(".") ? record.name.split(".").pop()?.slice(0, 4).toUpperCase() : "FILE"}</span>}</span>{/* eslint-disable-line @next/next/no-img-element */}
+                  <span className="record-name"><b>{record.name}</b><small className="record-path">{record.path}</small><small>{record.itemKind === "folder" ? `${record.entryCount.toLocaleString()} 個可比對檔案${record.ignoredMetadataCount ? ` · 忽略 ${record.ignoredMetadataCount} 個暫存檔` : ""}` : record.modifiedTime ? new Date(record.modifiedTime).toLocaleString("zh-TW") : "日期不明"}{record.webViewLink ? <> · <a href={record.webViewLink} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>在 Drive 預覽</a></> : null}</small></span>
                   <span className="record-size">{formatBytes(record.size)}</span>
-                  <span className={`record-state ${record.keeper ? "safe" : !selectable(record) ? "locked" : ""}`}>{record.keeper ? "保留" : !selectable(record) ? "無權限" : selected.has(record.id) ? (mode === "trash" ? "垃圾桶" : "永久刪除") : "略過"}</span>
+                  <span className={`record-state ${record.keeper ? "safe" : !selectable(record) ? "locked" : ""}`}>{record.keeper ? "保留" : mode === "permanent" && record.itemKind === "folder" ? "僅限垃圾桶" : !selectable(record) ? "無權限" : selected.has(record.id) ? (mode === "trash" ? "垃圾桶" : "永久刪除") : "略過"}</span>
                 </label>)}
                 {group.records.length > limit && <button className="load-more" onClick={() => setRecordLimits((current) => ({ ...current, [key]: limit + 160 }))}>再顯示 {Math.min(160, group.records.length - limit)} 個副本</button>}
               </div>
@@ -441,6 +486,24 @@ export function CleanerClient() {
         {scan.groups.length > visibleGroups && <button className="load-more" onClick={() => setVisibleGroups((value) => value + 24)}>載入更多重複群組</button>}
         <div className={`trash-dock ${mode === "permanent" ? "permanent" : ""}`}><div><span>已選 {selected.size.toLocaleString()} 個副本 · {scan.groups.length.toLocaleString()} 個群組</span><strong>可節省 {formatBytes(selectedBytes)} · {reclaimPercent.toFixed(1)}%</strong></div><div className="dock-actions">{audit.length > 0 && <button className="button secondary" onClick={downloadCsv}>下載 CSV 稽核報告</button>}<button className={`button ${mode === "trash" ? "primary" : "danger"}`} onClick={requestOperation} disabled={!selected.size || running}>{mode === "trash" ? "移至 Google Drive 垃圾桶" : "立即永久刪除（無法復原）"}</button></div></div>
       </>}
+
+      {treeDrawer && (() => {
+        const keeper = treeDrawer.records.find((record) => record.keeper) as DriveRecord;
+        const target = treeDrawer.records.find((record) => !record.keeper) as DriveRecord;
+        return <div className="tree-drawer-backdrop">
+          <aside className="tree-drawer" role="dialog" aria-modal="true" aria-labelledby="tree-drawer-title">
+            <button className="modal-close" aria-label="關閉資料夾比對" onClick={() => setTreeDrawer(null)}>×</button>
+            <span className="eyebrow"><i /> SIDE-BY-SIDE TREE DIFF</span>
+            <h2 id="tree-drawer-title">保留目錄與待清目錄</h2>
+            <div className="mirror-score"><span>✓</span><div><b>100% 鏡像對齊</b><small>{treeDrawer.tree.length.toLocaleString()} 個檔案的相對路徑、大小與內容校驗碼完全一致</small></div></div>
+            <div className="tree-paths"><div><span>保留目錄</span><b>{keeper.path}</b></div><div><span>待清目錄</span><b>{target.path}</b></div></div>
+            <div className="tree-columns" aria-label="資料夾檔案樹對照">
+              {[keeper, target].map((record) => <div key={record.id}><h3>{record.keeper ? "受保護 · 永遠保留" : "待清理 · 移至垃圾桶"}</h3>{treeDrawer.tree.slice(0, treeLimit).map((entry) => <div className="tree-entry" key={`${record.id}-${entry.relativePath}`}><span>{entry.relativePath}</span><small>{formatBytes(entry.size)}</small></div>)}</div>)}
+            </div>
+            {treeDrawer.tree.length > treeLimit && <button className="load-more" onClick={() => setTreeLimit((value) => value + 400)}>再顯示 {Math.min(400, treeDrawer.tree.length - treeLimit).toLocaleString()} 個檔案</button>}
+          </aside>
+        </div>;
+      })()}
 
       {confirmation && <div className="modal-backdrop" role="presentation" onKeyDown={(event) => { if (event.key === "Escape") setConfirmation(null); if (confirmation.mode === "permanent" && event.key === "Enter") event.preventDefault(); }}>
         <section className={`confirm-modal ${confirmation.mode === "permanent" ? "permanent" : ""}`} role="alertdialog" aria-modal="true" aria-labelledby="confirm-title">

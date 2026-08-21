@@ -116,6 +116,16 @@ def drive_item(file_id: str, checksum: str = "abc", **overrides: Any) -> dict[st
     return item
 
 
+def drive_folder(file_id: str, **overrides: Any) -> dict[str, Any]:
+    return drive_item(
+        file_id,
+        mimeType="application/vnd.google-apps.folder",
+        size=None,
+        md5Checksum=None,
+        **overrides,
+    )
+
+
 def record(file_id: str, parent_ids: tuple[str, ...] = ()) -> FileRecord:
     return FileRecord(
         key=f"drive:{file_id}",
@@ -259,6 +269,117 @@ def test_drive_files_smaller_than_one_mib_are_shown_but_not_preselected() -> Non
 
     assert len(report.groups) == 1
     assert default_selection(report.groups) == set()
+
+
+def test_drive_identical_owned_folder_trees_are_trash_candidates() -> None:
+    size = str(1024 * 1024)
+    pages = [{"files": [
+        drive_folder("old-folder", name="Original"),
+        drive_item(
+            "old-photo", name="photo.jpg", size=size, checksum="photo", parents=["old-folder"]
+        ),
+        drive_folder(
+            "new-folder",
+            name="Copy",
+            createdTime="2026-02-01T00:00:00Z",
+        ),
+        drive_item(
+            "new-photo", name="photo.jpg", size=size, checksum="photo", parents=["new-folder"]
+        ),
+    ]}]
+
+    report = GoogleDriveScanner().scan(FakeService(pages))
+    group = next(group for group in report.groups if group.records[0].item_kind == "folder")
+
+    assert group.keeper_key == "drive:old-folder"
+    assert {record.entry_count for record in group.records} == {1}
+    assert default_selection(report.groups) == {"drive:new-folder"}
+    assert not any(group.records[0].item_kind == "file" for group in report.groups)
+
+
+def test_drive_folder_with_shortcut_or_non_owner_is_never_candidate() -> None:
+    pages = [{"files": [
+        drive_folder("first", name="First"),
+        drive_item(
+            "shortcut",
+            parents=["first"],
+            mimeType="application/vnd.google-apps.shortcut",
+            size=None,
+            md5Checksum=None,
+        ),
+        drive_folder("second", name="Second", ownedByMe=False),
+        drive_item("second-file", parents=["second"]),
+    ]}]
+
+    report = GoogleDriveScanner().scan(FakeService(pages))
+
+    assert not any(group.records[0].item_kind == "folder" for group in report.groups)
+
+
+def test_drive_folder_system_metadata_option_is_strict_by_default() -> None:
+    size = str(1024 * 1024)
+    pages = [{"files": [
+        drive_folder("first", name="First"),
+        drive_item(
+            "first-photo", name="photo.jpg", size=size, checksum="photo", parents=["first"]
+        ),
+        drive_item("first-noise", name="Thumbs.db", checksum="one", parents=["first"]),
+        drive_folder("second", name="Second"),
+        drive_item(
+            "second-photo", name="photo.jpg", size=size, checksum="photo", parents=["second"]
+        ),
+        drive_item("second-noise", name="Thumbs.db", checksum="two", parents=["second"]),
+    ]}]
+
+    strict = GoogleDriveScanner().scan(FakeService(pages))
+    relaxed = GoogleDriveScanner().scan(
+        FakeService(pages), ignore_system_metadata=True
+    )
+
+    assert not any(group.records[0].item_kind == "folder" for group in strict.groups)
+    folder_group = next(
+        group for group in relaxed.groups if group.records[0].item_kind == "folder"
+    )
+    assert all(record.ignored_metadata_count == 1 for record in folder_group.records)
+    assert any("系統暫存中繼資料" in warning for warning in relaxed.warnings)
+
+
+def test_drive_folder_toctou_change_cancels_trash() -> None:
+    size = str(1024 * 1024)
+    scanned_items = [
+        drive_folder("old-folder", name="Original"),
+        drive_item(
+            "old-photo", name="photo.jpg", size=size, checksum="photo", parents=["old-folder"]
+        ),
+        drive_folder(
+            "new-folder",
+            name="Copy",
+            createdTime="2026-02-01T00:00:00Z",
+        ),
+        drive_item(
+            "new-photo", name="photo.jpg", size=size, checksum="photo", parents=["new-folder"]
+        ),
+    ]
+    report = GoogleDriveScanner().scan(FakeService([{"files": scanned_items}]))
+    group = next(group for group in report.groups if group.records[0].item_kind == "folder")
+    target = next(record for record in group.records if not record.key.endswith("old-folder"))
+    changed_items = [
+        *scanned_items,
+        drive_item("new-child", name="added.txt", checksum="new", parents=["new-folder"]),
+    ]
+    service = FakeService([{"files": changed_items}])
+    service.files_resource.metadata["old-folder"] = drive_folder("old-folder", name="Original")
+    service.files_resource.metadata["new-folder"] = drive_folder(
+        "new-folder", name="Copy", createdTime="2026-02-01T00:00:00Z"
+    )
+
+    action = GoogleDriveTrashExecutor(retry_count=0).trash(
+        service, [OperationItem(target, group.keeper)]
+    )
+
+    assert len(action.skipped) == 1
+    assert "資料夾內容已變更" in (action.skipped[0].error or "")
+    assert service.files_resource.update_calls == []
 
 
 def test_drive_identical_files_in_independent_projects_are_never_candidates() -> None:

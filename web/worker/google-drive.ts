@@ -14,7 +14,7 @@ interface DriveFile {
   id: string;
   name: string;
   mimeType: string;
-  size: string;
+  size?: string;
   md5Checksum?: string;
   sha256Checksum?: string;
   createdTime?: string;
@@ -26,6 +26,8 @@ interface DriveFile {
   webViewLink?: string;
   thumbnailLink?: string;
   parents?: string[];
+  driveId?: string;
+  shared?: boolean;
 }
 
 interface DriveUser {
@@ -48,6 +50,13 @@ interface ProofPayload {
   keeperChecksum: string;
   keeperModifiedTime: string;
   keeperParents: string[];
+  itemKind: "file" | "folder";
+  entryCount: number;
+  ignoredMetadataCount: number;
+  systemMetadataIgnored: boolean;
+  keeperSize: string;
+  keeperEntryCount: number;
+  keeperIgnoredMetadataCount: number;
   expiresAt: number;
 }
 
@@ -56,13 +65,13 @@ type OperationMode = "trash" | "permanent";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 const SESSION_COOKIE = "dupespace_session";
 const OAUTH_COOKIE = "dupespace_oauth";
-const SESSION_MAX_AGE_SECONDS = 30 * 60;
+const SESSION_MAX_AGE_SECONDS = 30 * 86400;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const FILE_FIELDS = [
   "id", "name", "mimeType", "size", "md5Checksum", "sha256Checksum", "createdTime",
   "modifiedTime", "ownedByMe", "version", "trashed", "capabilities(canTrash,canDelete)",
-  "webViewLink", "thumbnailLink", "parents",
+  "webViewLink", "thumbnailLink", "parents", "driveId", "shared",
 ].join(",");
 const MINIMUM_AUTO_SELECT_BYTES = 1024 * 1024;
 const MAX_MUTATION_ITEMS = 20;
@@ -75,6 +84,14 @@ const PROJECT_SUFFIXES = [".sln", ".csproj", ".fsproj", ".vbproj", ".vcxproj", "
 const PACKAGE_DIRECTORIES = new Set([
   ".venv", "venv", "env", "node_modules", "site-packages", "__pycache__", "vendor",
 ]);
+const SYSTEM_METADATA_NAMES = new Set([".ds_store", "thumbs.db", "desktop.ini"]);
+const BACKUP_SYNC_NAMES = new Set([
+  "backup", "backups", "snapshot", "snapshots", "restore", "archives",
+  "onedrive", "dropbox", "google drive", "icloud drive", "syncthing", "nextcloud",
+]);
+const APPLICATION_SUFFIXES = [
+  ".exe", ".dll", ".sys", ".msi", ".msp", ".appx", ".msix", ".cab", ".lnk", ".url",
+];
 
 function encodeBase64Url(bytes: Uint8Array): string {
   let binary = "";
@@ -236,9 +253,13 @@ async function authorizedSession(request: Request, env: Required<GoogleDriveEnv>
   const refreshed = await refreshSession(current, env);
   return {
     session: refreshed,
-    setCookie: refreshed.accessToken === current.accessToken
-      ? undefined
-      : cookie(SESSION_COOKIE, await encrypt(refreshed, env.SESSION_SECRET), request, SESSION_MAX_AGE_SECONDS),
+    // Re-encrypt and renew the opaque HttpOnly session on every authenticated request.
+    setCookie: cookie(
+      SESSION_COOKIE,
+      await encrypt(refreshed, env.SESSION_SECRET),
+      request,
+      SESSION_MAX_AGE_SECONDS,
+    ),
   };
 }
 
@@ -315,6 +336,140 @@ function drivePath(file: DriveFile, filesById: Map<string, DriveFile>): string {
   return segments.join(" / ");
 }
 
+interface FolderTreeEntry {
+  relativePath: string;
+  size: number;
+  checksum: string;
+}
+
+interface FolderManifest {
+  checksum: string;
+  entries: FolderTreeEntry[];
+  ignoredMetadataCount: number;
+  actualCount: number;
+  actualBytes: number;
+  latestModifiedTime: string;
+}
+
+async function sha256Text(value: string): Promise<string> {
+  return encodeBase64Url(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", textEncoder.encode(value))),
+  );
+}
+
+async function folderManifests(
+  files: DriveFile[],
+  projectProtected: Set<string>,
+  ignoreSystemMetadata: boolean,
+): Promise<Map<string, FolderManifest>> {
+  const byId = new Map(files.map((file) => [file.id, file]));
+  const children = new Map<string, DriveFile[]>();
+  for (const file of files) {
+    for (const parent of file.parents ?? []) {
+      const bucket = children.get(parent) ?? [];
+      bucket.push(file);
+      children.set(parent, bucket);
+    }
+  }
+  const memo = new Map<string, Promise<FolderManifest | null>>();
+
+  function visit(folderId: string, visiting: Set<string>): Promise<FolderManifest | null> {
+    if (visiting.has(folderId)) return Promise.resolve(null);
+    const cached = memo.get(folderId);
+    if (cached) return cached;
+    const pending = (async () => {
+      const folder = byId.get(folderId);
+      const folded = folder?.name.toLocaleLowerCase("en-US") ?? "";
+      if (!folder || visiting.has(folderId) || projectProtected.has(folderId) ||
+        folder.mimeType !== "application/vnd.google-apps.folder" || !folder.ownedByMe ||
+        Boolean(folder.driveId) || !folder.capabilities?.canTrash ||
+        PACKAGE_DIRECTORIES.has(folded) || BACKUP_SYNC_NAMES.has(folded)) return null;
+      const nextVisiting = new Set(visiting).add(folderId);
+      const entries: FolderTreeEntry[] = [];
+      let ignoredMetadataCount = 0;
+      let actualCount = 0;
+      let actualBytes = 0;
+      let latestModifiedTime = folder.modifiedTime ?? "";
+      const descendants = [...(children.get(folderId) ?? [])]
+        .sort((left, right) => left.name.localeCompare(right.name));
+      for (const child of descendants) {
+        const childName = child.name.toLocaleLowerCase("en-US");
+        if (child.mimeType === "application/vnd.google-apps.folder") {
+          const nested = await visit(child.id, nextVisiting);
+          if (!nested) return null;
+          entries.push(...nested.entries.map((entry) => ({
+            ...entry,
+            relativePath: `${child.name}/${entry.relativePath}`,
+          })));
+          ignoredMetadataCount += nested.ignoredMetadataCount;
+          actualCount += nested.actualCount;
+          actualBytes += nested.actualBytes;
+          latestModifiedTime = latestModifiedTime > nested.latestModifiedTime
+            ? latestModifiedTime : nested.latestModifiedTime;
+          continue;
+        }
+        const digest = checksum(child);
+        const size = Number(child.size ?? 0);
+        if (projectProtected.has(child.id) || !child.ownedByMe || Boolean(child.driveId) ||
+          child.mimeType === "application/vnd.google-apps.shortcut" ||
+          child.mimeType.startsWith("application/vnd.google-apps.") ||
+          !digest || !child.size || size <= 0 || isProjectMarkerName(child.name) ||
+          APPLICATION_SUFFIXES.some((suffix) => childName.endsWith(suffix))) return null;
+        actualCount += 1;
+        actualBytes += size;
+        latestModifiedTime = latestModifiedTime > (child.modifiedTime ?? "")
+          ? latestModifiedTime : (child.modifiedTime ?? "");
+        if (ignoreSystemMetadata && SYSTEM_METADATA_NAMES.has(childName)) {
+          ignoredMetadataCount += 1;
+          continue;
+        }
+        entries.push({ relativePath: child.name, size, checksum: digest });
+      }
+      if (!entries.length) return null;
+      entries.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+      const signature = entries
+        .map((entry) => `${entry.relativePath}\0${entry.size}\0${entry.checksum}`)
+        .join("\n");
+      return {
+        checksum: `folder-sha256:${await sha256Text(signature)}`,
+        entries,
+        ignoredMetadataCount,
+        actualCount,
+        actualBytes,
+        latestModifiedTime,
+      };
+    })();
+    memo.set(folderId, pending);
+    return pending;
+  }
+
+  const output = new Map<string, FolderManifest>();
+  await Promise.all(files
+    .filter((file) => file.mimeType === "application/vnd.google-apps.folder")
+    .map(async (folder) => {
+      const manifest = await visit(folder.id, new Set());
+      if (manifest) output.set(folder.id, manifest);
+    }));
+  return output;
+}
+
+function hasAncestor(
+  file: DriveFile,
+  ancestorIds: Set<string>,
+  filesById: Map<string, DriveFile>,
+): boolean {
+  const pending = [...(file.parents ?? [])];
+  const visited = new Set<string>();
+  while (pending.length) {
+    const parent = pending.pop() as string;
+    if (ancestorIds.has(parent)) return true;
+    if (visited.has(parent)) continue;
+    visited.add(parent);
+    pending.push(...(filesById.get(parent)?.parents ?? []));
+  }
+  return false;
+}
+
 function keeperRank(file: DriveFile): [number, string, string] {
   const timestamp = Date.parse(file.createdTime ?? file.modifiedTime ?? "9999-12-31T23:59:59Z");
   return [Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER, file.name.toLocaleLowerCase(), file.id];
@@ -328,10 +483,12 @@ function compareRank(left: DriveFile, right: DriveFile): number {
 
 async function listDrive(session: OAuthSession): Promise<{
   files: DriveFile[];
+  listed: DriveFile[];
   paths: Map<string, string>;
   examined: number;
   skipped: number;
   projectProtected: number;
+  protectedIds: Set<string>;
 }> {
   const listed: DriveFile[] = [];
   let examined = 0;
@@ -365,75 +522,191 @@ async function listDrive(session: OAuthSession): Promise<{
     if (unsupported) skipped += 1;
     return !unsupported;
   });
-  return { files, paths, examined, skipped, projectProtected: protectedIds.size };
+  return {
+    files,
+    listed,
+    paths,
+    examined,
+    skipped,
+    projectProtected: protectedIds.size,
+    protectedIds,
+  };
 }
 
 async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Response> {
   requireSameOrigin(request);
   const { session, setCookie } = await authorizedSession(request, env);
-  const [{ files, paths, examined, skipped, projectProtected }, aboutResponse] = await Promise.all([
+  const requestBody = await request.json().catch(() => ({})) as {
+    ignoreSystemMetadata?: boolean;
+  };
+  const ignoreSystemMetadata = requestBody.ignoreSystemMetadata === true;
+  const [drive, aboutResponse] = await Promise.all([
     listDrive(session),
     googleFetch(session, "https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress,photoLink),storageQuota"),
   ]);
+  const { files, listed, paths, examined, skipped, projectProtected, protectedIds } = drive;
   const about = aboutResponse.ok ? await aboutResponse.json() as {
     storageQuota?: { limit?: string; usage?: string };
     user?: { displayName?: string; emailAddress?: string; photoLink?: string };
   } : {};
-  const buckets = new Map<string, DriveFile[]>();
+  const filesById = new Map(listed.map((file) => [file.id, file]));
+  const fileBuckets = new Map<string, DriveFile[]>();
   for (const file of files) {
     const fingerprint = `${file.size}:${checksum(file)}`;
-    const bucket = buckets.get(fingerprint) ?? [];
+    const bucket = fileBuckets.get(fingerprint) ?? [];
     bucket.push(file);
-    buckets.set(fingerprint, bucket);
+    fileBuckets.set(fingerprint, bucket);
+  }
+  const manifests = await folderManifests(listed, protectedIds, ignoreSystemMetadata);
+  const folderBuckets = new Map<string, DriveFile[]>();
+  for (const [folderId, manifest] of manifests) {
+    const folder = filesById.get(folderId);
+    if (!folder) continue;
+    const bucket = folderBuckets.get(manifest.checksum) ?? [];
+    bucket.push(folder);
+    folderBuckets.set(manifest.checksum, bucket);
   }
   const expiresAt = Date.now() + 30 * 60_000;
-  const groups = await Promise.all(
-    [...buckets.entries()]
-      .filter(([, records]) => records.length > 1)
-      .map(async ([fingerprint, records]) => {
-        records.sort(compareRank);
-        const keeper = records[0];
-        const keeperDigest = checksum(keeper) ?? "";
-        const output = await Promise.all(records.map(async (file) => ({
-          id: file.id,
-          name: file.name,
-          size: Number(file.size),
-          checksum: checksum(file),
-          version: file.version ?? "",
-          mimeType: file.mimeType,
-          createdTime: file.createdTime ?? null,
-          modifiedTime: file.modifiedTime ?? null,
-          webViewLink: file.webViewLink ?? null,
-          thumbnailLink: file.thumbnailLink ?? null,
-          path: paths.get(file.id) ?? file.name,
-          canTrash: Boolean(file.capabilities?.canTrash),
-          canDelete: Boolean(file.capabilities?.canDelete),
-          autoSelectable: Boolean(file.capabilities?.canTrash) && Number(file.size) >= MINIMUM_AUTO_SELECT_BYTES,
-          keeper: file.id === keeper.id,
-          proof: await proof({
-            id: file.id,
-            version: file.version ?? "",
-            checksum: checksum(file) ?? "",
-            size: file.size,
-            modifiedTime: file.modifiedTime ?? "",
-            mimeType: file.mimeType,
-            parents: [...(file.parents ?? [])].sort(),
-            path: paths.get(file.id) ?? file.name,
-            keeperId: keeper.id,
-            keeperVersion: keeper.version ?? "",
-            keeperChecksum: keeperDigest,
-            keeperModifiedTime: keeper.modifiedTime ?? "",
-            keeperParents: [...(keeper.parents ?? [])].sort(),
-            expiresAt,
-          }, env.SESSION_SECRET),
-        })));
-        return {
-          fingerprint,
-          reclaimableBytes: Number(keeper.size) * (records.length - 1),
-          records: output,
-        };
-      }),
-  );
+  const folderCandidates = [...folderBuckets.entries()]
+    .filter(([, records]) => records.length > 1)
+    .map(([fingerprint, records]) => ({
+      fingerprint,
+      records: [...records].sort(compareRank),
+    }))
+    .sort((left, right) => {
+      const leftDepth = Math.min(...left.records.map((record) => (paths.get(record.id) ?? "").split(" / ").length));
+      const rightDepth = Math.min(...right.records.map((record) => (paths.get(record.id) ?? "").split(" / ").length));
+      return leftDepth - rightDepth;
+    });
+  const coveredFolderIds = new Set<string>();
+  const selectedFolderCandidates = folderCandidates.filter((group) => {
+    if (group.records.some((record) => hasAncestor(record, coveredFolderIds, filesById))) return false;
+    for (const record of group.records) coveredFolderIds.add(record.id);
+    return true;
+  });
+  const selectedFileBuckets = [...fileBuckets.entries()]
+    .filter(([, records]) => records.length > 1)
+    .filter(([, records]) => !records.some((record) =>
+      hasAncestor(record, coveredFolderIds, filesById)));
+
+  const fileGroups = await Promise.all(selectedFileBuckets.map(async ([fingerprint, input]) => {
+    const records = [...input].sort(compareRank);
+    const keeper = records[0];
+    const keeperDigest = checksum(keeper) ?? "";
+    const output = await Promise.all(records.map(async (file) => ({
+      id: file.id,
+      name: file.name,
+      size: Number(file.size),
+      checksum: checksum(file),
+      version: file.version ?? "",
+      mimeType: file.mimeType,
+      itemKind: "file" as const,
+      entryCount: 1,
+      ignoredMetadataCount: 0,
+      systemMetadataIgnored: false,
+      createdTime: file.createdTime ?? null,
+      modifiedTime: file.modifiedTime ?? null,
+      webViewLink: file.webViewLink ?? null,
+      thumbnailLink: file.thumbnailLink ?? null,
+      path: paths.get(file.id) ?? file.name,
+      canTrash: Boolean(file.capabilities?.canTrash),
+      canDelete: Boolean(file.capabilities?.canDelete),
+      autoSelectable: Boolean(file.capabilities?.canTrash) && Number(file.size) >= MINIMUM_AUTO_SELECT_BYTES,
+      keeper: file.id === keeper.id,
+      proof: await proof({
+        id: file.id,
+        version: file.version ?? "",
+        checksum: checksum(file) ?? "",
+        size: file.size ?? "0",
+        modifiedTime: file.modifiedTime ?? "",
+        mimeType: file.mimeType,
+        parents: [...(file.parents ?? [])].sort(),
+        path: paths.get(file.id) ?? file.name,
+        keeperId: keeper.id,
+        keeperVersion: keeper.version ?? "",
+        keeperChecksum: keeperDigest,
+        keeperModifiedTime: keeper.modifiedTime ?? "",
+        keeperParents: [...(keeper.parents ?? [])].sort(),
+        itemKind: "file",
+        entryCount: 1,
+        ignoredMetadataCount: 0,
+        systemMetadataIgnored: false,
+        keeperSize: keeper.size ?? "0",
+        keeperEntryCount: 1,
+        keeperIgnoredMetadataCount: 0,
+        expiresAt,
+      }, env.SESSION_SECRET),
+    })));
+    return {
+      itemKind: "file" as const,
+      fingerprint,
+      reclaimableBytes: Number(keeper.size) * (records.length - 1),
+      tree: [] as FolderTreeEntry[],
+      records: output,
+    };
+  }));
+
+  const folderGroups = await Promise.all(selectedFolderCandidates.map(async (group) => {
+    const keeper = group.records[0];
+    const keeperManifest = manifests.get(keeper.id) as FolderManifest;
+    const output = await Promise.all(group.records.map(async (folder) => {
+      const manifest = manifests.get(folder.id) as FolderManifest;
+      return {
+        id: folder.id,
+        name: folder.name,
+        size: manifest.actualBytes,
+        checksum: manifest.checksum,
+        version: folder.version ?? "",
+        mimeType: folder.mimeType,
+        itemKind: "folder" as const,
+        entryCount: manifest.entries.length,
+        ignoredMetadataCount: manifest.ignoredMetadataCount,
+        systemMetadataIgnored: ignoreSystemMetadata,
+        createdTime: folder.createdTime ?? null,
+        modifiedTime: manifest.latestModifiedTime || null,
+        webViewLink: folder.webViewLink ?? null,
+        thumbnailLink: null,
+        path: paths.get(folder.id) ?? folder.name,
+        canTrash: Boolean(folder.capabilities?.canTrash),
+        canDelete: false,
+        autoSelectable: Boolean(folder.capabilities?.canTrash) && manifest.actualBytes >= MINIMUM_AUTO_SELECT_BYTES,
+        keeper: folder.id === keeper.id,
+        proof: await proof({
+          id: folder.id,
+          version: folder.version ?? "",
+          checksum: manifest.checksum,
+          size: String(manifest.actualBytes),
+          modifiedTime: manifest.latestModifiedTime,
+          mimeType: folder.mimeType,
+          parents: [...(folder.parents ?? [])].sort(),
+          path: paths.get(folder.id) ?? folder.name,
+          keeperId: keeper.id,
+          keeperVersion: keeper.version ?? "",
+          keeperChecksum: keeperManifest.checksum,
+          keeperModifiedTime: keeperManifest.latestModifiedTime,
+          keeperParents: [...(keeper.parents ?? [])].sort(),
+          itemKind: "folder",
+          entryCount: manifest.entries.length,
+          ignoredMetadataCount: manifest.ignoredMetadataCount,
+          systemMetadataIgnored: ignoreSystemMetadata,
+          keeperSize: String(keeperManifest.actualBytes),
+          keeperEntryCount: keeperManifest.entries.length,
+          keeperIgnoredMetadataCount: keeperManifest.ignoredMetadataCount,
+          expiresAt,
+        }, env.SESSION_SECRET),
+      };
+    }));
+    return {
+      itemKind: "folder" as const,
+      fingerprint: group.fingerprint,
+      reclaimableBytes: output
+        .filter((record) => !record.keeper)
+        .reduce((total, record) => total + record.size, 0),
+      tree: keeperManifest.entries,
+      records: output,
+    };
+  }));
+  const groups = [...folderGroups, ...fileGroups];
   groups.sort((a, b) => b.reclaimableBytes - a.reclaimableBytes);
   return json({
     examined,
@@ -444,6 +717,7 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
     groups,
     storageQuota: about.storageQuota ?? null,
     user: about.user ?? null,
+    ignoreSystemMetadata,
     proofExpiresAt: expiresAt,
   }, 200, setCookie ? { "set-cookie": setCookie } : undefined);
 }
@@ -472,6 +746,7 @@ async function getFile(session: OAuthSession, id: string): Promise<DriveFile> {
 
 function validateSnapshot(file: DriveFile, payload: ProofPayload, mode: OperationMode): string | null {
   if (file.id !== payload.id || file.trashed || !file.ownedByMe) return "檔案已移動、刪除或不再由你擁有";
+  if (payload.itemKind !== "file") return "掃描證明的項目類型不一致";
   if (unsupportedType(file) || file.mimeType !== payload.mimeType) return "資料夾、捷徑或檔案類型變更，已跳過";
   if (file.version !== payload.version || file.modifiedTime !== payload.modifiedTime) return "檔案版本或修改時間已變更";
   if (JSON.stringify([...(file.parents ?? [])].sort()) !== JSON.stringify(payload.parents)) return "檔案已移至不同的 Google Drive 資料夾";
@@ -486,7 +761,44 @@ function validateKeeper(file: DriveFile, payload: ProofPayload): string | null {
   if (unsupportedType(file)) return "保留項目不是可驗證的一般檔案";
   if (file.version !== payload.keeperVersion || file.modifiedTime !== payload.keeperModifiedTime) return "保留檔案版本已變更";
   if (JSON.stringify([...(file.parents ?? [])].sort()) !== JSON.stringify(payload.keeperParents)) return "保留檔案已移至不同的 Google Drive 資料夾";
-  if (file.size !== payload.size || checksum(file) !== payload.keeperChecksum) return "保留檔案內容已變更";
+  if (payload.itemKind !== "file") return "保留項目的掃描證明類型不一致";
+  if (file.size !== payload.keeperSize || checksum(file) !== payload.keeperChecksum) return "保留檔案內容已變更";
+  return null;
+}
+
+function validateFolderSnapshot(
+  folder: DriveFile,
+  payload: ProofPayload,
+  manifest: FolderManifest | undefined,
+  mode: OperationMode,
+  keeper: boolean,
+): string | null {
+  if (payload.itemKind !== "folder") return "掃描證明的資料夾類型不一致";
+  if (mode === "permanent") return "資料夾只能移至 Google Drive 垃圾桶，不能永久刪除";
+  const expectedId = keeper ? payload.keeperId : payload.id;
+  const expectedParents = keeper ? payload.keeperParents : payload.parents;
+  const expectedVersion = keeper ? payload.keeperVersion : payload.version;
+  const expectedLatest = keeper ? payload.keeperModifiedTime : payload.modifiedTime;
+  const expectedChecksum = keeper ? payload.keeperChecksum : payload.checksum;
+  const expectedSize = Number(keeper ? payload.keeperSize : payload.size);
+  const expectedCount = keeper ? payload.keeperEntryCount : payload.entryCount;
+  const expectedIgnored = keeper
+    ? payload.keeperIgnoredMetadataCount : payload.ignoredMetadataCount;
+  if (folder.id !== expectedId || folder.trashed || !folder.ownedByMe || folder.driveId) {
+    return "資料夾已移動、刪除、位於共用雲端硬碟或不再由你擁有";
+  }
+  if (folder.mimeType !== "application/vnd.google-apps.folder") return "項目已不再是資料夾";
+  if (folder.version !== expectedVersion) return "資料夾版本已變更";
+  if (JSON.stringify([...(folder.parents ?? [])].sort()) !== JSON.stringify(expectedParents)) {
+    return "資料夾已移至不同的 Google Drive 位置";
+  }
+  if (!manifest || manifest.checksum !== expectedChecksum ||
+    manifest.actualBytes !== expectedSize || manifest.entries.length !== expectedCount ||
+    manifest.ignoredMetadataCount !== expectedIgnored ||
+    manifest.latestModifiedTime !== expectedLatest) {
+    return "資料夾內容已變更，操作已取消";
+  }
+  if (!keeper && !folder.capabilities?.canTrash) return "沒有移至垃圾桶權限";
   return null;
 }
 
@@ -505,6 +817,7 @@ function auditOutcome(
     size: Number(payload.size),
     checksum: payload.checksum,
     operationMode: mode,
+    itemKind: payload.itemKind,
     status,
     reason,
   };
@@ -523,6 +836,20 @@ async function mutate(request: Request, env: Required<GoogleDriveEnv>, mode: Ope
   }));
   if (verified.some((item) => item === null)) return json({ error: "掃描證明無效或已過期，請重新掃描" }, 409);
 
+  const folderPayloads = (verified as ProofPayload[])
+    .filter((payload) => payload.itemKind === "folder");
+  let currentDriveFiles: Map<string, DriveFile> | null = null;
+  let currentFolderManifests: Map<string, FolderManifest> | null = null;
+  if (folderPayloads.length) {
+    const currentDrive = await listDrive(session);
+    currentDriveFiles = new Map(currentDrive.listed.map((file) => [file.id, file]));
+    currentFolderManifests = await folderManifests(
+      currentDrive.listed,
+      currentDrive.protectedIds,
+      folderPayloads.some((payload) => payload.systemMetadataIgnored),
+    );
+  }
+
   const keeperCache = new Map<string, Promise<DriveFile>>();
   const keeperFor = (id: string) => {
     const cached = keeperCache.get(id);
@@ -539,10 +866,31 @@ async function mutate(request: Request, env: Required<GoogleDriveEnv>, mode: Ope
         keeperFor(payload.keeperId),
       ]);
       current = target;
-      const targetFailure = validateSnapshot(target, payload, mode);
-      if (targetFailure) return auditOutcome(payload, target, mode, "skipped", targetFailure);
-      const keeperFailure = validateKeeper(keeper, payload);
-      if (keeperFailure) return auditOutcome(payload, target, mode, "skipped", keeperFailure);
+      if (payload.itemKind === "folder") {
+        const currentTarget = currentDriveFiles?.get(payload.id) ?? target;
+        const currentKeeper = currentDriveFiles?.get(payload.keeperId) ?? keeper;
+        const targetFailure = validateFolderSnapshot(
+          currentTarget,
+          payload,
+          currentFolderManifests?.get(payload.id),
+          mode,
+          false,
+        );
+        if (targetFailure) return auditOutcome(payload, target, mode, "skipped", targetFailure);
+        const keeperFailure = validateFolderSnapshot(
+          currentKeeper,
+          payload,
+          currentFolderManifests?.get(payload.keeperId),
+          mode,
+          true,
+        );
+        if (keeperFailure) return auditOutcome(payload, target, mode, "skipped", keeperFailure);
+      } else {
+        const targetFailure = validateSnapshot(target, payload, mode);
+        if (targetFailure) return auditOutcome(payload, target, mode, "skipped", targetFailure);
+        const keeperFailure = validateKeeper(keeper, payload);
+        if (keeperFailure) return auditOutcome(payload, target, mode, "skipped", keeperFailure);
+      }
 
       const endpoint = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(payload.id)}?supportsAllDrives=false`;
       const response = mode === "trash"
@@ -591,13 +939,16 @@ export async function handleGoogleDriveApi(request: Request, env: GoogleDriveEnv
       const account = accountResponse.ok
         ? await accountResponse.json() as { user?: DriveUser }
         : { user: undefined };
-      const setCookie = refreshed.accessToken === session.accessToken
-        ? undefined
-        : cookie(SESSION_COOKIE, await encrypt(refreshed, env.SESSION_SECRET), request, SESSION_MAX_AGE_SECONDS);
+      const setCookie = cookie(
+        SESSION_COOKIE,
+        await encrypt(refreshed, env.SESSION_SECRET),
+        request,
+        SESSION_MAX_AGE_SECONDS,
+      );
       return json(
         { connected: true, configured: true, user: account.user ?? null },
         200,
-        setCookie ? { "set-cookie": setCookie } : undefined,
+        { "set-cookie": setCookie },
       );
     }
     requireConfig(env);
@@ -658,7 +1009,23 @@ export async function handleGoogleDriveApi(request: Request, env: GoogleDriveEnv
     }
     if (url.pathname === "/api/google/disconnect" && request.method === "POST") {
       requireSameOrigin(request);
-      return json({ connected: false }, 200, { "set-cookie": clearCookie(SESSION_COOKIE, request) });
+      const session = await decrypt<OAuthSession>(
+        parseCookies(request)[SESSION_COOKIE],
+        env.SESSION_SECRET,
+      );
+      const token = session?.refreshToken ?? session?.accessToken;
+      if (token) {
+        await fetch("https://oauth2.googleapis.com/revoke", {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ token }),
+        }).catch(() => undefined);
+      }
+      return json(
+        { connected: false },
+        200,
+        { "set-cookie": clearCookie(SESSION_COOKIE, request) },
+      );
     }
     if (url.pathname === "/api/google/scan" && request.method === "POST") return scan(request, env);
     if (url.pathname === "/api/google/trash" && request.method === "POST") return mutate(request, env, "trash");

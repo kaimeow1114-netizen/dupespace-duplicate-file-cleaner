@@ -9,7 +9,7 @@ proof that expires after 30 minutes.
 
 1. Enable Google Drive API in the DUPESPACE Google Cloud project.
 2. Configure the OAuth brand as **DUPESPACE** with:
-   - Homepage: `https://dupespace.app`
+   - Homepage: `https://dupespace.app/`
    - Privacy: `https://dupespace.app/privacy`
    - Terms: `https://dupespace.app/terms`
 3. Create a **Web application** client with origin `https://dupespace.app` and redirect URI
@@ -27,7 +27,10 @@ The Desktop app uses only its public Client ID, a random loopback redirect, and 
 store, or inject a Desktop Client Secret as a security control: native applications cannot keep one
 confidential after distribution. The web secret remains a Sites secret environment variable and
 must never be printed by builds, request logs, diagnostics, or error pages. Rotate it and
-`SESSION_SECRET` after any suspected exposure. Web login sessions expire after 30 minutes.
+`SESSION_SECRET` after any suspected exposure. The encrypted Secure/HttpOnly/SameSite login cookie
+uses a sliding 30-day maximum age and is rotated on authenticated use; server-signed scan proofs
+remain short-lived and expire after 30 minutes. Disconnect attempts to revoke the Google token
+before clearing the local session cookie.
 
 The full Drive scope is required to find and manage pre-existing user-selected duplicate files.
 Both trash and permanent deletion use that same already-declared scope; the permanent operation
@@ -42,6 +45,9 @@ server maximum of 20. Keeper lookups are shared within each request to avoid red
 never invokes permanent delete. A trash result is successful only when Google explicitly returns
 `trashed=true`. Every operation revalidates target and keeper metadata, ownership, checksum,
 version, modified time, parent folder, and capability, then returns a full per-item audit outcome.
+Verified mirror folders are trash-only. Right before a folder mutation, the runtime rebuilds its
+relative-path manifest and rechecks file count, total bytes, latest modification time, ownership,
+location, capabilities, and checksum. Any mismatch cancels the operation.
 
 ## AdSense and search
 

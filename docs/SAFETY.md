@@ -7,10 +7,18 @@ that cross from keep to clean are shown; clean-only duplicates are completely ex
 keep-root records are locked and every group keeps at least one deterministic keeper.
 
 Zero-byte files are ignored. Files below 1 MiB are visible but not preselected. Project/package
-trees, applications/install resources, backups/snapshots, and sync folders are locked by default.
-A folder can be unlocked only for the current scan after its full path, count, and bytes are shown
-and the exact phrase `允許清理 <資料夾名稱>` is entered. Rescanning or changing roots resets it.
+trees, applications/install resources, backups/snapshots, and sync folders are excluded from
+whole-folder comparison; risky individual-file contexts remain locked by default and can be
+unlocked only for the current scan after their full path, count, bytes, and exact confirmation
+phrase are reviewed. Rescanning or changing roots resets that temporary unlock.
 Offline and recall-on-access cloud placeholders are skipped without opening or hydrating them.
+
+Duplicate folders are detected separately from files. Two folder trees must have identical
+relative paths, byte sizes, and full checksums; empty folders alone do not qualify. Folder cleanup
+is trash-only. Immediately before use, DUPESPACE rebuilds and compares the tree manifest, file
+count, total bytes, and newest modification time. A changed tree is cancelled atomically before
+the trash request. The optional `.DS_Store`/`Thumbs.db`/`desktop.ini` ignore rule is off by default;
+when enabled, those files are ignored only for matching and still move with the folder to trash.
 
 ## Two independent operation modes
 
@@ -34,14 +42,16 @@ Windows, System32, SysWOW64, WinSxS, Program Files, ProgramData, AppData, System
 `$Recycle.Bin`, Recovery, EFI/Boot, Windows Installer/update caches, and OS-managed files are
 excluded. Paths are discovered from Windows APIs, Known Folder/environment data, volume roots, and
 file attributes rather than assuming Windows is installed on `C:`. Symbolic links, junctions,
-mount points, reparse points, shortcuts, folders, hidden/system files, and path aliases cannot
+mount points, reparse points, shortcuts, hidden/system files, and path aliases cannot
 bypass the restriction. Administrator privileges never disable these rules.
 
 ## Google Drive
 
-Only owned binary files with a stable checksum are eligible. Native Google Workspace documents,
-folders, shortcuts, shared-drive items, and files without the necessary capability are skipped.
-The web cleaner uses encrypted HttpOnly OAuth sessions, 30-minute HMAC-signed scan proofs, batches
+Only owned binary files with a stable checksum are eligible. Verified, owner-controlled My Drive
+mirror folders can be moved to trash, while native Google Workspace documents, shortcuts,
+non-owner folders, shared-drive items, and items without the necessary capability are skipped.
+The web cleaner uses encrypted Secure/HttpOnly/SameSite OAuth sessions with a sliding 30-day
+maximum age, 30-minute HMAC-signed scan proofs, batches
 of 10 items, and distinct `/trash` and `/delete` server paths. Every trash response must explicitly
 confirm `trashed=true`; confirmed items disappear from the result list immediately. File contents
 never pass through the DUPESPACE server. Google-hosted thumbnails load directly in the user's

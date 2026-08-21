@@ -128,7 +128,11 @@ def validate_selection(
     forbidden = [
         key
         for key in selected
-        if not (records[key].can_trash if operation_mode == "trash" else records[key].can_delete)
+        if not (
+            records[key].can_trash
+            if operation_mode == "trash"
+            else records[key].can_delete and records[key].item_kind == "file"
+        )
     ]
     if forbidden:
         action = "moved to trash" if operation_mode == "trash" else "permanently deleted"

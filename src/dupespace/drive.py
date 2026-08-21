@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
@@ -29,6 +30,26 @@ DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 GOOGLE_FOLDER_MIME = "application/vnd.google-apps.folder"
 GOOGLE_SHORTCUT_MIME = "application/vnd.google-apps.shortcut"
 BATCH_LIMIT = 100
+SYSTEM_METADATA_NAMES = frozenset({".ds_store", "thumbs.db", "desktop.ini"})
+APPLICATION_SUFFIXES = frozenset(
+    {".exe", ".dll", ".sys", ".msi", ".msp", ".appx", ".msix", ".cab", ".lnk"}
+)
+BACKUP_SYNC_NAMES = frozenset(
+    {
+        "backup",
+        "backups",
+        "snapshot",
+        "snapshots",
+        "restore",
+        "archives",
+        "onedrive",
+        "dropbox",
+        "google drive",
+        "icloud drive",
+        "syncthing",
+        "nextcloud",
+    }
+)
 
 ProgressCallback = Callable[[ProgressUpdate], None]
 
@@ -81,6 +102,136 @@ def drive_project_protected_ids(items: Iterable[dict[str, Any]]) -> set[str]:
         protected.add(item_id)
         queue.extend(children.get(item_id, ()))
     return protected
+
+
+def _drive_checksum_value(item: dict[str, Any]) -> str | None:
+    if item.get("sha256Checksum"):
+        return f"sha256:{item['sha256Checksum']}"
+    if item.get("md5Checksum"):
+        return f"md5:{item['md5Checksum']}"
+    return None
+
+
+def _drive_paths(items: Iterable[dict[str, Any]]) -> dict[str, str]:
+    materialized = tuple(items)
+    by_id = {str(item.get("id")): item for item in materialized if item.get("id")}
+    memo: dict[str, str] = {}
+
+    def build(item_id: str, visiting: set[str]) -> str:
+        if item_id in memo:
+            return memo[item_id]
+        item = by_id.get(item_id)
+        if item is None or item_id in visiting:
+            return "Google Drive"
+        visiting.add(item_id)
+        name = str(item.get("name") or "(未命名)")
+        parent = next(
+            (str(value) for value in item.get("parents", []) if str(value) in by_id),
+            None,
+        )
+        value = f"{build(parent, visiting)} / {name}" if parent else f"Google Drive / {name}"
+        visiting.remove(item_id)
+        memo[item_id] = value
+        return value
+
+    for item_id in by_id:
+        build(item_id, set())
+    return memo
+
+
+def _folder_manifest(
+    folder_id: str,
+    items: Iterable[dict[str, Any]],
+    *,
+    ignore_system_metadata: bool,
+) -> tuple[str, int, int, int, str] | None:
+    """Return digest, comparable count, ignored count, actual bytes and latest time."""
+
+    materialized = tuple(items)
+    by_id = {str(item.get("id")): item for item in materialized if item.get("id")}
+    children: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in materialized:
+        for parent in item.get("parents", []):
+            children[str(parent)].append(item)
+    protected = drive_project_protected_ids(materialized)
+    visiting: set[str] = set()
+
+    def walk(current_id: str, prefix: str) -> tuple[list[str], int, int, int, str] | None:
+        current = by_id.get(current_id)
+        if (
+            current is None
+            or current_id in visiting
+            or current_id in protected
+            or current.get("mimeType") != GOOGLE_FOLDER_MIME
+            or current.get("ownedByMe") is not True
+            or current.get("driveId")
+            or not current.get("capabilities", {}).get("canTrash")
+            or str(current.get("name") or "").casefold() in BACKUP_SYNC_NAMES
+            or is_package_directory_name(str(current.get("name") or ""))
+        ):
+            return None
+        visiting.add(current_id)
+        rows: list[str] = []
+        comparable_count = 0
+        ignored_count = 0
+        actual_bytes = 0
+        latest = str(current.get("modifiedTime") or "")
+        for child in sorted(
+            children.get(current_id, []),
+            key=lambda item: str(item.get("name") or "").casefold(),
+        ):
+            child_id = str(child.get("id") or "")
+            name = str(child.get("name") or "(未命名)")
+            folded = name.casefold()
+            relative = f"{prefix}{name}"
+            if child.get("mimeType") == GOOGLE_FOLDER_MIME:
+                nested = walk(child_id, f"{relative}/")
+                if nested is None:
+                    visiting.remove(current_id)
+                    return None
+                nested_rows, nested_count, nested_ignored, nested_bytes, nested_latest = nested
+                rows.extend(nested_rows)
+                comparable_count += nested_count
+                ignored_count += nested_ignored
+                actual_bytes += nested_bytes
+                latest = max(latest, nested_latest)
+                continue
+            size_value = child.get("size")
+            checksum_value = _drive_checksum_value(child)
+            if (
+                child_id in protected
+                or child.get("mimeType") == GOOGLE_SHORTCUT_MIME
+                or str(child.get("mimeType") or "").startswith("application/vnd.google-apps.")
+                or child.get("ownedByMe") is not True
+                or child.get("driveId")
+                or size_value is None
+                or int(size_value) == 0
+                or checksum_value is None
+                or Path(name).suffix.casefold() in APPLICATION_SUFFIXES
+                or is_project_marker_name(name)
+            ):
+                visiting.remove(current_id)
+                return None
+            size = int(size_value)
+            actual_bytes += size
+            latest = max(latest, str(child.get("modifiedTime") or ""))
+            if ignore_system_metadata and folded in SYSTEM_METADATA_NAMES:
+                ignored_count += 1
+                continue
+            rows.append(f"{relative}\0{size}\0{checksum_value}")
+            comparable_count += 1
+        visiting.remove(current_id)
+        return rows, comparable_count, ignored_count, actual_bytes, latest
+
+    result = walk(folder_id, "")
+    if result is None:
+        return None
+    rows, count, ignored, total_bytes, latest = result
+    if count == 0:
+        return None
+    rows.sort(key=str.casefold)
+    digest = hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()
+    return f"folder-sha256:{digest}", count, ignored, total_bytes, latest
 
 
 def app_data_dir() -> Path:
@@ -222,6 +373,7 @@ class GoogleDriveScanner:
         self,
         service: Any,
         *,
+        ignore_system_metadata: bool = False,
         progress: ProgressCallback | None = None,
         cancel_event: threading.Event | None = None,
         include_shared_drives: bool = False,
@@ -275,6 +427,7 @@ class GoogleDriveScanner:
                 break
 
         project_protected = drive_project_protected_ids(listed_items)
+        paths = _drive_paths(listed_items)
         if project_protected:
             warnings.append(f"已硬性略過 {len(project_protected):,} 個程式碼專案或套件環境項目。")
 
@@ -310,7 +463,7 @@ class GoogleDriveScanner:
                     key=f"drive:{item['id']}",
                     source="drive",
                     name=item.get("name") or "(未命名)",
-                    location=f"Google Drive / {item.get('name') or '(未命名)'}",
+                    location=paths.get(str(item.get("id")), "Google Drive"),
                     size=file_size,
                     checksum=f"{checksum_kind}:{checksum_value}",
                     created_at=_timestamp(item.get("createdTime")),
@@ -329,7 +482,118 @@ class GoogleDriveScanner:
                 )
             )
 
-        groups = build_duplicate_groups(records)
+        file_groups = build_duplicate_groups(records)
+        folder_records: list[FileRecord] = []
+        for item in listed_items:
+            if item.get("mimeType") != GOOGLE_FOLDER_MIME:
+                continue
+            folder_id = str(item.get("id") or "")
+            manifest = _folder_manifest(
+                folder_id,
+                listed_items,
+                ignore_system_metadata=ignore_system_metadata,
+            )
+            if manifest is None:
+                continue
+            checksum_value, count, ignored, total_bytes, latest = manifest
+            can_trash = bool(item.get("capabilities", {}).get("canTrash"))
+            folder_records.append(
+                FileRecord(
+                    key=f"drive:{folder_id}",
+                    source="drive",
+                    name=item.get("name") or "(未命名資料夾)",
+                    location=paths.get(folder_id, "Google Drive"),
+                    size=total_bytes,
+                    checksum=checksum_value,
+                    item_kind="folder",
+                    entry_count=count,
+                    ignored_metadata_count=ignored,
+                    system_metadata_ignored=ignore_system_metadata,
+                    created_at=_timestamp(item.get("createdTime")),
+                    modified_at=_timestamp(latest),
+                    metadata_token=json.dumps(
+                        {
+                            "count": count + ignored,
+                            "bytes": total_bytes,
+                            "latest": latest,
+                        },
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    can_trash=can_trash,
+                    can_delete=False,
+                    mime_type=GOOGLE_FOLDER_MIME,
+                    web_url=item.get("webViewLink"),
+                    parent_ids=tuple(
+                        sorted(str(parent) for parent in item.get("parents", []))
+                    ),
+                    selectable=can_trash,
+                    auto_selectable=(
+                        can_trash and total_bytes >= MINIMUM_AUTO_SELECT_BYTES
+                    ),
+                    protection_reason=None if can_trash else "目前帳號沒有資料夾垃圾桶權限",
+                )
+            )
+
+        by_id = {
+            str(item.get("id")): item for item in listed_items if item.get("id")
+        }
+
+        def has_covered_ancestor(item_id: str, covered: set[str]) -> bool:
+            pending = list(by_id.get(item_id, {}).get("parents", []))
+            visited: set[str] = set()
+            while pending:
+                parent = str(pending.pop())
+                if parent in covered:
+                    return True
+                if parent in visited:
+                    continue
+                visited.add(parent)
+                pending.extend(by_id.get(parent, {}).get("parents", []))
+            return False
+
+        folder_groups_raw = sorted(
+            build_duplicate_groups(folder_records),
+            key=lambda group: min(record.location.count(" / ") for record in group.records),
+        )
+        folder_groups = []
+        covered_folder_ids: set[str] = set()
+        for group in folder_groups_raw:
+            ids = {_drive_file_id(record) for record in group.records}
+            if any(has_covered_ancestor(item_id, covered_folder_ids) for item_id in ids):
+                continue
+            folder_groups.append(group)
+            covered_folder_ids.update(ids)
+        file_groups = tuple(
+            group
+            for group in file_groups
+            if not any(
+                has_covered_ancestor(_drive_file_id(record), covered_folder_ids)
+                for record in group.records
+                if record.key != group.keeper_key
+            )
+        )
+        groups = tuple(
+            sorted(
+                (*folder_groups, *file_groups),
+                key=lambda group: (
+                    -group.reclaimable_bytes,
+                    group.records[0].name.casefold(),
+                    group.fingerprint,
+                ),
+            )
+        )
+        if ignore_system_metadata:
+            ignored_metadata = sum(
+                record.ignored_metadata_count
+                for group in folder_groups
+                for record in group.records
+            )
+            if ignored_metadata:
+                warnings.append(
+                    f"已依使用者選擇忽略 {ignored_metadata:,} 個系統暫存中繼資料檔；"
+                    "移除資料夾時會連同它們移至 Google Drive 垃圾桶。"
+                )
         _emit(progress, "complete", examined, examined, "Google Drive 掃描完成")
         return ScanReport(
             source="drive",
@@ -362,10 +626,68 @@ _PREFLIGHT_FIELDS = (
 
 
 def _drive_checksum(item: dict[str, Any]) -> str | None:
-    if item.get("sha256Checksum"):
-        return f"sha256:{item['sha256Checksum']}"
-    if item.get("md5Checksum"):
-        return f"md5:{item['md5Checksum']}"
+    return _drive_checksum_value(item)
+
+
+def _list_current_drive_items(service: Any) -> tuple[dict[str, Any], ...]:
+    page_token: str | None = None
+    listed: list[dict[str, Any]] = []
+    while True:
+        response = service.files().list(
+            q="trashed = false",
+            spaces="drive",
+            corpora="user",
+            pageSize=1000,
+            pageToken=page_token,
+            fields=GoogleDriveScanner.FIELDS,
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=False,
+        ).execute(num_retries=3)
+        listed.extend(response.get("files", []))
+        page_token = response.get("nextPageToken")
+        if not page_token:
+            return tuple(listed)
+
+
+def _validate_drive_folder_snapshot(
+    items: tuple[dict[str, Any], ...],
+    record: FileRecord,
+    capability: str | None = None,
+) -> str | None:
+    if record.item_kind != "folder":
+        return "Folder validation received a non-folder record"
+    if capability == "canDelete":
+        return "資料夾只能移至 Google Drive 垃圾桶，不能永久刪除"
+    folder_id = _drive_file_id(record)
+    current = next((item for item in items if str(item.get("id")) == folder_id), None)
+    if current is None or current.get("trashed") is True:
+        return "資料夾已移動或刪除"
+    if (
+        current.get("mimeType") != GOOGLE_FOLDER_MIME
+        or current.get("ownedByMe") is not True
+        or current.get("driveId")
+    ):
+        return "資料夾不是本人擁有的 My Drive 一般資料夾"
+    if capability and not bool(current.get("capabilities", {}).get(capability)):
+        return f"Google Drive permission {capability} is not available"
+    parents = tuple(sorted(str(parent) for parent in current.get("parents", [])))
+    if parents != record.parent_ids:
+        return "資料夾已移至不同的 Google Drive 位置"
+    manifest = _folder_manifest(
+        folder_id,
+        items,
+        ignore_system_metadata=record.system_metadata_ignored,
+    )
+    if manifest is None:
+        return "資料夾目前含無法驗證、非本人擁有、捷徑或受保護項目"
+    checksum_value, count, ignored, total_bytes, latest = manifest
+    token = json.dumps(
+        {"count": count + ignored, "bytes": total_bytes, "latest": latest},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    if token != record.metadata_token or checksum_value != record.checksum:
+        return "資料夾內容已變更，操作已取消"
     return None
 
 
@@ -459,6 +781,7 @@ class _GoogleDriveOperationExecutor:
         processed = 0
 
         for chunk in _chunks(queue, self.batch_size):
+            original_chunk_length = len(chunk)
             if cancel_event and cancel_event.is_set():
                 outcomes.extend(
                     ActionOutcome(
@@ -471,22 +794,59 @@ class _GoogleDriveOperationExecutor:
                 )
                 break
 
+            if operation_mode == "permanent" and any(
+                item.record.item_kind == "folder" for item in chunk
+            ):
+                outcomes.extend(
+                    ActionOutcome(
+                        item.record,
+                        "skipped",
+                        "資料夾只能移至 Google Drive 垃圾桶，不能永久刪除",
+                        operation_mode=operation_mode,
+                    )
+                    for item in chunk
+                    if item.record.item_kind == "folder"
+                )
+                chunk = tuple(item for item in chunk if item.record.item_kind == "file")
+                if not chunk:
+                    processed += original_chunk_length
+                    continue
+
             ids = [
                 file_id
                 for item in chunk
                 for file_id in (_drive_file_id(item.record), _drive_file_id(item.keeper))
             ]
             snapshots, fetch_errors = _fetch_drive_files(service, ids)
+            folder_snapshot_items: tuple[dict[str, Any], ...] | None = None
+            folder_snapshot_error: str | None = None
+            if any(item.record.item_kind == "folder" for item in chunk):
+                try:
+                    folder_snapshot_items = _list_current_drive_items(service)
+                except Exception as error:  # noqa: BLE001 - Google transport errors vary
+                    folder_snapshot_error = str(error)
             valid: list[OperationItem] = []
             capability = "canTrash" if operation_mode == "trash" else "canDelete"
             for item in chunk:
                 target_id = _drive_file_id(item.record)
                 keeper_id = _drive_file_id(item.keeper)
                 error = fetch_errors.get(target_id) or fetch_errors.get(keeper_id)
-                error = error or _validate_drive_snapshot(
-                    snapshots.get(target_id), item.record, capability
-                )
-                error = error or _validate_drive_snapshot(snapshots.get(keeper_id), item.keeper)
+                if item.record.item_kind == "folder":
+                    error = error or folder_snapshot_error
+                    if folder_snapshot_items is not None:
+                        error = error or _validate_drive_folder_snapshot(
+                            folder_snapshot_items, item.record, capability
+                        )
+                        error = error or _validate_drive_folder_snapshot(
+                            folder_snapshot_items, item.keeper
+                        )
+                else:
+                    error = error or _validate_drive_snapshot(
+                        snapshots.get(target_id), item.record, capability
+                    )
+                    error = error or _validate_drive_snapshot(
+                        snapshots.get(keeper_id), item.keeper
+                    )
                 if error:
                     outcomes.append(
                         ActionOutcome(
@@ -508,21 +868,33 @@ class _GoogleDriveOperationExecutor:
 
             def callback(
                 request_id: str,
-                _response: Any,
+                response: Any,
                 exception: Exception | None,
                 *,
                 records: dict[str, FileRecord] = chunk_by_key,
                 results: dict[str, ActionOutcome] = chunk_results,
             ) -> None:
                 record = records[request_id]
-                if exception is None:
+                if exception is None and (
+                    operation_mode != "trash"
+                    or (
+                        isinstance(response, dict)
+                        and response.get("id") == _drive_file_id(record)
+                        and response.get("trashed") is True
+                    )
+                ):
                     status = "trashed" if operation_mode == "trash" else "deleted"
                     results[request_id] = ActionOutcome(
                         record, status, operation_mode=operation_mode
                     )
                 else:
                     results[request_id] = ActionOutcome(
-                        record, "failed", str(exception), operation_mode=operation_mode
+                        record,
+                        "failed",
+                        str(exception)
+                        if exception is not None
+                        else "Google Drive 未確認項目已進入垃圾桶",
+                        operation_mode=operation_mode,
                     )
 
             batch_error: Exception | None = None
@@ -578,7 +950,7 @@ class _GoogleDriveOperationExecutor:
                         )
                     )
 
-            processed += len(chunk)
+            processed += original_chunk_length
             _emit(
                 progress,
                 "trashing-drive" if operation_mode == "trash" else "deleting-drive",

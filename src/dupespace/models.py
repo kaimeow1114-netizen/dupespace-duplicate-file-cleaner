@@ -8,6 +8,7 @@ SourceKind = Literal["local", "drive"]
 OperationMode = Literal["trash", "permanent"]
 OutcomeStatus = Literal["trashed", "deleted", "failed", "skipped", "cancelled"]
 RootRole = Literal["keep", "clean"]
+ItemKind = Literal["file", "folder"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +53,10 @@ class FileRecord:
     location: str
     size: int
     checksum: str
+    item_kind: ItemKind = "file"
+    entry_count: int = 1
+    ignored_metadata_count: int = 0
+    system_metadata_ignored: bool = False
     created_at: float | None = None
     modified_at: float | None = None
     metadata_token: str | None = None
@@ -69,7 +74,9 @@ class FileRecord:
 
     @property
     def fingerprint(self) -> str:
-        return f"{self.size}:{self.checksum}"
+        if self.item_kind == "folder":
+            return f"folder:{self.checksum}"
+        return f"{self.item_kind}:{self.size}:{self.checksum}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +189,8 @@ class OperationItem:
             raise ValueError("Target and keeper must use the same source")
         if self.record.fingerprint != self.keeper.fingerprint:
             raise ValueError("Target and keeper must have the same fingerprint")
+        if self.record.item_kind != self.keeper.item_kind:
+            raise ValueError("Target and keeper must have the same item kind")
         if self.record.source == "local":
             if self.keeper.root_role != "keep" or self.record.root_role != "clean":
                 raise ValueError(

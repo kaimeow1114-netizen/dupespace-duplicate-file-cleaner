@@ -17,24 +17,28 @@ test("renders the DUPESPACE product landing page with canonical SEO metadata", a
   const response = await render();
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /<title>DUPESPACE｜重複檔案刪除與清理工具<\/title>/);
+  assert.match(html, /<title>DUPESPACE｜開源的 Google Drive 與 Windows 重複檔案清理工具<\/title>/);
   assert.match(html, /rel="canonical" href="https:\/\/dupespace\.app"/);
   assert.match(html, /application\/ld\+json/);
   assert.match(html, /FAQPage/);
   assert.match(html, /site\.webmanifest/);
   assert.match(html, /線上清理 Google Drive/);
-  assert.match(html, /DupeSpace-Setup\.exe/);
   assert.match(html, /ca-pub-7998471640181666/);
-  assert.match(html, /<a[^>]+href="\/#features"[^>]*>功能<\/a>/);
+  assert.match(html, /<a[^>]+href="\/#features"[^>]*>功能特色<\/a>/);
   assert.match(html, /translate="no"[^>]*lang="en"[^>]*>DUPE<em>SPACE<\/em>/);
   assert.match(html, /class="headline-line">找出重複檔案，<\/span>/);
+  assert.match(html, /DUPESPACE 是一套免費、開源的重複檔案清理工具/);
+  assert.match(html, /重複檔案與重複資料夾/);
+  assert.match(html, /href="\/privacy">隱私權政策<\/a>/);
   assert.match(html, /FREE • OPEN SOURCE • PRIVACY-FIRST/);
-  assert.match(html, /href="\/cleaner"[^>]*>線上清理 Google Drive/);
-  assert.match(html, /class="hero-actions"[\s\S]*?href="\/cleaner"[^>]*>線上清理 Google Drive[\s\S]*?href="\/download"[^>]*>了解 Windows 版/);
-  assert.match(html, /class="heading-phrase">先確認每份用途，<\/span><wbr\/><span class="heading-phrase">再放心清出空間。<\/span>/);
-  assert.match(html, /程式碼專案不碰/);
-  assert.match(html, /專案檔案硬性排除，不能解鎖/);
+  assert.match(html, /href="\/cleaner"[^>]*>[^<]*線上清理 Google Drive/);
+  assert.match(html, /class="hero-actions"[\s\S]*?href="\/cleaner"[^>]*>[^<]*線上清理 Google Drive[\s\S]*?href="\/download"[^>]*>[^<]*了解 Windows 版/);
+  assert.match(html, /都有清楚的安全邊界/);
+  assert.match(html, /代碼專案自動排除/);
+  assert.match(html, /專案與套件環境硬性排除/);
   assert.match(html, /預設移至垃圾桶/);
+  assert.match(html, /dashboard-demo/);
+  assert.doesNotMatch(html, /DupeSpace|DUPESWEEP/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });
 
@@ -72,6 +76,12 @@ test("renders independent trash and permanent-delete safety controls", async () 
   assert.match(workerSource, /keeperCache/);
   assert.match(workerSource, /result\.trashed !== true/);
   assert.match(workerSource, /path: paths\.get\(file\.id\)/);
+  assert.match(workerSource, /folderManifests/);
+  assert.match(workerSource, /資料夾內容已變更，操作已取消/);
+  assert.match(workerSource, /資料夾只能移至 Google Drive 垃圾桶/);
+  assert.match(workerSource, /SYSTEM_METADATA_NAMES/);
+  assert.match(clientSource, /SIDE-BY-SIDE TREE DIFF/);
+  assert.match(clientSource, /100% 鏡像對齊/);
 });
 
 test("ships PWA, crawler, sitemap and ad declarations", async () => {
@@ -90,8 +100,8 @@ test("ships PWA, crawler, sitemap and ad declarations", async () => {
 test("uses native navigation links that work in the deployed Worker", async () => {
   const source = await readFile(new URL("../app/components/site-shell.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(source, /next\/link|<Link/);
-  assert.match(source, /<a href="\/#features">功能<\/a>/);
-  assert.match(source, /<a href="\/download">Windows 版<\/a>/);
+  assert.match(source, /<a href="\/#features">功能特色<\/a>/);
+  assert.match(source, /<a href="\/download">Windows 客戶端<\/a>/);
   assert.doesNotMatch(source, /href=\{download\}>免費下載/);
   assert.match(source, /<a className="nav-cta" href="\/cleaner">/);
 });
@@ -166,8 +176,8 @@ test("keeps Google Drive API disconnected until an encrypted session exists", as
   assert.match(response.headers.get("cache-control") ?? "", /no-store/);
 
   const workerSource = await readFile(new URL("../worker/google-drive.ts", import.meta.url), "utf8");
-  assert.match(workerSource, /SESSION_MAX_AGE_SECONDS = 30 \* 60/);
-  assert.doesNotMatch(workerSource, /30 \* 86400/);
+  assert.match(workerSource, /SESSION_MAX_AGE_SECONDS = 30 \* 86400/);
+  assert.match(workerSource, /https:\/\/oauth2\.googleapis\.com\/revoke/);
 
   const unconfigured = await worker.fetch(
     new Request("https://dupespace.example/api/google/status"),
