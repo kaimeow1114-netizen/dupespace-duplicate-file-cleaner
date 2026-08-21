@@ -30,10 +30,7 @@ test("renders the DUPESPACE product landing page with canonical SEO metadata", a
   assert.match(html, /class="headline-line">找出重複檔案，<\/span>/);
   assert.match(html, /FREE • OPEN SOURCE • PRIVACY-FIRST/);
   assert.match(html, /href="\/cleaner"[^>]*>線上清理 Google Drive/);
-  assert.match(
-    html,
-    /class="hero-actions"[\s\S]*?href="\/cleaner"[^>]*>線上清理 Google Drive[\s\S]*?DupeSpace-Setup\.exe[^>]*>下載 Windows 版/,
-  );
+  assert.match(html, /class="hero-actions"[\s\S]*?href="\/cleaner"[^>]*>線上清理 Google Drive[\s\S]*?href="\/download"[^>]*>了解 Windows 版/);
   assert.match(html, /class="heading-phrase">先確認每份用途，<\/span><wbr\/><span class="heading-phrase">再放心清出空間。<\/span>/);
   assert.match(html, /程式碼專案不碰/);
   assert.match(html, /專案檔案硬性排除，不能解鎖/);
@@ -52,18 +49,29 @@ test("renders independent trash and permanent-delete safety controls", async () 
   assert.match(clientSource, /永久刪除 \$\{confirmation\.records\.length\} 個檔案/);
   assert.match(clientSource, /records\.length >= 500/);
   assert.match(clientSource, />= GIB/);
-  assert.match(clientSource, /index \+= 100/);
+  assert.match(clientSource, /MUTATION_BATCH_SIZE = 10/);
   assert.match(clientSource, /downloadCsv/);
-  assert.match(clientSource, /record\.autoSelectable/);
+  assert.match(clientSource, /!record\.keeper && record\.canTrash/);
+  assert.match(clientSource, /選取全部重複副本/);
+  assert.match(clientSource, /OPERATION_TIMEOUT_MS = 45_000/);
+  assert.match(clientSource, /removeSuccessfulRecords/);
+  assert.doesNotMatch(clientSource, /dupespace-muted|dupespace-volume|sound-control/);
+  const requestBody = clientSource.slice(clientSource.indexOf("function requestOperation"), clientSource.indexOf("function acceptConfirmation"));
+  assert.match(requestBody, /mode === "trash"[\s\S]*executeOperation\("trash", selectedRecords\)/);
+  assert.match(requestBody, /return;[\s\S]*setConfirmation/);
 
   const workerSource = await readFile(new URL("../worker/google-drive.ts", import.meta.url), "utf8");
   assert.match(workerSource, /\/api\/google\/trash/);
   assert.match(workerSource, /\/api\/google\/delete/);
   assert.match(workerSource, /method: "DELETE"/);
   assert.doesNotMatch(workerSource, /trash.*catch[\s\S]{0,200}DELETE/i);
-  assert.match(workerSource, /"webViewLink", "parents"/);
+  assert.match(workerSource, /"webViewLink", "thumbnailLink", "parents"/);
   assert.match(workerSource, /driveProjectProtectedIds\(listed\)/);
   assert.match(workerSource, /projectProtected: protectedIds\.size/);
+  assert.match(workerSource, /MAX_MUTATION_ITEMS = 20/);
+  assert.match(workerSource, /keeperCache/);
+  assert.match(workerSource, /result\.trashed !== true/);
+  assert.match(workerSource, /path: paths\.get\(file\.id\)/);
 });
 
 test("ships PWA, crawler, sitemap and ad declarations", async () => {
@@ -83,6 +91,8 @@ test("uses native navigation links that work in the deployed Worker", async () =
   const source = await readFile(new URL("../app/components/site-shell.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(source, /next\/link|<Link/);
   assert.match(source, /<a href="\/#features">功能<\/a>/);
+  assert.match(source, /<a href="\/download">Windows 版<\/a>/);
+  assert.doesNotMatch(source, /href=\{download\}>免費下載/);
   assert.match(source, /<a className="nav-cta" href="\/cleaner">/);
 });
 
@@ -110,7 +120,7 @@ test("keeps responsive layouts stable and batch sounds bounded", async () => {
 });
 
 test("renders legal and cleaner routes with security headers", async () => {
-  for (const path of ["/cleaner", "/privacy", "/terms", "/support"]) {
+  for (const path of ["/cleaner", "/download", "/privacy", "/terms", "/support"]) {
     const response = await render(path);
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-security-policy") ?? "", /frame-ancestors 'none'/);
@@ -152,7 +162,7 @@ test("keeps Google Drive API disconnected until an encrypted session exists", as
     { waitUntil() {}, passThroughOnException() {} },
   );
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { connected: false, configured: true });
+  assert.deepEqual(await response.json(), { connected: false, configured: true, user: null });
   assert.match(response.headers.get("cache-control") ?? "", /no-store/);
 
   const workerSource = await readFile(new URL("../worker/google-drive.ts", import.meta.url), "utf8");
@@ -166,4 +176,14 @@ test("keeps Google Drive API disconnected until an encrypted session exists", as
   );
   assert.equal(unconfigured.status, 200);
   assert.deepEqual(await unconfigured.json(), { connected: false, configured: false });
+});
+
+test("renders a dedicated Windows download explanation page", async () => {
+  const response = await render("/download");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /下載 DupeSpace-Setup\.exe/);
+  assert.match(html, /保留區永遠不刪/);
+  assert.match(html, /程式碼專案硬性排除/);
+  assert.match(html, /rel="canonical" href="https:\/\/dupespace\.app\/download"/);
 });

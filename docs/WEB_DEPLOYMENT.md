@@ -36,10 +36,12 @@ immediately before the corresponding API call.
 
 ## Runtime safety
 
-Listings use Drive pages of up to 1,000 items and mutations use application batches of at most 100.
+Listings use Drive pages of up to 1,000 items and mutations use application batches of 10, with a
+server maximum of 20. Keeper lookups are shared within each request to avoid redundant API calls.
 `PATCH trashed=true` and `DELETE files/{id}` are separate endpoints and code paths. A trash failure
-never invokes permanent delete. Every operation revalidates target and keeper metadata, ownership,
-checksum, version, modified time, and capability, then returns a full per-item audit outcome.
+never invokes permanent delete. A trash result is successful only when Google explicitly returns
+`trashed=true`. Every operation revalidates target and keeper metadata, ownership, checksum,
+version, modified time, parent folder, and capability, then returns a full per-item audit outcome.
 
 ## AdSense and search
 

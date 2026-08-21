@@ -2,8 +2,8 @@
 
 **Duplicate File Cleaner for Windows & Google Drive**
 
-[Use DUPESPACE online](https://dupespace.app) ·
-[Download the Windows installer](https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner/releases/latest/download/DupeSpace-Setup.exe) ·
+[Use DUPESPACE online](https://dupespace.app/cleaner) ·
+[Read the Windows download guide](https://dupespace.app/download) ·
 [View the latest release](https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner/releases/latest)
 
 DUPESPACE is a free, open-source, safety-first duplicate file cleaner. Windows scans use explicit
@@ -12,8 +12,10 @@ content exist in both roles. Every keep-root file is protected. Google Drive kee
 oldest-file keeper policy. Both surfaces page large result sets and produce per-file CSV audits.
 
 Content equality means “duplicate candidate”, not “safe to delete everywhere.” Clean-root-only
-groups are not shown. Zero-byte files are ignored; files smaller than 1 MiB can be reviewed but
-are never preselected. On Windows and Google Drive, recognized source-code projects and package
+groups are not shown. Zero-byte files are ignored; on Windows, files smaller than 1 MiB can be
+reviewed but are never preselected. The Google Drive web scan preselects every trash-eligible
+non-keeper duplicate so a recoverable trash operation takes one click after review. On Windows
+and Google Drive, recognized source-code projects and package
 environments are hard-excluded because identical configuration, dependency, and plug-in files can
 be independently required by different projects. Application, backup, and sync contexts remain
 locked until the user reviews the full folder path, count, and bytes and types a folder-specific
@@ -41,7 +43,8 @@ a full summary and countdown.
 - Seven-step, friendly desktop flow with cards, animation, empty/error/success states, safe stop,
   and metrics for scan count, groups, copies, selected files, estimated/actual bytes, duplicate
   percentage, and disk/cloud capacity percentage.
-- Progressive result rendering and batches of at most 100 Drive operations.
+- Progressive result rendering and small Drive batches of 10 operations, with request timeouts,
+  shared keeper validation, and immediate removal of confirmed results from the web UI.
 - Windows keep/clean root pairs reject equal, nested, overlapping, short-path, junction, symlink,
   reparse-point, and path-normalization bypasses. Cloud placeholders are skipped without hydration.
 - Deterministic locked keeper in every group; every operation independently revalidates both target
@@ -49,7 +52,8 @@ a full summary and countdown.
 - Strong Windows protection discovered with system APIs, volume roots, Known Folder/environment
   data, canonical physical paths, and file attributes. Administrator mode does not bypass it.
 - Original low-volume DUPESPACE sounds for confirmation, trash, permanent warnings/completion,
-  success, and errors. Sound is played once per batch/operation, not once per file.
+  success, and errors. The web experience keeps sound on by default without a settings step, and
+  plays it once per batch/operation rather than once per file.
 - UTF-8 CSV audit outcomes with timestamp, source, mode, status, path/Drive ID, bytes, checksum,
   and reason.
 - Windows installer with optional first-install desktop shortcut.
@@ -74,6 +78,10 @@ python -m venv .venv
 python -m pip install -e .
 dupespace
 ```
+
+The website build uses Node.js 22 LTS. On Windows, Node.js 24 can currently crash inside the
+native Vinext/Rolldown build tool before it prints a useful error; this does not affect the
+published web runtime or the Windows desktop application.
 
 ## Google Drive OAuth
 

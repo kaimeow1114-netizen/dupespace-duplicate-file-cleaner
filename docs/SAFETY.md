@@ -42,12 +42,15 @@ bypass the restriction. Administrator privileges never disable these rules.
 Only owned binary files with a stable checksum are eligible. Native Google Workspace documents,
 folders, shortcuts, shared-drive items, and files without the necessary capability are skipped.
 The web cleaner uses encrypted HttpOnly OAuth sessions, 30-minute HMAC-signed scan proofs, batches
-of at most 100 items, and distinct `/trash` and `/delete` server paths. File contents never pass
-through the DUPESPACE server.
+of 10 items, and distinct `/trash` and `/delete` server paths. Every trash response must explicitly
+confirm `trashed=true`; confirmed items disappear from the result list immediately. File contents
+never pass through the DUPESPACE server. Google-hosted thumbnails load directly in the user's
+browser and are never proxied through DUPESPACE.
 
-Drive uses its separately defined global policy: the oldest file is the keeper, zero-byte files
-are ignored, and files below 1 MiB are not preselected. Permanent mode always clears every
-selection and requires the user to select targets again.
+Drive uses its separately defined global policy: the oldest file is the keeper and zero-byte files
+are ignored. A web scan selects all trash-eligible non-keeper duplicates for a one-click,
+recoverable trash operation. Permanent mode always clears every selection and requires the user to
+select targets again with the full high-risk confirmation.
 
 ## Windows temporary and junk files
 

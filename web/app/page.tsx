@@ -28,7 +28,7 @@ export default function Home() {
           <p>免費、開源的 Google Drive 與 Windows 重複檔案清理工具。直接在網頁查看重複群組，再把你選定的副本移至垃圾桶。</p>
           <div className="hero-actions">
             <a className="button primary" href="/cleaner">線上清理 Google Drive <span>→</span></a>
-            <a className="button secondary" href={download}>下載 Windows 版</a>
+            <a className="button secondary" href="/download">了解 Windows 版</a>
             <a className="button secondary" href={repo}>在 GitHub 查看原始碼</a>
           </div>
           <div className="trust-row"><span>✓ 免費</span><span>✓ 完全開源</span><span>✓ 預設可復原</span><span>✓ 檔案內容不會上傳</span></div>
@@ -61,7 +61,7 @@ export default function Home() {
 
       <section className="section shell faq-section" id="faq"><div className="section-heading"><span className="eyebrow"><i /> 常見問題</span><h2><span className="heading-phrase">刪除之前，</span><wbr /><span className="heading-phrase">先把安全規則</span><wbr /><span className="heading-phrase">說清楚。</span></h2></div><details><summary>DUPESPACE 會直接永久刪除檔案嗎？</summary><p>不會。預設永遠是移至垃圾桶。永久刪除是獨立高風險選項，必須重新手動選取，且警告無法停用。</p></details><details><summary>為什麼 Windows 版要選保留區與清理區？</summary><p>因為內容相同不等於另一份沒有用途。只有清理區檔案在保留區已有相同內容時才會列出，保留區檔案永遠不能刪除。</p></details><details><summary>不同專案中的相同設定檔會被處理嗎？</summary><p>不會。Git、SVN、常見建置專案、套件目錄與虛擬環境中的檔案會被硬性排除，不雜湊、不列為候選，也不能手動解鎖。</p></details><details><summary>Google Drive 檔案內容會上傳嗎？</summary><p>不會。比對使用 Google 提供的校驗碼；檔案內容不會上傳到 DUPESPACE 伺服器。</p></details></section>
 
-      <section className="section shell download-section" id="download"><div className="download-card"><Image src="/dupespace-icon.png" alt="" width={140} height={140} /><div><span className="eyebrow"><i /> Windows 10 / 11</span><h2><span className="heading-phrase">免費下載</span><wbr /><span className="heading-phrase" lang="en">DupeSpace。</span></h2><p>安裝時可選擇建立桌面捷徑；支援大量結果分頁、批次安全停止與 CSV 稽核報告。</p></div><a className="button primary" href={download}>下載安裝程式</a></div></section>
+      <section className="section shell download-section" id="download"><div className="download-card"><Image src="/dupespace-icon.png" alt="" width={140} height={140} /><div><span className="eyebrow"><i /> Windows 10 / 11</span><h2><span className="heading-phrase">先了解安全規則，</span><wbr /><span className="heading-phrase">再免費下載。</span></h2><p>Windows 版採用保留區／清理區流程，程式碼專案硬性排除；下載頁會先說明適用範圍、安裝方式與復原規則。</p></div><a className="button primary" href="/download">查看下載說明</a></div></section>
       <AdPanel />
       <SiteFooter />
     </main>

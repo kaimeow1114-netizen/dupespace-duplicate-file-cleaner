@@ -24,7 +24,14 @@ interface DriveFile {
   trashed?: boolean;
   capabilities?: { canTrash?: boolean; canDelete?: boolean };
   webViewLink?: string;
+  thumbnailLink?: string;
   parents?: string[];
+}
+
+interface DriveUser {
+  displayName?: string;
+  emailAddress?: string;
+  photoLink?: string;
 }
 
 interface ProofPayload {
@@ -35,6 +42,7 @@ interface ProofPayload {
   modifiedTime: string;
   mimeType: string;
   parents: string[];
+  path: string;
   keeperId: string;
   keeperVersion: string;
   keeperChecksum: string;
@@ -54,9 +62,10 @@ const textDecoder = new TextDecoder();
 const FILE_FIELDS = [
   "id", "name", "mimeType", "size", "md5Checksum", "sha256Checksum", "createdTime",
   "modifiedTime", "ownedByMe", "version", "trashed", "capabilities(canTrash,canDelete)",
-  "webViewLink", "parents",
+  "webViewLink", "thumbnailLink", "parents",
 ].join(",");
 const MINIMUM_AUTO_SELECT_BYTES = 1024 * 1024;
+const MAX_MUTATION_ITEMS = 20;
 const PROJECT_MARKERS = new Set([
   ".git", ".svn", ".hg", ".idea", ".vscode", "pyproject.toml", "package.json",
   "cargo.toml", "go.mod", "composer.json", "gemfile", "pom.xml", "build.gradle",
@@ -291,6 +300,21 @@ function driveProjectProtectedIds(files: DriveFile[]): Set<string> {
   return protectedIds;
 }
 
+function drivePath(file: DriveFile, filesById: Map<string, DriveFile>): string {
+  const segments = [file.name];
+  const visited = new Set<string>([file.id]);
+  let parentId = [...(file.parents ?? [])].sort()[0];
+  while (parentId && !visited.has(parentId)) {
+    visited.add(parentId);
+    const parent = filesById.get(parentId);
+    if (!parent) break;
+    segments.unshift(parent.name);
+    parentId = [...(parent.parents ?? [])].sort()[0];
+  }
+  segments.unshift("我的 Google Drive");
+  return segments.join(" / ");
+}
+
 function keeperRank(file: DriveFile): [number, string, string] {
   const timestamp = Date.parse(file.createdTime ?? file.modifiedTime ?? "9999-12-31T23:59:59Z");
   return [Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER, file.name.toLocaleLowerCase(), file.id];
@@ -304,6 +328,7 @@ function compareRank(left: DriveFile, right: DriveFile): number {
 
 async function listDrive(session: OAuthSession): Promise<{
   files: DriveFile[];
+  paths: Map<string, string>;
   examined: number;
   skipped: number;
   projectProtected: number;
@@ -330,6 +355,8 @@ async function listDrive(session: OAuthSession): Promise<{
     pageToken = page.nextPageToken ?? "";
   } while (pageToken);
   const protectedIds = driveProjectProtectedIds(listed);
+  const filesById = new Map(listed.map((file) => [file.id, file]));
+  const paths = new Map(listed.map((file) => [file.id, drivePath(file, filesById)]));
   let skipped = 0;
   const files = listed.filter((file) => {
     const unsupported = protectedIds.has(file.id) || unsupportedType(file) || !file.ownedByMe ||
@@ -338,13 +365,13 @@ async function listDrive(session: OAuthSession): Promise<{
     if (unsupported) skipped += 1;
     return !unsupported;
   });
-  return { files, examined, skipped, projectProtected: protectedIds.size };
+  return { files, paths, examined, skipped, projectProtected: protectedIds.size };
 }
 
 async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Response> {
   requireSameOrigin(request);
   const { session, setCookie } = await authorizedSession(request, env);
-  const [{ files, examined, skipped, projectProtected }, aboutResponse] = await Promise.all([
+  const [{ files, paths, examined, skipped, projectProtected }, aboutResponse] = await Promise.all([
     listDrive(session),
     googleFetch(session, "https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress,photoLink),storageQuota"),
   ]);
@@ -377,6 +404,8 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
           createdTime: file.createdTime ?? null,
           modifiedTime: file.modifiedTime ?? null,
           webViewLink: file.webViewLink ?? null,
+          thumbnailLink: file.thumbnailLink ?? null,
+          path: paths.get(file.id) ?? file.name,
           canTrash: Boolean(file.capabilities?.canTrash),
           canDelete: Boolean(file.capabilities?.canDelete),
           autoSelectable: Boolean(file.capabilities?.canTrash) && Number(file.size) >= MINIMUM_AUTO_SELECT_BYTES,
@@ -389,6 +418,7 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
             modifiedTime: file.modifiedTime ?? "",
             mimeType: file.mimeType,
             parents: [...(file.parents ?? [])].sort(),
+            path: paths.get(file.id) ?? file.name,
             keeperId: keeper.id,
             keeperVersion: keeper.version ?? "",
             keeperChecksum: keeperDigest,
@@ -471,6 +501,7 @@ function auditOutcome(
     timestamp: new Date().toISOString(),
     id: payload.id,
     name: file?.name ?? "",
+    path: payload.path,
     size: Number(payload.size),
     checksum: payload.checksum,
     operationMode: mode,
@@ -483,8 +514,8 @@ async function mutate(request: Request, env: Required<GoogleDriveEnv>, mode: Ope
   requireSameOrigin(request);
   const { session, setCookie } = await authorizedSession(request, env);
   const body = await request.json() as { items?: Array<{ id?: string; proof?: string }> };
-  if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > 100) {
-    return json({ error: "每批必須包含 1 至 100 個檔案" }, 400);
+  if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > MAX_MUTATION_ITEMS) {
+    return json({ error: `每批必須包含 1 至 ${MAX_MUTATION_ITEMS} 個檔案` }, 400);
   }
   const verified = await Promise.all(body.items.map(async (item) => {
     const payload = item.proof ? await verifyProof(item.proof, env.SESSION_SECRET) : null;
@@ -492,12 +523,20 @@ async function mutate(request: Request, env: Required<GoogleDriveEnv>, mode: Ope
   }));
   if (verified.some((item) => item === null)) return json({ error: "掃描證明無效或已過期，請重新掃描" }, 409);
 
-  const outcomes = await mapConcurrent(verified as ProofPayload[], 4, async (payload) => {
+  const keeperCache = new Map<string, Promise<DriveFile>>();
+  const keeperFor = (id: string) => {
+    const cached = keeperCache.get(id);
+    if (cached) return cached;
+    const pending = getFile(session, id);
+    keeperCache.set(id, pending);
+    return pending;
+  };
+  const outcomes = await mapConcurrent(verified as ProofPayload[], 3, async (payload) => {
     let current: DriveFile | null = null;
     try {
       const [target, keeper] = await Promise.all([
         getFile(session, payload.id),
-        getFile(session, payload.keeperId),
+        keeperFor(payload.keeperId),
       ]);
       current = target;
       const targetFailure = validateSnapshot(target, payload, mode);
@@ -514,6 +553,12 @@ async function mutate(request: Request, env: Required<GoogleDriveEnv>, mode: Ope
         })
         : await googleFetch(session, endpoint, { method: "DELETE" });
       if (!response.ok) return auditOutcome(payload, target, mode, "failed", `Google Drive API 回覆 ${response.status}`);
+      if (mode === "trash") {
+        const result = await response.json() as { id?: string; trashed?: boolean };
+        if (result.id !== payload.id || result.trashed !== true) {
+          return auditOutcome(payload, target, mode, "failed", "Google Drive 未確認檔案已進入垃圾桶");
+        }
+      }
       return auditOutcome(
         payload,
         target,
@@ -537,7 +582,23 @@ export async function handleGoogleDriveApi(request: Request, env: GoogleDriveEnv
       if (!configured) return json({ connected: false, configured: false });
       requireConfig(env);
       const session = await decrypt<OAuthSession>(parseCookies(request)[SESSION_COOKIE], env.SESSION_SECRET);
-      return json({ connected: Boolean(session), configured: true });
+      if (!session) return json({ connected: false, configured: true, user: null });
+      const refreshed = await refreshSession(session, env);
+      const accountResponse = await googleFetch(
+        refreshed,
+        "https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress,photoLink)",
+      );
+      const account = accountResponse.ok
+        ? await accountResponse.json() as { user?: DriveUser }
+        : { user: undefined };
+      const setCookie = refreshed.accessToken === session.accessToken
+        ? undefined
+        : cookie(SESSION_COOKIE, await encrypt(refreshed, env.SESSION_SECRET), request, SESSION_MAX_AGE_SECONDS);
+      return json(
+        { connected: true, configured: true, user: account.user ?? null },
+        200,
+        setCookie ? { "set-cookie": setCookie } : undefined,
+      );
     }
     requireConfig(env);
     if (url.pathname === "/api/google/start" && request.method === "GET") {

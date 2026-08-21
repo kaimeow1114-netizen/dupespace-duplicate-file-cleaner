@@ -13,6 +13,8 @@ type DriveRecord = {
   createdTime: string | null;
   modifiedTime: string | null;
   webViewLink: string | null;
+  thumbnailLink: string | null;
+  path: string;
   canTrash: boolean;
   canDelete: boolean;
   autoSelectable: boolean;
@@ -34,6 +36,7 @@ type AuditOutcome = {
   timestamp: string;
   id: string;
   name: string;
+  path: string;
   size: number;
   checksum: string;
   operationMode: OperationMode;
@@ -47,6 +50,9 @@ type Confirmation = {
 };
 
 const GIB = 1024 ** 3;
+const MUTATION_BATCH_SIZE = 10;
+const OPERATION_TIMEOUT_MS = 45_000;
+const DEFAULT_SOUND_VOLUME = .22;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -59,6 +65,7 @@ function errorMessage(value: unknown, fallback: string): string {
 function isDriveRecord(value: unknown): value is DriveRecord {
   return isObject(value) && typeof value.id === "string" && typeof value.name === "string" &&
     typeof value.size === "number" && typeof value.checksum === "string" &&
+    typeof value.path === "string" &&
     typeof value.canTrash === "boolean" && typeof value.canDelete === "boolean" &&
     typeof value.autoSelectable === "boolean" && typeof value.keeper === "boolean" &&
     typeof value.proof === "string";
@@ -81,6 +88,7 @@ function isScanResult(value: unknown): value is ScanResult {
 function isAuditOutcome(value: unknown): value is AuditOutcome {
   return isObject(value) && typeof value.timestamp === "string" && typeof value.id === "string" &&
     typeof value.name === "string" && typeof value.size === "number" &&
+    typeof value.path === "string" &&
     typeof value.checksum === "string" && typeof value.operationMode === "string" &&
     typeof value.status === "string" && typeof value.reason === "string";
 }
@@ -99,6 +107,25 @@ function percent(value: number, total: number): number {
 
 function csvCell(value: unknown): string {
   return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
+function removeSuccessfulRecords(scan: ScanResult, successfulIds: Set<string>): ScanResult {
+  const groups = scan.groups
+    .map((group) => {
+      const records = group.records.filter((record) => !successfulIds.has(record.id));
+      return {
+        ...group,
+        records,
+        reclaimableBytes: records.filter((record) => !record.keeper).reduce((sum, record) => sum + record.size, 0),
+      };
+    })
+    .filter((group) => group.records.length > 1 && group.records.some((record) => record.keeper));
+  return {
+    ...scan,
+    groups,
+    duplicateCopies: groups.reduce((total, group) => total + group.records.filter((record) => !record.keeper).length, 0),
+    reclaimableBytes: groups.reduce((total, group) => total + group.reclaimableBytes, 0),
+  };
 }
 
 function synthSound(kind: "confirm" | "trash" | "warning" | "deleted" | "success" | "error", volume: number): void {
@@ -130,10 +157,6 @@ function synthSound(kind: "confirm" | "trash" | "warning" | "deleted" | "success
   window.setTimeout(() => void context.close(), 700);
 }
 
-function operationSignature(mode: OperationMode, records: DriveRecord[]): string {
-  return `${mode}:${records.map((record) => record.id).sort().join(",")}`;
-}
-
 export function CleanerClient() {
   const [connected, setConnected] = useState(false);
   const [configured, setConfigured] = useState(true);
@@ -148,27 +171,26 @@ export function CleanerClient() {
   const [visibleGroups, setVisibleGroups] = useState(24);
   const [recordLimits, setRecordLimits] = useState<Record<string, number>>({});
   const [audit, setAudit] = useState<AuditOutcome[]>([]);
+  const [account, setAccount] = useState<ScanResult["user"]>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [confirmationText, setConfirmationText] = useState("");
   const [countdown, setCountdown] = useState(0);
-  const [suppressTrash, setSuppressTrash] = useState(false);
-  const [muted, setMuted] = useState(false);
-  const [volume, setVolume] = useState(.25);
   const cancelRef = useRef(false);
-  const suppressedSignature = useRef("");
 
   useEffect(() => {
-    window.setTimeout(() => {
-      setMuted(localStorage.getItem("dupespace-muted") === "1");
-      const saved = Number(localStorage.getItem("dupespace-volume"));
-      if (Number.isFinite(saved) && saved >= 0 && saved <= 1) setVolume(saved);
-    }, 0);
     fetch("/api/google/status", { cache: "no-store" })
       .then((response) => response.json())
       .then((body) => {
         const status = isObject(body) ? body : {};
         setConnected(Boolean(status.connected));
         setConfigured(status.configured !== false);
+        if (isObject(status.user)) {
+          setAccount({
+            displayName: typeof status.user.displayName === "string" ? status.user.displayName : undefined,
+            emailAddress: typeof status.user.emailAddress === "string" ? status.user.emailAddress : undefined,
+            photoLink: typeof status.user.photoLink === "string" ? status.user.photoLink : undefined,
+          });
+        }
         if (status.configured === false) setStatus("Google OAuth 正在等待網站管理員完成啟用設定");
       })
       .catch(() => setConnected(false))
@@ -195,18 +217,7 @@ export function CleanerClient() {
   const largeRisk = confirmation ? confirmation.records.length >= 500 || confirmation.records.reduce((sum, item) => sum + item.size, 0) >= GIB || confirmation.records.length >= 5000 : false;
 
   function play(kind: Parameters<typeof synthSound>[0]): void {
-    if (!muted && volume > 0) synthSound(kind, volume);
-  }
-
-  function updateMuted(next: boolean): void {
-    setMuted(next);
-    localStorage.setItem("dupespace-muted", next ? "1" : "0");
-    if (!next) synthSound("confirm", volume);
-  }
-
-  function updateVolume(next: number): void {
-    setVolume(next);
-    localStorage.setItem("dupespace-volume", String(next));
+    synthSound(kind, DEFAULT_SOUND_VOLUME);
   }
 
   function animatedWait(target = 88): number {
@@ -214,6 +225,7 @@ export function CleanerClient() {
   }
 
   async function startScan(): Promise<void> {
+    play("confirm");
     setRunning(true); setProgress(2); setStatus("正在讀取 Google Drive 中的檔案與校驗碼…");
     const timer = animatedWait();
     try {
@@ -222,8 +234,9 @@ export function CleanerClient() {
       if (!response.ok) throw new Error(errorMessage(body, "掃描失敗"));
       if (!isScanResult(body)) throw new Error("Google Drive 回傳了無效的掃描資料");
       setScan(body);
+      setAccount(body.user);
       setMode("trash");
-      setSelected(new Set(body.groups.flatMap((group: DriveGroup) => group.records.filter((record) => !record.keeper && record.canTrash && record.autoSelectable).map((record) => record.id))));
+      setSelected(new Set(body.groups.flatMap((group: DriveGroup) => group.records.filter((record) => !record.keeper && record.canTrash).map((record) => record.id))));
       setStatus(body.duplicateCopies ? `掃描完成：找到 ${body.duplicateCopies.toLocaleString()} 個重複副本` : "掃描完成，目前沒有內容相同的檔案");
       setProgress(100);
       play(body.duplicateCopies ? "confirm" : "success");
@@ -242,8 +255,10 @@ export function CleanerClient() {
   function chooseMode(next: OperationMode): void {
     if (running || mode === next) return;
     setMode(next);
-    setSelected(new Set());
-    setStatus(next === "trash" ? "已切換為移至垃圾桶；請重新選取副本" : "永久刪除無法復原；請主動選取要永久刪除的副本");
+    setSelected(next === "trash"
+      ? new Set(records.filter((record) => !record.keeper && record.canTrash).map((record) => record.id))
+      : new Set());
+    setStatus(next === "trash" ? "已選取全部可移至垃圾桶的重複副本" : "永久刪除無法復原；請主動選取要永久刪除的副本");
     play(next === "permanent" ? "warning" : "confirm");
   }
 
@@ -258,31 +273,28 @@ export function CleanerClient() {
 
   function requestOperation(): void {
     if (!selectedRecords.length || running) return;
-    const signature = operationSignature(mode, selectedRecords);
-    if (mode === "trash" && suppressedSignature.current === signature) {
-      void executeOperation(mode, selectedRecords);
+    if (mode === "trash") {
+      play("confirm");
+      void executeOperation("trash", selectedRecords);
       return;
     }
     setConfirmation({ mode, records: selectedRecords, stage: 1 });
-    setConfirmationText(""); setSuppressTrash(false); setCountdown(0);
-    play(mode === "permanent" ? "warning" : "confirm");
+    setConfirmationText(""); setCountdown(0);
+    play("warning");
   }
 
   function acceptConfirmation(): void {
     if (!confirmation) return;
-    const requiresSecond = confirmation.mode === "permanent" ? needsSecond || largeRisk : needsSecond;
+    const requiresSecond = needsSecond || largeRisk;
     if (confirmation.stage === 1 && requiresSecond) {
       setCountdown(confirmation.mode === "permanent" && largeRisk ? 8 : 0);
       setConfirmation({ ...confirmation, stage: 2 });
       setConfirmationText("");
-      play(confirmation.mode === "permanent" ? "warning" : "confirm");
+      play("warning");
       return;
     }
     if (confirmation.mode === "permanent" && confirmation.stage === 2 && confirmationText !== expectedPhrase) return;
     if (confirmation.mode === "permanent" && countdown > 0) return;
-    if (confirmation.mode === "trash" && suppressTrash) {
-      suppressedSignature.current = operationSignature("trash", confirmation.records);
-    }
     const accepted = confirmation;
     setConfirmation(null);
     void executeOperation(accepted.mode, accepted.records);
@@ -292,16 +304,24 @@ export function CleanerClient() {
     setRunning(true); setProgress(0); cancelRef.current = false;
     let completed = 0; let reclaimed = 0; let failures = 0;
     const chunks: DriveRecord[][] = [];
-    for (let index = 0; index < items.length; index += 100) chunks.push(items.slice(index, index + 100));
+    for (let index = 0; index < items.length; index += MUTATION_BATCH_SIZE) chunks.push(items.slice(index, index + MUTATION_BATCH_SIZE));
     try {
       for (const chunk of chunks) {
         if (cancelRef.current) break;
         setStatus(`${targetMode === "trash" ? "正在移至垃圾桶" : "正在永久刪除"}：${completed.toLocaleString()} / ${items.length.toLocaleString()}`);
-        const response = await fetch(`/api/google/${targetMode === "trash" ? "trash" : "delete"}`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ items: chunk.map((record) => ({ id: record.id, proof: record.proof })) }),
-        });
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), OPERATION_TIMEOUT_MS);
+        let response: Response;
+        try {
+          response = await fetch(`/api/google/${targetMode === "trash" ? "trash" : "delete"}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ items: chunk.map((record) => ({ id: record.id, proof: record.proof })) }),
+            signal: controller.signal,
+          });
+        } finally {
+          window.clearTimeout(timeout);
+        }
         const body = await response.json();
         if (!response.ok) throw new Error(errorMessage(body, "批次清理失敗"));
         if (!isObject(body) || !Array.isArray(body.outcomes) || !body.outcomes.every(isAuditOutcome)) {
@@ -309,11 +329,15 @@ export function CleanerClient() {
         }
         const outcomes = body.outcomes;
         setAudit((current) => [...current, ...outcomes]);
+        const successfulIds = new Set(outcomes.filter((outcome) => outcome.status === "trashed" || outcome.status === "deleted").map((outcome) => outcome.id));
         for (const outcome of outcomes) {
           if (outcome.status === "trashed" || outcome.status === "deleted") {
             reclaimed += outcome.size;
             setSelected((current) => { const next = new Set(current); next.delete(outcome.id); return next; });
           } else failures += 1;
+        }
+        if (successfulIds.size) {
+          setScan((current) => current ? removeSuccessfulRecords(current, successfulIds) : current);
         }
         completed += chunk.length;
         setActualBytes((value) => value + outcomes.filter((item) => item.status === "trashed" || item.status === "deleted").reduce((sum, item) => sum + item.size, 0));
@@ -321,18 +345,21 @@ export function CleanerClient() {
       }
       setStatus(cancelRef.current
         ? `已安全停止；本次已處理 ${formatBytes(reclaimed)}`
-        : `完成：實際釋放 ${formatBytes(reclaimed)}${failures ? `，${failures} 個檔案因安全檢查未處理` : ""}`);
+        : `完成：Google Drive 已確認移除 ${formatBytes(reclaimed)}${failures ? `，${failures} 個檔案因安全檢查未處理` : ""}`);
       play(failures ? "error" : targetMode === "trash" ? "trash" : "deleted");
       if (!failures && !cancelRef.current) window.setTimeout(() => play("success"), 380);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "清理未完成"); play("error");
+      setStatus(error instanceof DOMException && error.name === "AbortError"
+        ? "伺服器回應逾時；為避免重複操作，請按「重新掃描」確認 Google Drive 最新狀態"
+        : error instanceof Error ? error.message : "清理未完成");
+      play("error");
     } finally { setRunning(false); }
   }
 
   function downloadCsv(): void {
-    const columns = ["timestamp", "source", "operation_mode", "status", "name", "file_id", "size", "checksum", "reason"];
+    const columns = ["timestamp", "source", "operation_mode", "status", "name", "path", "file_id", "size", "checksum", "reason"];
     const lines = [columns.map(csvCell).join(","), ...audit.map((item) => [
-      item.timestamp, "google_drive", item.operationMode, item.status, item.name, item.id,
+      item.timestamp, "google_drive", item.operationMode, item.status, item.name, item.path, item.id,
       item.size, item.checksum, item.reason,
     ].map(csvCell).join(","))];
     const blob = new Blob(["\ufeff", lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
@@ -344,7 +371,7 @@ export function CleanerClient() {
 
   async function disconnect(): Promise<void> {
     await fetch("/api/google/disconnect", { method: "POST" });
-    setConnected(false); setScan(null); setSelected(new Set()); setProgress(0); setStatus("已中斷 Google Drive 連線");
+    setConnected(false); setAccount(null); setScan(null); setSelected(new Set()); setProgress(0); setStatus("已中斷 Google Drive 連線");
   }
 
   if (checking) return <div className="cleaner-loading"><i /><span>正在確認安全連線…</span></div>;
@@ -352,20 +379,18 @@ export function CleanerClient() {
   return (
     <div className="cleaner-app">
       <ol className="flow-steps" aria-label="清理流程">
-        {["選擇來源", "掃描中", "檢查結果", "處理方式", "安全確認", "執行中", "完成報告"].map((label, index) => <li key={label} className={scan && index < 4 ? "done" : running && index === 5 ? "active" : ""}><span>{index + 1}</span><b>{label}</b></li>)}
+        {["登入", "掃描", "檢查", "清理"].map((label, index) => <li key={label} className={connected && index === 0 ? "done" : scan && index < 3 ? "done" : running && index === 3 ? "active" : ""}><span>{index + 1}</span><b>{label}</b></li>)}
       </ol>
       <section className="cleaner-statusbar">
-        <div className="account">
-          {scan?.user?.photoLink ? <img src={scan.user.photoLink} alt="" referrerPolicy="no-referrer" /> : <span className={`account-dot ${connected ? "online" : ""}`} />}{/* eslint-disable-line @next/next/no-img-element */}
-          <div><b>{scan?.user?.displayName ?? (connected ? "Google Drive 已連線" : "尚未連線")}</b><small>{scan?.user?.emailAddress ?? "權杖只保存在加密 Cookie"}</small></div>
-        </div>
         <div className="cleaner-actions">
-          <label className="sound-control"><input type="checkbox" checked={!muted} onChange={(event) => updateMuted(!event.target.checked)} />音效</label>
-          <label className="volume-control" aria-label="音量"><input type="range" min="0" max="1" step=".05" value={volume} onChange={(event) => updateVolume(Number(event.target.value))} disabled={muted} /></label>
           {!connected ? <a className={`button primary ${configured ? "" : "disabled"}`} aria-disabled={!configured} href={configured ? "/api/google/start" : "#oauth-setup"}>{configured ? "使用 Google 登入" : "Google 登入設定中"}</a> : <>
             <button className="button primary" onClick={startScan} disabled={running}>{scan ? "重新掃描" : "開始掃描"}</button>
             <button className="text-button" onClick={disconnect} disabled={running}>中斷連線</button>
           </>}
+        </div>
+        <div className="account">
+          {account?.photoLink ? <img src={account.photoLink} alt="" referrerPolicy="no-referrer" /> : <span className={`account-dot ${connected ? "online" : ""}`} />}{/* eslint-disable-line @next/next/no-img-element */}
+          <div><b>{account?.displayName ?? (connected ? "Google Drive 已連線" : "尚未連線")}</b><small>{account?.emailAddress ?? "登入帳號顯示於此"}</small></div>
         </div>
       </section>
 
@@ -391,7 +416,7 @@ export function CleanerClient() {
         </section>
         <div className="results-toolbar">
           <div><b>{scan.groups.length.toLocaleString()} 組 · {scan.duplicateCopies.toLocaleString()} 個重複副本</b><span>掃描 {scan.examined.toLocaleString()} 個項目，略過 {scan.skipped.toLocaleString()} 個不適用項目；其中 {scan.projectProtected.toLocaleString()} 個專案項目受到硬性保護</span></div>
-          <div><button className="text-button" onClick={() => setSelected(new Set(records.filter((record) => selectable(record)).map((record) => record.id)))} disabled={mode === "permanent"}>選取全部可處理副本</button><button className="text-button" onClick={() => setSelected(new Set())}>清除選取</button></div>
+          <div><button className="text-button" onClick={() => setSelected(new Set(records.filter((record) => selectable(record)).map((record) => record.id)))} disabled={mode === "permanent"}>選取全部重複副本</button><button className="text-button" onClick={() => setSelected(new Set())}>清除選取</button></div>
         </div>
         {!scan.groups.length && <div className="empty-state"><span>✦</span><h3>目前很乾淨</h3><p>沒有找到可安全比對的重複檔案。</p></div>}
         <div className="group-list">
@@ -403,8 +428,8 @@ export function CleanerClient() {
               <div className="record-list">
                 {group.records.slice(0, limit).map((record) => <label className={`record ${record.keeper ? "keeper" : selected.has(record.id) ? "selected" : ""}`} key={record.id}>
                   <input type="checkbox" checked={!record.keeper && selected.has(record.id)} disabled={!selectable(record) || running} onChange={() => toggle(record)} />
-                  <span className="file-mark">{record.name.includes(".") ? record.name.split(".").pop()?.slice(0, 4).toUpperCase() : "FILE"}</span>
-                  <span className="record-name"><b>{record.name}</b><small>{record.modifiedTime ? new Date(record.modifiedTime).toLocaleString("zh-TW") : "日期不明"}</small></span>
+                  <span className="file-preview">{record.thumbnailLink ? <img src={record.thumbnailLink} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : <span>{record.name.includes(".") ? record.name.split(".").pop()?.slice(0, 4).toUpperCase() : "FILE"}</span>}</span>{/* eslint-disable-line @next/next/no-img-element */}
+                  <span className="record-name"><b>{record.name}</b><small className="record-path">{record.path}</small><small>{record.modifiedTime ? new Date(record.modifiedTime).toLocaleString("zh-TW") : "日期不明"}{record.webViewLink ? <> · <a href={record.webViewLink} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>在 Drive 預覽</a></> : null}</small></span>
                   <span className="record-size">{formatBytes(record.size)}</span>
                   <span className={`record-state ${record.keeper ? "safe" : !selectable(record) ? "locked" : ""}`}>{record.keeper ? "保留" : !selectable(record) ? "無權限" : selected.has(record.id) ? (mode === "trash" ? "垃圾桶" : "永久刪除") : "略過"}</span>
                 </label>)}
@@ -425,7 +450,6 @@ export function CleanerClient() {
           <h2 id="confirm-title">{confirmation.mode === "trash" ? "移至 Google Drive 垃圾桶？" : "永久刪除，沒有復原功能"}</h2>
           <p>{confirmation.mode === "trash" ? "選取檔案會移至垃圾桶，仍可依 Google Drive 的保留政策復原。" : "這不是清空垃圾桶；選取檔案會立即從 Google Drive 永久消失。"}</p>
           <dl className="confirm-summary"><div><dt>選取數量</dt><dd>{confirmation.records.length.toLocaleString()} 個檔案</dd></div><div><dt>重複群組</dt><dd>{new Set(confirmation.records.map((record) => scan?.groups.findIndex((group) => group.records.some((item) => item.id === record.id)))).size.toLocaleString()} 組</dd></div><div><dt>預計釋放</dt><dd>{formatBytes(confirmation.records.reduce((sum, record) => sum + record.size, 0))}</dd></div><div><dt>掃描位置</dt><dd>我的 Google Drive</dd></div><div><dt>處理方式</dt><dd>{confirmation.mode === "trash" ? "移至垃圾桶（可復原）" : "永久刪除（無法復原）"}</dd></div></dl>
-          {confirmation.mode === "trash" && confirmation.stage === 2 && <label className="session-reminder"><input type="checkbox" checked={suppressTrash} onChange={(event) => setSuppressTrash(event.target.checked)} />本次使用期間，相同選取內容不再提醒移至垃圾桶</label>}
           {confirmation.mode === "permanent" && confirmation.stage === 2 && <label className="typed-confirm"><span>請完整輸入：<b>{expectedPhrase}</b></span><input value={confirmationText} onChange={(event) => setConfirmationText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }} autoComplete="off" /></label>}
           {largeRisk && confirmation.stage === 2 && <div className="countdown-warning"><b>大量永久刪除保護</b><span>完整摘要已顯示。{countdown > 0 ? `請等待 ${countdown} 秒` : "等待完成，請再次核對內容"}</span></div>}
           <div className="modal-actions"><button className="button secondary" onClick={() => setConfirmation(null)}>取消，保留檔案</button><button className={`button ${confirmation.mode === "trash" ? "primary" : "danger"}`} onClick={acceptConfirmation} disabled={confirmation.mode === "permanent" && confirmation.stage === 2 && (confirmationText !== expectedPhrase || countdown > 0)}>{confirmation.stage === 1 && (confirmation.mode === "permanent" ? needsSecond || largeRisk : needsSecond) ? "繼續安全確認" : confirmation.mode === "trash" ? "確認移至垃圾桶" : "確認永久刪除（無法復原）"}</button></div>

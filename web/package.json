@@ -1,9 +1,9 @@
 {
   "name": "dupespace-web",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=22.13.0 <24"
   },
   "scripts": {
     "dev": "vinext dev",
