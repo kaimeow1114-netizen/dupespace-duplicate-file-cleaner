@@ -538,8 +538,12 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
   const { session, setCookie } = await authorizedSession(request, env);
   const requestBody = await request.json().catch(() => ({})) as {
     ignoreSystemMetadata?: boolean;
+    protectedProfile?: "project" | "media" | "strict";
   };
   const ignoreSystemMetadata = requestBody.ignoreSystemMetadata === true;
+  const protectedProfile = ["project", "media", "strict"].includes(requestBody.protectedProfile ?? "")
+    ? requestBody.protectedProfile as "project" | "media" | "strict"
+    : "project";
   const [drive, aboutResponse] = await Promise.all([
     listDrive(session),
     googleFetch(session, "https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress,photoLink),storageQuota"),
@@ -611,7 +615,7 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
       path: paths.get(file.id) ?? file.name,
       canTrash: Boolean(file.capabilities?.canTrash),
       canDelete: Boolean(file.capabilities?.canDelete),
-      autoSelectable: Boolean(file.capabilities?.canTrash) && Number(file.size) >= MINIMUM_AUTO_SELECT_BYTES,
+      autoSelectable: protectedProfile !== "strict" && Boolean(file.capabilities?.canTrash) && Number(file.size) >= MINIMUM_AUTO_SELECT_BYTES,
       keeper: file.id === keeper.id,
       proof: await proof({
         id: file.id,
@@ -669,7 +673,7 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
         path: paths.get(folder.id) ?? folder.name,
         canTrash: Boolean(folder.capabilities?.canTrash),
         canDelete: false,
-        autoSelectable: Boolean(folder.capabilities?.canTrash) && manifest.actualBytes >= MINIMUM_AUTO_SELECT_BYTES,
+        autoSelectable: protectedProfile === "project" && Boolean(folder.capabilities?.canTrash) && manifest.actualBytes >= MINIMUM_AUTO_SELECT_BYTES,
         keeper: folder.id === keeper.id,
         proof: await proof({
           id: folder.id,
@@ -921,11 +925,61 @@ async function mutate(request: Request, env: Required<GoogleDriveEnv>, mode: Ope
   return json({ operationMode: mode, outcomes }, 200, setCookie ? { "set-cookie": setCookie } : undefined);
 }
 
+async function restore(request: Request, env: Required<GoogleDriveEnv>): Promise<Response> {
+  requireSameOrigin(request);
+  const { session, setCookie } = await authorizedSession(request, env);
+  const body = await request.json() as { items?: Array<{ id?: string; proof?: string }> };
+  if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > MAX_MUTATION_ITEMS) {
+    return json({ error: `每批必須包含 1 至 ${MAX_MUTATION_ITEMS} 個項目` }, 400);
+  }
+  const verified = await Promise.all(body.items.map(async (item) => {
+    const payload = item.proof ? await verifyProof(item.proof, env.SESSION_SECRET) : null;
+    return payload && payload.id === item.id && payload.id !== payload.keeperId ? payload : null;
+  }));
+  if (verified.some((item) => item === null)) return json({ error: "復原證明無效或已過期，請至 Google Drive 垃圾桶手動復原" }, 409);
+
+  const outcomes = await mapConcurrent(verified as ProofPayload[], 3, async (payload) => {
+    let current: DriveFile | null = null;
+    const outcome = (status: "restored" | "failed" | "skipped", reason: string) => ({
+      timestamp: new Date().toISOString(),
+      id: payload.id,
+      name: current?.name ?? "",
+      path: payload.path,
+      size: Number(payload.size),
+      checksum: payload.checksum,
+      operationMode: "restore" as const,
+      itemKind: payload.itemKind,
+      status,
+      reason,
+    });
+    try {
+      current = await getFile(session, payload.id);
+      if (!current.trashed) return outcome("skipped", "項目已不在 Google Drive 垃圾桶");
+      if (!current.ownedByMe || current.driveId) return outcome("skipped", "只有本人擁有且非共用雲端硬碟的項目可以快速復原");
+      if (payload.itemKind === "folder" && current.mimeType !== "application/vnd.google-apps.folder") return outcome("skipped", "項目類型已變更，請至 Google Drive 垃圾桶手動復原");
+      if (payload.itemKind === "file" && unsupportedType(current)) return outcome("skipped", "項目類型已變更，請至 Google Drive 垃圾桶手動復原");
+      const response = await googleFetch(
+        session,
+        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(payload.id)}?supportsAllDrives=false&fields=id,trashed`,
+        { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ trashed: false }) },
+      );
+      if (!response.ok) return outcome("failed", `Google Drive API 回覆 ${response.status}`);
+      const result = await response.json() as { id?: string; trashed?: boolean };
+      if (result.id !== payload.id || result.trashed !== false) return outcome("failed", "Google Drive 未確認項目已復原");
+      return outcome("restored", "已從 Google Drive 垃圾桶復原");
+    } catch (error) {
+      return outcome("failed", error instanceof Error ? error.message : "未知錯誤");
+    }
+  });
+  return json({ operationMode: "restore", outcomes }, 200, setCookie ? { "set-cookie": setCookie } : undefined);
+}
+
 export async function handleGoogleDriveApi(request: Request, env: GoogleDriveEnv): Promise<Response | null> {
   const url = new URL(request.url);
-  if (!url.pathname.startsWith("/api/google/")) return null;
+  const sessionPath = url.pathname === "/api/auth/session";
+  if (!url.pathname.startsWith("/api/google/") && !sessionPath) return null;
   try {
-    if (url.pathname === "/api/google/status" && request.method === "GET") {
+    if ((url.pathname === "/api/google/status" || sessionPath) && request.method === "GET") {
       const configured = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.SESSION_SECRET);
       if (!configured) return json({ connected: false, configured: false });
       requireConfig(env);
@@ -1029,6 +1083,7 @@ export async function handleGoogleDriveApi(request: Request, env: GoogleDriveEnv
     }
     if (url.pathname === "/api/google/scan" && request.method === "POST") return scan(request, env);
     if (url.pathname === "/api/google/trash" && request.method === "POST") return mutate(request, env, "trash");
+    if (url.pathname === "/api/google/restore" && request.method === "POST") return restore(request, env);
     if (url.pathname === "/api/google/delete" && request.method === "POST") return mutate(request, env, "permanent");
     return json({ error: "找不到 API 路徑" }, 404);
   } catch (error) {

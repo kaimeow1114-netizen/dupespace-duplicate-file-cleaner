@@ -54,6 +54,13 @@ a full summary and countdown.
   percentage, and disk/cloud capacity percentage.
 - Progressive result rendering and small Drive batches of 10 operations, with request timeouts,
   shared keeper validation, and immediate removal of confirmed results from the web UI.
+- A two-click Google Drive trash flow with a non-blocking 10-second undo bar. Undo calls a real,
+  same-origin restore API and requires the original signed scan proof; it is not a visual-only
+  rollback. Permanent deletion keeps its separate high-risk confirmations.
+- A transparent 0–100 storage-health organization score based only on duplicate bytes and group
+  count, plus device-local aggregate history, path-based duplicate-cause estimates, protected
+  profiles, and a user-configured capacity-cost equivalent calculator. These are organization
+  aids, not disk-failure diagnostics or claims about actual billing savings.
 - Windows keep/clean root pairs reject equal, nested, overlapping, short-path, junction, symlink,
   reparse-point, and path-normalization bypasses. Cloud placeholders are skipped without hydration.
 - Deterministic locked keeper in every group; every operation independently revalidates both target
@@ -70,6 +77,9 @@ a full summary and countdown.
 - A shared teal motion language across web and desktop: spring dashboard entrance, subtle SHA-256
   particles, animated space counters, staggered safety cards, pointer-following glow, and a complete
   reduced-motion fallback that never hides safety information.
+- A zero-emoji web interface whose status and action indicators use Lucide SVG icons, with a real
+  English alternate route, corrected hreflang links, semantic image alternatives, and persistent
+  session status through `/api/auth/session`.
 
 ## Requirements and installation
 

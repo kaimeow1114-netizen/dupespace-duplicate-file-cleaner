@@ -5,7 +5,14 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://dupespace.app"),
   title: { default: "DUPESPACE｜開源的 Google Drive 與 Windows 重複檔案清理工具", template: "%s｜DUPESPACE" },
   description: "免費搜尋、檢查並安全清理 Windows 與 Google Drive 重複檔案及鏡像資料夾。內容級精確比對，預設移至垃圾桶，檔案內容不上傳。",
-  alternates: { canonical: "https://dupespace.app/", languages: { "zh-Hant-TW": "https://dupespace.app/" } },
+  alternates: {
+    canonical: "https://dupespace.app/",
+    languages: {
+      "zh-TW": "https://dupespace.app/",
+      en: "https://dupespace.app/en",
+      "x-default": "https://dupespace.app/",
+    },
+  },
   applicationName: "DUPESPACE",
   category: "utilities",
   keywords: ["重複檔案刪除", "重複檔案清理", "重複檔案搜尋", "Google Drive 重複檔案", "雲端硬碟清理", "Windows 重複檔案工具", "duplicate file cleaner", "Google Drive duplicate file cleaner"],
@@ -35,7 +42,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-Hant-TW">
+    <html lang="zh-TW">
       <head>
         <meta name="theme-color" content="#082b40" />
         <meta name="google-adsense-account" content="ca-pub-7998471640181666" />

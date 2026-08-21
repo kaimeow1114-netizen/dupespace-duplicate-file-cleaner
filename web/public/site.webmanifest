@@ -2,7 +2,7 @@
   "name": "DUPESPACE 重複檔案清理工具",
   "short_name": "DUPESPACE",
   "description": "安全搜尋與清理 Windows、Google Drive 重複檔案。",
-  "lang": "zh-Hant-TW",
+  "lang": "zh-TW",
   "start_url": "/cleaner",
   "scope": "/",
   "display": "standalone",

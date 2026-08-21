@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Github, Star } from "lucide-react";
 
 const repository = "kaimeow1114-netizen/dupespace-duplicate-file-cleaner";
 
@@ -14,5 +15,5 @@ export function GitHubStars() {
       })
       .catch(() => undefined);
   }, []);
-  return <a className="github-stars" href={`https://github.com/${repository}`} aria-label="在 GitHub 查看 DUPESPACE"><span>☆</span><b>GitHub</b>{stars !== null && <em>{stars.toLocaleString()} Stars</em>}</a>;
+  return <a className="github-stars" href={`https://github.com/${repository}`} aria-label="在 GitHub 查看 DUPESPACE"><Github size={15} aria-hidden="true" /><b>GitHub</b>{stars !== null && <em><Star size={11} aria-hidden="true" />{stars.toLocaleString()}</em>}</a>;
 }

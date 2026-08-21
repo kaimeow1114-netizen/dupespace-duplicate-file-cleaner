@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Image from "next/image";
+import { HardDriveDownload, Info } from "lucide-react";
 import { SiteFooter, SiteHeader } from "../components/site-shell";
 
 const repo = "https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner";
@@ -18,17 +19,17 @@ export default function DownloadPage() {
       <section className="download-hero">
         <div className="shell download-hero-grid">
           <div>
-            <span className="eyebrow light"><i /> WINDOWS 10 / 11 • 免費開源</span>
+            <span className="eyebrow light"><HardDriveDownload size={15} aria-hidden="true" /> WINDOWS 10 / 11 • 免費開源</span>
             <h1><span className="heading-phrase">先看清楚用途，</span><wbr /><span className="heading-phrase">再清理副本。</span></h1>
             <p>DUPESPACE Windows 版只列出「清理區已有、保留區也有相同內容」的精確重複檔。程式碼專案與系統位置不會成為刪除候選。</p>
             <div className="download-actions"><a className="button mint" href={installer}>下載 DupeSpace-Setup.exe</a><a className="button ghost" href={repo}>查看 GitHub 原始碼</a></div>
             <small className="download-note">免費使用 · MIT License · 安裝時可選擇建立桌面捷徑</small>
           </div>
-          <div className="download-product-card"><Image src="/dupespace-icon.png" alt="DUPESPACE 應用程式圖示" width={220} height={220} priority /><b>DUPESPACE</b><span>Windows duplicate file cleaner</span></div>
+          <div className="download-product-card"><Image src="/dupespace-icon.png" alt="DUPESPACE 應用程式圖示" width={220} height={220} priority unoptimized /><b>DUPESPACE</b><span>Windows duplicate file cleaner</span></div>
         </div>
       </section>
       <section className="shell download-guide">
-        <div className="section-heading"><span className="eyebrow"><i /> 下載前請先了解</span><h2><span className="heading-phrase">三道保護，</span><wbr /><span className="heading-phrase">避免刪到仍有用途的副本。</span></h2></div>
+        <div className="section-heading"><span className="eyebrow"><Info size={15} aria-hidden="true" /> 下載前請先了解</span><h2><span className="heading-phrase">三道保護，</span><wbr /><span className="heading-phrase">避免刪到仍有用途的副本。</span></h2></div>
         <div className="download-safety-grid">
           <article><b>01</b><h3>保留區永遠不刪</h3><p>把原始照片、工作文件與主要備份放進保留區。即使內容相同，保留區檔案也不能勾選。</p></article>
           <article><b>02</b><h3>程式碼專案硬性排除</h3><p>Git、SVN、常見建置專案、套件與虛擬環境中的相同設定或依賴，全部保留。</p></article>

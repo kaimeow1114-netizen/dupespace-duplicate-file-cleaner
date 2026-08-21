@@ -22,17 +22,17 @@ test("renders the DUPESPACE product landing page with canonical SEO metadata", a
   assert.match(html, /application\/ld\+json/);
   assert.match(html, /FAQPage/);
   assert.match(html, /site\.webmanifest/);
-  assert.match(html, /線上清理 Google Drive/);
+  assert.match(html, /開始極速安全掃描/);
   assert.match(html, /ca-pub-7998471640181666/);
   assert.match(html, /<a[^>]+href="\/#features"[^>]*>功能特色<\/a>/);
   assert.match(html, /translate="no"[^>]*lang="en"[^>]*>DUPE<em>SPACE<\/em>/);
-  assert.match(html, /class="headline-line">找出重複檔案，<\/span>/);
+  assert.match(html, /class="headline-line">精確比對內容，<\/span>/);
   assert.match(html, /DUPESPACE 是一套免費、開源的重複檔案清理工具/);
   assert.match(html, /重複檔案與重複資料夾/);
   assert.match(html, /href="\/privacy">隱私權政策<\/a>/);
   assert.match(html, /FREE • OPEN SOURCE • PRIVACY-FIRST/);
-  assert.match(html, /href="\/cleaner"[^>]*>[^<]*線上清理 Google Drive/);
-  assert.match(html, /class="hero-actions"[\s\S]*?href="\/cleaner"[^>]*>[^<]*線上清理 Google Drive[\s\S]*?href="\/download"[^>]*>[^<]*了解 Windows 版/);
+  assert.match(html, /href="\/cleaner"[\s\S]{0,300}開始極速安全掃描/);
+  assert.match(html, /class="hero-actions"[\s\S]*?href="\/cleaner"[\s\S]*?開始極速安全掃描[\s\S]*?href="\/download"[\s\S]*?下載 Windows 用戶端/);
   assert.match(html, /都有清楚的安全邊界/);
   assert.match(html, /代碼專案自動排除/);
   assert.match(html, /專案與套件環境硬性排除/);
@@ -122,7 +122,7 @@ test("keeps responsive layouts stable and batch sounds bounded", async () => {
 
   const operationBody = cleanerSource.slice(
     cleanerSource.indexOf("async function executeOperation"),
-    cleanerSource.indexOf("function downloadCsv"),
+    cleanerSource.indexOf("async function undoTrash"),
   );
   assert.equal((operationBody.match(/play\(/g) ?? []).length, 3);
   assert.match(operationBody, /for \(const chunk of chunks\)/);
@@ -153,7 +153,42 @@ test("ships the high-fidelity motion system with an accessible static fallback",
   const html = await response.text();
   assert.match(html, /DUPESPACE 是一套免費、開源的重複檔案清理工具/);
   assert.match(html, /代碼專案自動排除/);
-  assert.match(html, /儀表板示意 · 預計可安全釋放/);
+  assert.match(html, /儀表板示意 · 可安全釋放/);
+});
+
+test("ships health scoring, persistent session status and a real trash restore path", async () => {
+  const [healthSource, clientSource, workerSource] = await Promise.all([
+    readFile(new URL("../lib/health-score.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/cleaner-client.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../worker/google-drive.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(healthSource, /if \(duplicateBytes === 0 && duplicateGroups === 0\) return 98/);
+  assert.match(healthSource, /if \(duplicateGB >= 10\) penalty \+= 65/);
+  assert.match(healthSource, /duplicateGroups >= 50/);
+  assert.match(clientSource, /fetch\("\/api\/auth\/session"/);
+  assert.match(clientSource, /expiresAt: Date\.now\(\) \+ 10_000/);
+  assert.match(clientSource, /fetch\("\/api\/google\/restore"/);
+  assert.match(workerSource, /url\.pathname === "\/api\/auth\/session"/);
+  assert.match(workerSource, /url\.pathname === "\/api\/google\/restore"/);
+  assert.match(workerSource, /verifyProof\(item\.proof/);
+  assert.match(workerSource, /JSON\.stringify\(\{ trashed: false \}\)/);
+  assert.match(workerSource, /protectedProfile !== "strict"/);
+  assert.match(workerSource, /protectedProfile === "project"/);
+  assert.doesNotMatch(workerSource, /restore[\s\S]{0,1800}method: "DELETE"/);
+});
+
+test("renders a valid English alternate and keeps interface source free of emoji", async () => {
+  const response = await render("/en");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /DUPESPACE is an open-source duplicate file cleaner/);
+  assert.match(html, /hrefLang="en" href="https:\/\/dupespace\.app\/en"/);
+  const sources = await Promise.all([
+    "page.tsx", "components/cleaner-client.tsx", "components/hero-dashboard.tsx",
+    "components/motion-showcase.tsx", "components/site-shell.tsx", "components/github-stars.tsx",
+  ].map((path) => readFile(new URL(`../app/${path}`, import.meta.url), "utf8")));
+  const emoji = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
+  for (const source of sources) assert.doesNotMatch(source, emoji);
 });
 
 test("renders legal and cleaner routes with security headers", async () => {
