@@ -73,7 +73,8 @@ a full summary and countdown.
 - UTF-8 CSV audit outcomes with timestamp, source, mode, status, path/Drive ID, bytes, checksum,
   and reason.
 - Windows installer with optional first-install desktop shortcut.
-- Free browser cleaner, privacy/terms pages, PWA icon suite, SEO metadata, and AdSense declaration.
+- Full-bleed public landing pages, a separate ad-free browser cleaner, privacy/terms pages, PWA
+  icon suite, SEO metadata, AdSense Auto Ads verification code, and Google Limited Use disclosures.
 - A shared teal motion language across web and desktop: spring dashboard entrance, subtle SHA-256
   particles, animated space counters, staggered safety cards, pointer-following glow, and a complete
   reduced-motion fallback that never hides safety information.

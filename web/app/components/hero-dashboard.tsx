@@ -56,7 +56,7 @@ export function HeroDashboard() {
           <motion.circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={radius} initial={{ opacity: .15 }} animate={reducedMotion ? { opacity: .28 } : { opacity: [.12, .72, .16], x: [0, index % 2 ? -5 : 7, 0], y: [0, index % 3 ? -8 : 6, 0] }} transition={{ duration: 4.2 + (index % 4) * .7, delay, repeat: reducedMotion ? 0 : Infinity, ease: "easeInOut" }} />
         ))}
       </svg>
-      <div className="dashboard-titlebar"><span /><span /><span /><b>DUPESPACE · STORAGE INTELLIGENCE</b><em><ShieldCheck size={12} aria-hidden="true" /> 安全模式</em></div>
+      <div className="dashboard-titlebar"><b>DUPESPACE · STORAGE INTELLIGENCE</b><em><ShieldCheck size={12} aria-hidden="true" /> 安全模式</em></div>
       <div className="dashboard-body">
         <div className="health-demo-grid">
           <div className={`health-ring ${urgent ? "critical" : "optimal"}`}>

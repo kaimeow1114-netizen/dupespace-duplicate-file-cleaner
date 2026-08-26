@@ -27,6 +27,8 @@ test("renders the DUPESPACE product landing page with canonical SEO metadata", a
   assert.match(html, /<a[^>]+href="\/#features"[^>]*>功能特色<\/a>/);
   assert.match(html, /translate="no"[^>]*lang="en"[^>]*>DUPE<em>SPACE<\/em>/);
   assert.match(html, /class="headline-line">精確比對內容，<\/span>/);
+  assert.match(html, /class="hero"[\s\S]{0,200}class="shell hero-grid"/);
+  assert.doesNotMatch(html, /class="hero shell"/);
   assert.match(html, /DUPESPACE 是一套免費、開源的重複檔案清理工具/);
   assert.match(html, /重複檔案與重複資料夾/);
   assert.match(html, /href="\/privacy">隱私權政策<\/a>/);
@@ -38,6 +40,8 @@ test("renders the DUPESPACE product landing page with canonical SEO metadata", a
   assert.match(html, /專案與套件環境硬性排除/);
   assert.match(html, /預設移至垃圾桶/);
   assert.match(html, /dashboard-demo/);
+  assert.match(html, /Google Limited Use 承諾/);
+  assert.match(html, /資料不出售、不提供給 AdSense、不用於廣告個人化/);
   assert.doesNotMatch(html, /DupeSpace|DUPESWEEP/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });
@@ -119,6 +123,10 @@ test("keeps responsive layouts stable and batch sounds bounded", async () => {
   assert.match(css, /\.headline-line\s*\{[^}]*white-space:nowrap/);
   assert.match(css, /\.heading-phrase\s*\{[^}]*white-space:nowrap/);
   assert.match(css, /line-break:strict/);
+  assert.match(css, /\.shell\s*\{[^}]*1360px/);
+  assert.match(css, /\.hero-grid\s*\{[^}]*grid-template-columns/);
+  assert.match(css, /\.hero\s*\{[^}]*width:100%/);
+  assert.doesNotMatch(css, /\.hero\s*\{[^}]*border-radius/);
 
   const operationBody = cleanerSource.slice(
     cleanerSource.indexOf("async function executeOperation"),
@@ -202,6 +210,9 @@ test("renders legal and cleaner routes with security headers", async () => {
 });
 
 test("excludes AdSense from the cleaner and safely redirects legacy hosts", async () => {
+  const homepage = await render("/");
+  const homepageHtml = await homepage.text();
+  assert.match(homepageHtml, /https:\/\/pagead2\.googlesyndication\.com\/pagead\/js\/adsbygoogle\.js\?client=ca-pub-7998471640181666/);
   const cleaner = await render("/cleaner");
   assert.doesNotMatch(await cleaner.text(), /adsbygoogle\.js/);
 
@@ -217,6 +228,16 @@ test("excludes AdSense from the cleaner and safely redirects legacy hosts", asyn
   assert.equal(rejected.status, 409);
   const newSite = await worker.fetch(new Request("https://dupespace.app/"), env, ctx);
   assert.equal(newSite.status, 200);
+});
+
+test("publishes explicit Google Limited Use disclosures", async () => {
+  const [homepage, privacy] = await Promise.all([render("/"), render("/privacy")]);
+  const [homepageHtml, privacyHtml] = await Promise.all([homepage.text(), privacy.text()]);
+  assert.match(homepageHtml, /Google API Services User Data Policy/);
+  assert.match(homepageHtml, /不提供給 AdSense/);
+  assert.match(privacyHtml, /Google API Services User Data Policy 與 Limited Use/);
+  assert.match(privacyHtml, /不會提供給 AdSense 或其他廣告系統/);
+  assert.match(privacyHtml, /不會用於個人化廣告/);
 });
 
 test("keeps Google Drive API disconnected until an encrypted session exists", async () => {

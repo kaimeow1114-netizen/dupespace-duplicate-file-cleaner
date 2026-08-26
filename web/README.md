@@ -17,8 +17,14 @@ The OAuth authorized redirect URI is `https://YOUR-SITE/api/google/callback`. Th
 OAuth consent screen must be enabled in the same Google Cloud project. Public use of the full Drive
 scope requires Google verification before accounts outside the test-user list can authorize it.
 
-AdSense publisher `ca-pub-7998471640181666` and `public/ads.txt` are included. Revenue begins only
-after the deployed domain is added to AdSense, approved, and Auto ads are enabled.
+AdSense publisher `ca-pub-7998471640181666`, the official Auto Ads loader, and `public/ads.txt`
+are included on public information pages. The cleaner and its file-operation routes do not load
+AdSense. In AdSense, exclude `/cleaner` and turn off side rail, vignette, and anchor formats before
+enabling Auto Ads. Revenue begins only after the deployed domain is approved and marked Ready.
+
+The homepage and privacy policy publish explicit Google API Services User Data Policy and Limited
+Use disclosures. Google user data is never supplied to AdSense, used for ad personalization, or
+used for any purpose beyond the user-requested duplicate-file workflow.
 
 ## Commands
 
