@@ -26,9 +26,11 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libopengl0 fonts-noto-cjk
       - run: ruff check .
-      - run: pytest
+      - run: pytest -vv -o faulthandler_timeout=30
+        timeout-minutes: 5
         env:
           QT_QPA_PLATFORM: offscreen
+          PYTHONUNBUFFERED: "1"
 
   web:
     runs-on: ubuntu-latest

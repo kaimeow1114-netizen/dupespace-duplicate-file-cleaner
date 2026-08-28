@@ -15,6 +15,7 @@ from PySide6.QtCore import (
     QSize,
     Qt,
     QThread,
+    QTimer,
     QUrl,
     QVariantAnimation,
     Signal,
@@ -649,7 +650,7 @@ class MainWindow(QMainWindow):
             box.addWidget(card)
         links = QHBoxLayout()
         for title, url in (
-            ("安全整理指南", WEBSITE + "/guide"),
+            ("安全整理指南", WEBSITE + "/support"),
             ("隱私權政策", WEBSITE + "/privacy"),
             ("檢查開源程式碼", GITHUB),
         ):
@@ -1125,8 +1126,9 @@ class MainWindow(QMainWindow):
     def _finished(self) -> None:
         # QThread.finished can precede OS thread-local cleanup. Join before the parent
         # window is allowed to close and destroy its child QThread.
-        if self.thread is not None:
-            self.thread.wait()
+        if self.thread is not None and not self.thread.wait(100):
+            QTimer.singleShot(25, self._finished)
+            return
         self.busy = False
         self.model.busy = False
         self.orbit.animate(False)
