@@ -280,3 +280,127 @@ test("renders a dedicated Windows download explanation page", async () => {
   assert.match(html, /程式碼專案硬性排除/);
   assert.match(html, /rel="canonical" href="https:\/\/dupespace\.app\/download"/);
 });
+
+async function oauthHarness() {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("oauth-test", crypto.randomUUID());
+  const { default: worker } = await import(workerUrl.href);
+  const env = {
+    ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) },
+    GOOGLE_CLIENT_ID: "test.apps.googleusercontent.com",
+    GOOGLE_CLIENT_SECRET: "not-a-real-secret",
+    SESSION_SECRET: "test-session-secret-that-is-at-least-32-characters",
+  };
+  return (path, init) => worker.fetch(
+    new Request(`https://dupespace.example${path}`, init),
+    env,
+    { waitUntil() {}, passThroughOnException() {} },
+  );
+}
+
+function responseCookie(response, name) {
+  const value = response.headers.getSetCookie().find((item) => item.startsWith(`${name}=`));
+  assert.ok(value, `Expected ${name} cookie`);
+  assert.match(value, /; HttpOnly;/);
+  assert.match(value, /; SameSite=Lax;/);
+  assert.match(value, /; Secure/);
+  return value.split(";")[0];
+}
+
+test("requests only Drive access without unused identity or incremental scopes", async () => {
+  const request = await oauthHarness();
+  const response = await request("/api/google/start");
+  assert.equal(response.status, 302);
+  const auth = new URL(response.headers.get("location"));
+  assert.equal(auth.origin, "https://accounts.google.com");
+  assert.equal(auth.searchParams.get("scope"), "https://www.googleapis.com/auth/drive");
+  assert.equal(auth.searchParams.get("include_granted_scopes"), "false");
+  assert.equal(auth.searchParams.get("access_type"), "offline");
+  assert.equal(auth.searchParams.get("redirect_uri"), "https://dupespace.example/api/google/callback");
+  assert.equal(auth.searchParams.get("code_challenge_method"), "S256");
+  assert.match(auth.searchParams.get("code_challenge"), /^[\w-]{43}$/);
+  assert.match(auth.searchParams.get("state"), /^[\w-]{43}$/);
+  responseCookie(response, "dupespace_oauth");
+  assert.match(response.headers.get("cache-control"), /no-store/);
+});
+
+test("Drive-only login refreshes, displays the account, disconnects and reconnects without ID tokens", async (t) => {
+  const request = await oauthHarness();
+  const start = await request("/api/google/start");
+  const auth = new URL(start.headers.get("location"));
+  const calls = [];
+  const user = { displayName: "Demo User", emailAddress: "demo@example.com" };
+  t.mock.method(globalThis, "fetch", async (input, init) => {
+    const url = new URL(String(input));
+    calls.push(`${init?.method ?? "GET"} ${url.origin}${url.pathname}`);
+    if (url.href === "https://oauth2.googleapis.com/token") {
+      const body = new URLSearchParams(init.body);
+      assert.equal(body.get("client_id"), "test.apps.googleusercontent.com");
+      if (body.get("grant_type") === "authorization_code") {
+        const verifier = body.get("code_verifier");
+        assert.ok(verifier);
+        const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+        assert.equal(Buffer.from(digest).toString("base64url"), auth.searchParams.get("code_challenge"));
+        return Response.json({ access_token: "synthetic-access", refresh_token: "synthetic-refresh", expires_in: 0 });
+      }
+      assert.equal(body.get("grant_type"), "refresh_token");
+      assert.equal(body.get("refresh_token"), "synthetic-refresh");
+      return Response.json({ access_token: "synthetic-refreshed", expires_in: 3600 });
+    }
+    if (url.origin === "https://www.googleapis.com" && url.pathname === "/drive/v3/about") {
+      assert.equal(url.searchParams.get("fields"), "user(displayName,emailAddress,photoLink)");
+      assert.equal(new Headers(init.headers).get("authorization"), "Bearer synthetic-refreshed");
+      return Response.json({ user });
+    }
+    if (url.href === "https://oauth2.googleapis.com/revoke") {
+      assert.equal(new URLSearchParams(init.body).get("token"), "synthetic-refresh");
+      return new Response(null, { status: 200 });
+    }
+    assert.fail(`Unexpected outbound request: ${url.origin}${url.pathname}`);
+  });
+  const callback = await request(`/api/google/callback?code=synthetic-code&state=${auth.searchParams.get("state")}`, {
+    headers: { cookie: responseCookie(start, "dupespace_oauth") },
+  });
+  assert.equal(callback.status, 302);
+  assert.equal(callback.headers.get("location"), "https://dupespace.example/cleaner?connected=1");
+  const sessionCookie = responseCookie(callback, "dupespace_session");
+  assert.doesNotMatch(sessionCookie, /synthetic|demo@example/);
+  const account = await request("/api/auth/session", { headers: { cookie: sessionCookie } });
+  assert.equal(account.status, 200);
+  assert.deepEqual(await account.json(), { connected: true, configured: true, user });
+  assert.match(account.headers.get("cache-control"), /no-store/);
+  const renewedCookie = responseCookie(account, "dupespace_session");
+  const revisited = await request("/api/auth/session", { headers: { cookie: renewedCookie } });
+  assert.deepEqual(await revisited.json(), { connected: true, configured: true, user });
+  const disconnected = await request("/api/google/disconnect", {
+    method: "POST",
+    headers: { cookie: renewedCookie, origin: "https://dupespace.example" },
+  });
+  assert.deepEqual(await disconnected.json(), { connected: false });
+  assert.match(disconnected.headers.get("set-cookie"), /Max-Age=0/);
+  const signedOut = await request("/api/auth/session");
+  assert.deepEqual(await signedOut.json(), { connected: false, configured: true, user: null });
+  const reconnect = await request("/api/google/start");
+  const reauth = new URL(reconnect.headers.get("location"));
+  assert.equal(reauth.searchParams.get("scope"), "https://www.googleapis.com/auth/drive");
+  assert.notEqual(reauth.searchParams.get("state"), auth.searchParams.get("state"));
+  assert.deepEqual(calls, [
+    "POST https://oauth2.googleapis.com/token",
+    "POST https://oauth2.googleapis.com/token",
+    "GET https://www.googleapis.com/drive/v3/about",
+    "GET https://www.googleapis.com/drive/v3/about",
+    "POST https://oauth2.googleapis.com/revoke",
+  ]);
+});
+
+test("rejects an OAuth callback with mismatched state before token exchange", async (t) => {
+  const request = await oauthHarness();
+  const start = await request("/api/google/start");
+  const outbound = t.mock.method(globalThis, "fetch", async () => assert.fail("Must not exchange an invalid callback"));
+  const response = await request("/api/google/callback?code=synthetic-code&state=invalid", {
+    headers: { cookie: responseCookie(start, "dupespace_oauth") },
+  });
+  assert.equal(response.status, 302);
+  assert.equal(response.headers.get("location"), "https://dupespace.example/cleaner?error=oauth_state");
+  assert.equal(outbound.mock.callCount(), 0);
+});
