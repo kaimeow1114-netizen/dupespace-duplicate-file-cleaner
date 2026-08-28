@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import queue
+import os
+import subprocess
+import sys
 import threading
 import tkinter as tk
+import webbrowser
 from collections.abc import Callable
 from importlib.resources import as_file, files
 from pathlib import Path
@@ -18,10 +22,13 @@ from .confirmations import (
 )
 from .drive import (
     DriveAuthenticationError,
+    DriveScanCancelled,
     GoogleDrivePermanentDeleteExecutor,
     GoogleDriveScanner,
     GoogleDriveTrashExecutor,
     build_drive_service,
+    desktop_account_identity,
+    disconnect_desktop_account,
 )
 from .grouping import (
     default_selection,
@@ -49,18 +56,19 @@ from .sound import SoundPlayer
 from .stats import calculate_cleanup_stats
 from .windows_safety import UnsafePathError
 
-NAVY = "#073B3C"
-NAVY_2 = "#0A4C49"
-MINT = "#2DD4BF"
+NAVY = "#020617"
+NAVY_2 = "#0F172A"
+MINT = "#14B8A6"
 MINT_SOFT = "#CCFBF1"
-GOLD = "#F7C948"
-CREAM = "#EFF8F6"
+GOLD = "#F59E0B"
+CREAM = "#F8FAFC"
 WHITE = "#FFFFFF"
-INK = "#153B3C"
-MUTED = "#5F7D7C"
-LINE = "#CBE7E1"
-RED = "#C83D4D"
-RED_SOFT = "#FFF0F2"
+INK = "#0F172A"
+MUTED = "#64748B"
+LINE = "#E2E8F0"
+RED = "#F43F5E"
+RED_SOFT = "#FFF1F2"
+EMERALD = "#10B981"
 PAGE_SIZE = 240
 
 STAGES = (
@@ -90,14 +98,15 @@ class DupeSpaceApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("DUPESPACE｜重複檔案清理")
-        self.geometry("1220x800")
-        self.minsize(980, 680)
+        self.geometry("1440x900")
+        self.minsize(1120, 720)
         self.configure(bg=CREAM)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self.keep_paths: list[Path] = []
         self.clean_paths: list[Path] = []
         self.drive_service: Any | None = None
+        self.drive_account: tuple[str, str] | None = None
         self.groups_by_source: dict[str, tuple[DuplicateGroup, ...]] = {}
         self.reports_by_source: dict[str, ScanReport] = {}
         self.selected_keys: set[str] = set()
@@ -117,7 +126,8 @@ class DupeSpaceApp(tk.Tk):
         self.status_var = tk.StringVar(
             value="先加入保留區與清理區；保留區內的檔案永遠不可刪除。"
         )
-        self.hash_status_var = tk.StringVar(value="● SAFE SCAN · SHA-256 READY")
+        self.hash_status_var = tk.StringVar(value="SAFE SCAN · SHA-256 READY")
+        self.account_var = tk.StringVar(value="Google Drive 尚未連線")
         self.progress_var = tk.DoubleVar(value=0)
         self.page_var = tk.StringVar(value="第 1 / 1 頁")
         self.location_var = tk.StringVar(value="尚未選擇掃描位置")
@@ -191,7 +201,7 @@ class DupeSpaceApp(tk.Tk):
             anchor="w"
         )
         tk.Label(
-            brand, text="FIND · REVIEW · RECLAIM", bg=NAVY, fg="#9FF3E8", font=("Segoe UI", 8)
+            brand, text="FIND · REVIEW · RECLAIM", bg=NAVY, fg="#5EEAD4", font=("Segoe UI", 8)
         ).pack(anchor="w")
 
         scan_chip = tk.Frame(
@@ -199,7 +209,7 @@ class DupeSpaceApp(tk.Tk):
             bg=NAVY_2,
             padx=14,
             pady=8,
-            highlightbackground="#1A6A63",
+            highlightbackground="#0D9488",
             highlightthickness=1,
         )
         scan_chip.pack(side="left", padx=28)
@@ -207,42 +217,45 @@ class DupeSpaceApp(tk.Tk):
             scan_chip,
             textvariable=self.hash_status_var,
             bg=NAVY_2,
-            fg="#9FF3E8",
+            fg="#5EEAD4",
             font=("Consolas", 9, "bold"),
         ).pack()
 
-        sound_box = tk.Frame(header, bg=NAVY)
-        sound_box.pack(side="right", padx=22)
-        tk.Checkbutton(
-            sound_box,
-            text="靜音",
-            variable=self.muted_var,
-            command=self._save_sound_settings,
-            bg=NAVY,
+        account_box = tk.Frame(
+            header,
+            bg=NAVY_2,
+            padx=12,
+            pady=7,
+            highlightbackground="#0D9488",
+            highlightthickness=1,
+        )
+        account_box.pack(side="right", padx=22)
+        tk.Label(
+            account_box,
+            textvariable=self.account_var,
+            bg=NAVY_2,
             fg=WHITE,
-            activebackground=NAVY,
+            font=("Segoe UI Semibold", 9),
+        ).pack(side="left", padx=(0, 10))
+        self.disconnect_button = tk.Button(
+            account_box,
+            text="中斷連線",
+            command=self._disconnect_drive,
+            state="disabled",
+            relief="flat",
+            bg=NAVY_2,
+            fg="#5EEAD4",
+            disabledforeground="#64748B",
+            activebackground=NAVY_2,
             activeforeground=WHITE,
-            selectcolor=NAVY_2,
-        ).pack(side="left", padx=(0, 8))
-        tk.Label(sound_box, text="音量", bg=NAVY, fg="#BBD1D8").pack(side="left")
-        tk.Scale(
-            sound_box,
-            from_=0,
-            to=100,
-            orient="horizontal",
-            variable=self.volume_var,
-            command=lambda _value: self._save_sound_settings(),
-            showvalue=False,
-            length=100,
-            bg=NAVY,
-            fg=WHITE,
-            troughcolor=NAVY_2,
-            highlightthickness=0,
-        ).pack(side="left")
+            cursor="hand2",
+            font=("Segoe UI Semibold", 8),
+        )
+        self.disconnect_button.pack(side="left")
 
         body = tk.Frame(self, bg=CREAM)
         body.pack(fill="both", expand=True)
-        self.step_frame = tk.Frame(body, bg=NAVY_2, width=205)
+        self.step_frame = tk.Frame(body, bg=NAVY_2, width=224)
         self.step_frame.pack(side="left", fill="y")
         self.step_frame.pack_propagate(False)
         tk.Label(
@@ -260,8 +273,8 @@ class DupeSpaceApp(tk.Tk):
                 row,
                 text=str(index),
                 width=2,
-                bg="#0D5B56",
-                fg="#BDEDE7",
+                bg="#0D9488",
+                fg=WHITE,
                 font=("Segoe UI Semibold", 9),
             )
             badge.pack(side="left", ipady=4)
@@ -270,7 +283,7 @@ class DupeSpaceApp(tk.Tk):
                 text=label,
                 anchor="w",
                 bg=NAVY_2,
-                fg="#8EB9B5",
+                fg="#94A3B8",
                 font=("Segoe UI", 9),
                 wraplength=140,
             )
@@ -278,12 +291,20 @@ class DupeSpaceApp(tk.Tk):
             self.step_labels.append(text)
         tk.Label(
             self.step_frame,
-            text="✓ Keeper 永遠保留\n✓ 預設移至垃圾桶\n✓ 永久刪除無法略過警告",
+            text="KEEPER 永遠保留\n預設移至垃圾桶\n永久刪除警告不可略過",
             justify="left",
             bg=NAVY_2,
-            fg="#9FD9D4",
+            fg="#99F6E4",
             font=("Segoe UI", 8),
-        ).pack(side="bottom", anchor="w", padx=20, pady=20)
+        ).pack(side="bottom", anchor="w", padx=20, pady=(8, 18))
+        self._button(
+            self.step_frame,
+            "偏好設定",
+            self._open_settings,
+            "#1E293B",
+            WHITE,
+            compact=True,
+        ).pack(side="bottom", fill="x", padx=18, pady=(4, 0))
 
         workspace = tk.Frame(body, bg=CREAM)
         workspace.pack(side="left", fill="both", expand=True, padx=20, pady=16)
@@ -306,10 +327,10 @@ class DupeSpaceApp(tk.Tk):
         ).pack(anchor="w", pady=(3, 0))
         actions = tk.Frame(source_card, bg=WHITE)
         actions.pack(side="right")
-        self._button(actions, "＋ 保留區", self._add_keep_folder, MINT_SOFT, NAVY).pack(
+        self._button(actions, "加入保留區", self._add_keep_folder, MINT_SOFT, NAVY).pack(
             side="left", padx=4
         )
-        self._button(actions, "＋ 清理區", self._add_clean_folder, MINT, NAVY).pack(
+        self._button(actions, "加入清理區", self._add_clean_folder, MINT, NAVY).pack(
             side="left", padx=4
         )
         self._button(actions, "掃描本機", self._start_local_scan, NAVY, WHITE).pack(
@@ -437,6 +458,24 @@ class DupeSpaceApp(tk.Tk):
             fg=RED,
             cursor="hand2",
         ).pack(side="right", padx=8)
+        tk.Button(
+            toolbar,
+            text="比對資料夾",
+            command=self._compare_selected_folder,
+            relief="flat",
+            bg=WHITE,
+            fg="#0D9488",
+            cursor="hand2",
+        ).pack(side="right", padx=8)
+        tk.Button(
+            toolbar,
+            text="檢視詳細資料",
+            command=self._show_selected_details,
+            relief="flat",
+            bg=WHITE,
+            fg=NAVY,
+            cursor="hand2",
+        ).pack(side="right", padx=8)
 
         self.tree = ttk.Treeview(
             list_card,
@@ -466,12 +505,12 @@ class DupeSpaceApp(tk.Tk):
         pagination = tk.Frame(list_card, bg=WHITE)
         pagination.pack(fill="x", padx=12, pady=8)
         self._button(
-            pagination, "‹ 上一頁", self._previous_page, "#EAF2F2", NAVY, compact=True
+            pagination, "上一頁", self._previous_page, "#EAF2F2", NAVY, compact=True
         ).pack(side="left")
         tk.Label(
             pagination, textvariable=self.page_var, bg=WHITE, fg=MUTED, font=("Segoe UI", 9)
         ).pack(side="left", padx=12)
-        self._button(pagination, "下一頁 ›", self._next_page, "#EAF2F2", NAVY, compact=True).pack(
+        self._button(pagination, "下一頁", self._next_page, "#EAF2F2", NAVY, compact=True).pack(
             side="left"
         )
         self.empty_label = tk.Label(
@@ -556,6 +595,63 @@ class DupeSpaceApp(tk.Tk):
     def _save_sound_settings(self) -> None:
         self.sound.configure(muted=self.muted_var.get(), volume=self.volume_var.get() / 100)
 
+    def _open_settings(self) -> None:
+        dialog, content = self._modal("DUPESPACE 偏好設定", 480, 300, MINT)
+        tk.Label(
+            content,
+            text="偏好設定",
+            bg=WHITE,
+            fg=NAVY,
+            font=("Segoe UI Bold", 18),
+        ).pack(anchor="w")
+        tk.Label(
+            content,
+            text="操作音效預設開啟，且每個批次最多播放一次。",
+            bg=WHITE,
+            fg=MUTED,
+        ).pack(anchor="w", pady=(4, 18))
+        tk.Checkbutton(
+            content,
+            text="靜音",
+            variable=self.muted_var,
+            command=self._save_sound_settings,
+            bg=WHITE,
+            fg=INK,
+            activebackground=WHITE,
+            selectcolor=WHITE,
+        ).pack(anchor="w")
+        tk.Label(content, text="音量", bg=WHITE, fg=INK).pack(anchor="w", pady=(14, 2))
+        tk.Scale(
+            content,
+            from_=0,
+            to=100,
+            orient="horizontal",
+            variable=self.volume_var,
+            command=lambda _value: self._save_sound_settings(),
+            showvalue=True,
+            bg=WHITE,
+            troughcolor="#CCFBF1",
+            highlightthickness=0,
+        ).pack(fill="x")
+        self._button(content, "完成", dialog.destroy, MINT, NAVY).pack(side="bottom", anchor="e")
+        self._wait_modal(dialog)
+
+    def _disconnect_drive(self) -> None:
+        if self.drive_service is None:
+            return
+        if not messagebox.askyesno(
+            "中斷 Google Drive",
+            "這會撤銷目前登入權杖並清除本機加密登入資料。稽核報告不會刪除。",
+            parent=self,
+        ):
+            return
+        self._start_task(
+            "disconnect-drive",
+            disconnect_desktop_account,
+            1,
+            "正在安全中斷 Google Drive 連線…",
+        )
+
     def _set_stage(self, stage: int) -> None:
         self.stage = max(1, min(7, stage))
         for index, label in enumerate(self.step_labels, start=1):
@@ -622,15 +718,16 @@ class DupeSpaceApp(tk.Tk):
         )
 
     def _start_drive_scan(self) -> None:
-        def worker() -> tuple[Any, ScanReport]:
+        def worker() -> tuple[Any, ScanReport, tuple[str, str]]:
             service = build_drive_service()
+            identity = desktop_account_identity(service)
             report = GoogleDriveScanner().scan(
                 service,
                 ignore_system_metadata=self.ignore_metadata_var.get(),
                 progress=self._post_progress,
                 cancel_event=self.cancel_event,
             )
-            return service, report
+            return service, report, identity
 
         self._start_task("scan-drive", worker, 2, "正在連接並掃描 Google Drive…")
 
@@ -664,8 +761,25 @@ class DupeSpaceApp(tk.Tk):
                 elif event == "scan-local":
                     self._accept_scan(payload)
                 elif event == "scan-drive":
-                    self.drive_service, report = payload
+                    self.drive_service, report, self.drive_account = payload
+                    name, email = self.drive_account
+                    self.account_var.set(f"{name}  {email}".strip())
+                    self.disconnect_button.configure(state="normal")
                     self._accept_scan(report)
+                elif event == "disconnect-drive":
+                    self.busy = False
+                    self.drive_service = None
+                    self.drive_account = None
+                    self.account_var.set("Google Drive 尚未連線")
+                    self.disconnect_button.configure(state="disabled")
+                    self.groups_by_source.pop("drive", None)
+                    self.reports_by_source.pop("drive", None)
+                    self.selected_keys = {
+                        key for key in self.selected_keys if not key.startswith("drive:")
+                    }
+                    self._rebuild_rows()
+                    self.progress_var.set(0)
+                    self.status_var.set("Google Drive 已安全中斷；本機登入權杖已清除。")
                 elif event == "actions":
                     self._accept_actions(payload)
                 elif event == "error":
@@ -711,7 +825,7 @@ class DupeSpaceApp(tk.Tk):
         self.busy = False
         self.progress_var.set(0)
         self._set_stage(1 if not self.rows else 3)
-        if isinstance(error, (ScanCancelled,)):
+        if isinstance(error, (ScanCancelled, DriveScanCancelled)):
             self.status_var.set("已安全停止；尚未處理的檔案沒有變更。")
             return
         self.sound.play("error")
@@ -744,7 +858,7 @@ class DupeSpaceApp(tk.Tk):
             has_permission = record.can_trash if mode == "trash" else record.can_delete
             allowed = has_permission and record.selectable
             selected = record.key in self.selected_keys
-            mark = "—" if keeper or not allowed else "☑" if selected else "☐"
+            mark = "鎖定" if keeper or not allowed else "已選" if selected else "未選"
             state = (
                 "保留原檔"
                 if keeper
@@ -827,6 +941,183 @@ class DupeSpaceApp(tk.Tk):
         self._render_page()
         self._update_metrics()
         return "break"
+
+    def _selected_row(self) -> tuple[DuplicateGroup, FileRecord] | None:
+        selection = self.tree.selection()
+        if not selection:
+            return None
+        index = int(selection[0])
+        return self.rows[index] if 0 <= index < len(self.rows) else None
+
+    def _show_selected_details(self) -> None:
+        selected = self._selected_row()
+        if selected is None:
+            messagebox.showinfo("選擇項目", "請先選擇一個檔案或資料夾。", parent=self)
+            return
+        group, record = selected
+        keeper = group.keeper
+        dialog, content = self._modal("項目詳細資料", 720, 520, MINT)
+        state = "保留區原檔" if record.key == keeper.key else "待清理副本"
+        tk.Label(
+            content,
+            text=record.name,
+            bg=WHITE,
+            fg=NAVY,
+            font=("Segoe UI Bold", 18),
+        ).pack(anchor="w")
+        tk.Label(
+            content,
+            text=f"{state} · {'資料夾' if record.item_kind == 'folder' else '檔案'}",
+            bg=WHITE,
+            fg=EMERALD if record.key == keeper.key else GOLD,
+            font=("Segoe UI Semibold", 10),
+        ).pack(anchor="w", pady=(2, 16))
+        details = (
+            ("完整位置", record.location),
+            ("大小", _format_bytes(record.size)),
+            ("內容校驗碼", record.checksum),
+            ("群組保留項目", keeper.location),
+            ("項目數", f"{record.entry_count:,}" if record.item_kind == "folder" else "1"),
+            ("保護說明", record.protection_reason or "刪除前仍會重新驗證內容與狀態"),
+        )
+        for label, value in details:
+            row = tk.Frame(content, bg=WHITE)
+            row.pack(fill="x", pady=4)
+            tk.Label(row, text=label, width=14, anchor="w", bg=WHITE, fg=MUTED).pack(
+                side="left"
+            )
+            tk.Label(
+                row,
+                text=value,
+                anchor="w",
+                justify="left",
+                wraplength=510,
+                bg=WHITE,
+                fg=INK,
+            ).pack(side="left", fill="x", expand=True)
+
+        buttons = tk.Frame(content, bg=WHITE)
+        buttons.pack(fill="x", side="bottom")
+        self._button(buttons, "關閉", dialog.destroy, "#E2E8F0", NAVY).pack(side="right")
+        if record.item_kind == "folder":
+            self._button(
+                buttons,
+                "開啟鏡像比對",
+                lambda: (dialog.destroy(), self._compare_folder_group(group, record)),
+                MINT,
+                NAVY,
+            ).pack(side="left")
+        else:
+            self._button(
+                buttons,
+                "開啟安全預覽",
+                lambda: self._open_record(record),
+                MINT_SOFT,
+                NAVY,
+            ).pack(side="left")
+        self._wait_modal(dialog)
+
+    def _open_record(self, record: FileRecord) -> None:
+        if record.source == "drive" and record.web_url:
+            webbrowser.open(record.web_url)
+            return
+        if record.source != "local":
+            messagebox.showinfo("無法預覽", "這個項目沒有可用的預覽網址。", parent=self)
+            return
+        path = Path(record.location)
+        safe_preview_suffixes = {
+            ".bmp",
+            ".gif",
+            ".jpeg",
+            ".jpg",
+            ".m4a",
+            ".md",
+            ".mp3",
+            ".mp4",
+            ".pdf",
+            ".png",
+            ".txt",
+            ".wav",
+            ".webm",
+            ".webp",
+        }
+        try:
+            if path.suffix.casefold() in safe_preview_suffixes and path.is_file():
+                os.startfile(path, "open")  # type: ignore[attr-defined]
+            else:
+                subprocess.Popen(["explorer.exe", f"/select,{path}"], close_fds=True)
+        except OSError as error:
+            messagebox.showerror("無法開啟", str(error), parent=self)
+
+    def _compare_selected_folder(self) -> None:
+        selected = self._selected_row()
+        if selected is None or selected[1].item_kind != "folder":
+            messagebox.showinfo("選擇資料夾", "請先選擇一組重複資料夾。", parent=self)
+            return
+        self._compare_folder_group(*selected)
+
+    def _compare_folder_group(self, group: DuplicateGroup, record: FileRecord) -> None:
+        keeper = group.keeper
+        target = record if record.key != keeper.key else next(
+            (item for item in group.records if item.key != keeper.key), record
+        )
+        dialog, content = self._modal("資料夾鏡像比對", 980, 680, EMERALD)
+        tk.Label(
+            content,
+            text="100% 鏡像對齊",
+            bg=WHITE,
+            fg=EMERALD,
+            font=("Segoe UI Bold", 20),
+        ).pack(anchor="w")
+        tk.Label(
+            content,
+            text=(
+                f"{keeper.entry_count:,} 個可驗證檔案的相對路徑、大小與內容校驗碼完全一致。"
+                "執行前仍會再次複驗整棵目錄。"
+            ),
+            bg=WHITE,
+            fg=MUTED,
+        ).pack(anchor="w", pady=(3, 14))
+        panes = tk.PanedWindow(content, orient="horizontal", sashwidth=6, bg="#E2E8F0")
+        panes.pack(fill="both", expand=True)
+        for heading, item, accent in (
+            ("保留目錄", keeper, EMERALD),
+            ("待清目錄", target, GOLD),
+        ):
+            panel = tk.Frame(panes, bg=WHITE, padx=10, pady=10)
+            panes.add(panel, stretch="always")
+            tk.Label(
+                panel,
+                text=heading,
+                bg=WHITE,
+                fg=accent,
+                font=("Segoe UI Semibold", 11),
+            ).pack(anchor="w")
+            tk.Label(
+                panel,
+                text=item.location,
+                bg=WHITE,
+                fg=MUTED,
+                wraplength=410,
+                justify="left",
+            ).pack(anchor="w", pady=(2, 8))
+            listing = tk.Listbox(
+                panel,
+                bg="#F8FAFC",
+                fg=INK,
+                relief="flat",
+                font=("Consolas", 9),
+                activestyle="none",
+            )
+            listing.pack(fill="both", expand=True)
+            for entry in item.tree_entries:
+                relative, _separator, remainder = entry.partition("\0")
+                size, _separator, _checksum = remainder.partition("\0")
+                listing.insert("end", f"{relative}  ({_format_bytes(int(size or 0))})")
+        self._button(content, "完成", dialog.destroy, NAVY, WHITE).pack(
+            side="bottom", anchor="e", pady=(12, 0)
+        )
+        self._wait_modal(dialog)
 
     def _select_page(self) -> None:
         start = self.page_index * PAGE_SIZE
@@ -1339,14 +1630,18 @@ class DupeSpaceApp(tk.Tk):
             width=5,
         )
         self.sweep_canvas.create_text(
-            25, 25, text="✓" if not self.busy else "↻", fill=WHITE, font=("Segoe UI Bold", 12)
+            25,
+            25,
+            text="OK" if not self.busy else f"{(self._animation_phase // 36) + 1}",
+            fill=WHITE,
+            font=("Segoe UI Bold", 9),
         )
         if self.busy:
             self._animation_phase = (self._animation_phase + 12) % 360
             pulse = "." * (1 + (self._animation_phase // 36) % 3)
-            self.hash_status_var.set(f"● SCANNING · SHA-256{pulse}")
+            self.hash_status_var.set(f"SCANNING · SHA-256{pulse}")
         else:
-            self.hash_status_var.set("● SAFE SCAN · SHA-256 READY")
+            self.hash_status_var.set("SAFE SCAN · SHA-256 READY")
         self.after(80, self._animate_sweep)
 
     def _on_close(self) -> None:
@@ -1359,6 +1654,19 @@ class DupeSpaceApp(tk.Tk):
 
 
 def main() -> None:
+    if "--revoke-and-clean" in sys.argv[1:]:
+        disconnect_desktop_account()
+        return
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+        except (AttributeError, OSError):
+            try:
+                ctypes.windll.shcore.SetProcessDpiAwareness(2)
+            except (AttributeError, OSError):
+                pass
     DupeSpaceApp().mainloop()
 
 

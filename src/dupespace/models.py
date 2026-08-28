@@ -55,6 +55,7 @@ class FileRecord:
     checksum: str
     item_kind: ItemKind = "file"
     entry_count: int = 1
+    tree_entries: tuple[str, ...] = ()
     ignored_metadata_count: int = 0
     system_metadata_ignored: bool = False
     created_at: float | None = None

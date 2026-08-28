@@ -5,6 +5,9 @@ import json
 import os
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime
@@ -23,6 +26,13 @@ from .models import (
 )
 from .paths import app_data_dir as dupespace_data_dir
 from .project_safety import is_package_directory_name, is_project_marker_name
+from .token_store import (
+    TokenProtectionError,
+    clear_tokens,
+    load_protected_token,
+    protected_token_path,
+    save_protected_token,
+)
 
 MINIMUM_AUTO_SELECT_BYTES = 1024 * 1024
 
@@ -144,8 +154,8 @@ def _folder_manifest(
     items: Iterable[dict[str, Any]],
     *,
     ignore_system_metadata: bool,
-) -> tuple[str, int, int, int, str] | None:
-    """Return digest, comparable count, ignored count, actual bytes and latest time."""
+) -> tuple[str, int, tuple[str, ...], int, int, str] | None:
+    """Return digest, count, tree entries, ignored count, bytes and latest time."""
 
     materialized = tuple(items)
     by_id = {str(item.get("id")): item for item in materialized if item.get("id")}
@@ -231,7 +241,7 @@ def _folder_manifest(
         return None
     rows.sort(key=str.casefold)
     digest = hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()
-    return f"folder-sha256:{digest}", count, ignored, total_bytes, latest
+    return f"folder-sha256:{digest}", count, tuple(rows), ignored, total_bytes, latest
 
 
 def app_data_dir() -> Path:
@@ -239,7 +249,7 @@ def app_data_dir() -> Path:
 
 
 def default_token_path() -> Path:
-    return app_data_dir() / "token.json"
+    return protected_token_path()
 
 
 def _emit(
@@ -327,14 +337,25 @@ def build_drive_service(
         data = {"installed": {**installed, "client_secret": ""}}
 
     Request, Credentials, InstalledAppFlow, build = _load_google_modules()
-    token_file = Path(token_path) if token_path else default_token_path()
+    explicit_token_file = Path(token_path) if token_path else None
     creds = None
 
-    if token_file.exists():
+    if explicit_token_file and explicit_token_file.exists():
         try:
-            creds = Credentials.from_authorized_user_file(str(token_file), [DRIVE_SCOPE])
+            creds = Credentials.from_authorized_user_file(
+                str(explicit_token_file), [DRIVE_SCOPE]
+            )
         except (OSError, ValueError):
             creds = None
+    elif explicit_token_file is None:
+        try:
+            saved_token = load_protected_token()
+            if saved_token:
+                creds = Credentials.from_authorized_user_info(
+                    json.loads(saved_token), [DRIVE_SCOPE]
+                )
+        except (TokenProtectionError, ValueError, json.JSONDecodeError) as error:
+            raise DriveAuthenticationError(str(error)) from error
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
@@ -353,10 +374,53 @@ def build_drive_service(
             except Exception as error:  # noqa: BLE001 - normalize auth library errors
                 raise DriveAuthenticationError(f"Google OAuth 登入失敗：{error}") from error
 
-        token_file.parent.mkdir(parents=True, exist_ok=True)
-        token_file.write_text(creds.to_json(), encoding="utf-8")
+        if explicit_token_file is not None:
+            explicit_token_file.parent.mkdir(parents=True, exist_ok=True)
+            explicit_token_file.write_text(creds.to_json(), encoding="utf-8")
+        else:
+            try:
+                save_protected_token(creds.to_json())
+            except TokenProtectionError as error:
+                raise DriveAuthenticationError(str(error)) from error
 
     return build("drive", "v3", credentials=creds, cache_discovery=False)
+
+
+def desktop_account_identity(service: Any) -> tuple[str, str]:
+    """Return the connected Google Drive user's display name and email."""
+
+    try:
+        response = service.about().get(fields="user(displayName,emailAddress)").execute()
+        user = response.get("user", {})
+        return str(user.get("displayName") or "Google Drive"), str(
+            user.get("emailAddress") or ""
+        )
+    except Exception as error:  # noqa: BLE001 - normalize Google transport errors
+        raise DriveAuthenticationError(f"無法讀取 Google 帳號資訊：{error}") from error
+
+
+def disconnect_desktop_account() -> None:
+    """Best-effort OAuth revocation followed by unconditional local token removal."""
+
+    try:
+        saved = load_protected_token()
+        if saved:
+            token = str(json.loads(saved).get("refresh_token") or "")
+            if token:
+                body = urllib.parse.urlencode({"token": token}).encode("ascii")
+                request = urllib.request.Request(
+                    "https://oauth2.googleapis.com/revoke",
+                    data=body,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    method="POST",
+                )
+                try:
+                    with urllib.request.urlopen(request, timeout=8):  # noqa: S310
+                        pass
+                except (OSError, urllib.error.URLError):
+                    pass
+    finally:
+        clear_tokens()
 
 
 class GoogleDriveScanner:
@@ -495,7 +559,7 @@ class GoogleDriveScanner:
             )
             if manifest is None:
                 continue
-            checksum_value, count, ignored, total_bytes, latest = manifest
+            checksum_value, count, tree_entries, ignored, total_bytes, latest = manifest
             can_trash = bool(item.get("capabilities", {}).get("canTrash"))
             folder_records.append(
                 FileRecord(
@@ -507,6 +571,7 @@ class GoogleDriveScanner:
                     checksum=checksum_value,
                     item_kind="folder",
                     entry_count=count,
+                    tree_entries=tree_entries,
                     ignored_metadata_count=ignored,
                     system_metadata_ignored=ignore_system_metadata,
                     created_at=_timestamp(item.get("createdTime")),
@@ -680,7 +745,7 @@ def _validate_drive_folder_snapshot(
     )
     if manifest is None:
         return "資料夾目前含無法驗證、非本人擁有、捷徑或受保護項目"
-    checksum_value, count, ignored, total_bytes, latest = manifest
+    checksum_value, count, _tree_entries, ignored, total_bytes, latest = manifest
     token = json.dumps(
         {"count": count + ignored, "bytes": total_bytes, "latest": latest},
         sort_keys=True,

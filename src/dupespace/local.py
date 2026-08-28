@@ -105,6 +105,7 @@ _SHORTCUT_SUFFIXES = frozenset({".lnk", ".url"})
 class _FolderSnapshot:
     checksum: str
     comparable_count: int
+    tree_entries: tuple[str, ...]
     ignored_metadata_count: int
     actual_count: int
     actual_bytes: int
@@ -305,6 +306,7 @@ def _folder_snapshot(
     return _FolderSnapshot(
         checksum=f"folder-sha256:{digest.hexdigest()}",
         comparable_count=len(rows),
+        tree_entries=tuple(rows),
         ignored_metadata_count=ignored,
         actual_count=actual_count,
         actual_bytes=actual_bytes,
@@ -359,6 +361,7 @@ def _folder_records(
                         checksum=snapshot.checksum,
                         item_kind="folder",
                         entry_count=snapshot.comparable_count,
+                        tree_entries=snapshot.tree_entries,
                         ignored_metadata_count=snapshot.ignored_metadata_count,
                         system_metadata_ignored=ignore_system_metadata,
                         created_at=stat_result.st_ctime,
