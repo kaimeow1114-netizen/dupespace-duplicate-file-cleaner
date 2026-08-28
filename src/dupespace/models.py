@@ -121,7 +121,11 @@ class ScanReport:
 
     @property
     def duplicate_copies(self) -> int:
-        return sum(len(group.records) - 1 for group in self.groups)
+        return sum(
+            record.key != group.keeper_key and record.root_role != "keep"
+            for group in self.groups
+            for record in group.records
+        )
 
     @property
     def reclaimable_bytes(self) -> int:

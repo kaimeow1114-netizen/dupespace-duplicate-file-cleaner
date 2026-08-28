@@ -1,19 +1,23 @@
 from pathlib import Path
+from PyInstaller.utils.hooks import copy_metadata
 
 
 root = Path(SPECPATH)
 assets = root / "src" / "dupespace" / "assets"
+dependency_notices = []
+for distribution in ("PySide6-Essentials", "shiboken6", "send2trash", "google-api-python-client"):
+    dependency_notices.extend(copy_metadata(distribution, recursive=True))
 
 a = Analysis(
     [str(root / "scripts" / "dupespace_entry.py")],
     pathex=[str(root / "src")],
     binaries=[],
-    datas=[(str(assets), "dupespace/assets")],
+    datas=[(str(assets), "dupespace/assets"), *dependency_notices],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=["tkinter", "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtWebEngineCore"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

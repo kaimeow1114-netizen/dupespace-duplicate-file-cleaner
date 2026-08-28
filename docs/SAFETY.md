@@ -16,8 +16,10 @@ Offline and recall-on-access cloud placeholders are skipped without opening or h
 Duplicate folders are detected separately from files. Two folder trees must have identical
 relative paths, byte sizes, and full checksums; empty folders alone do not qualify. Folder cleanup
 is trash-only. Immediately before use, DUPESPACE rebuilds and compares the tree manifest, file
-count, total bytes, and newest modification time. A changed tree is cancelled atomically before
-the trash request. The optional `.DS_Store`/`Thumbs.db`/`desktop.ini` ignore rule is off by default;
+count, total bytes, and newest modification time. A detected change cancels the operation before
+the trash request. This is not a filesystem transaction or snapshot: concurrent writes after
+validation remain a race risk. Close editors and pause writers/synchronization before cleanup.
+The optional `.DS_Store`/`Thumbs.db`/`desktop.ini` ignore rule is off by default;
 when enabled, those files are ignored only for matching and still move with the folder to trash.
 
 ## Two independent operation modes
@@ -73,6 +75,16 @@ Windows Storage Sense or Cleanup recommendations rather than guessed from filena
 Every outcome is written to or downloadable as UTF-8 CSV with timestamp, source, operation mode,
 status, name/path or Drive ID, size, checksum, and reason. Trash recovery depends on Windows and
 Google retention policies. Permanent deletion has no recovery path.
+
+The native desktop writes a durable per-operation intent before changing files and flushes
+each result to an operation journal. If audit storage fails, later operations stop. A `pending`
+entry without a result is uncertain, not proof of deletion. The final CSV has one row per
+selected item, including those cancelled before execution. Spreadsheet formula prefixes in
+untrusted names and paths are escaped with a leading apostrophe.
+
+Moving files to trash does not free the disk space occupied by that trash. The desktop labels
+successful moved/deleted *logical bytes* separately from disk-space claims; it never empties
+the Recycle Bin automatically and does not manufacture a healthy score after a failed operation.
 
 Before a large cleanup: keep an independent backup, test on a small set, close editors, inspect
 the keeper and every selection, and download the audit report. Safe stop finishes only the current

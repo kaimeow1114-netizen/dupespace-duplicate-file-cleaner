@@ -7,7 +7,95 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from .models import ActionReport
+from .models import ActionOutcome, ActionReport, OperationItem, OperationMode
+
+FIELDS = (
+    "timestamp",
+    "source",
+    "operation_mode",
+    "status",
+    "name",
+    "location",
+    "size_bytes",
+    "checksum",
+    "reason",
+)
+
+
+def csv_cell(value: object) -> object:
+    """Keep untrusted filenames from becoming spreadsheet formulas."""
+    if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):
+        return "'" + value
+    if isinstance(value, str) and value.startswith(("\t", "\r", "\n")):
+        return "'" + value
+    return value
+
+
+def outcome_row(outcome: ActionOutcome) -> tuple:
+    return tuple(
+        csv_cell(value)
+        for value in (
+            outcome.occurred_at,
+            outcome.record.source,
+            outcome.operation_mode,
+            outcome.status,
+            outcome.record.name,
+            outcome.record.location,
+            outcome.record.size,
+            outcome.record.checksum,
+            outcome.error or "",
+        )
+    )
+
+
+class AuditJournal:
+    """Durable intent/result records. An unfinished intent is not a successful deletion."""
+
+    def __init__(self, directory: Path | None = None) -> None:
+        folder = directory or default_report_dir()
+        folder.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
+        self.path = folder / f"operation-{stamp}-{uuid4().hex[:8]}.csv"
+        self.handle = self.path.open("x", encoding="utf-8-sig", newline="")
+        self.writer = csv.writer(self.handle)
+        try:
+            self.writer.writerow(FIELDS)
+            self._flush()
+        except BaseException:
+            self.handle.close()
+            raise
+
+    def _flush(self) -> None:
+        self.handle.flush()
+        os.fsync(self.handle.fileno())
+
+    def start(self, items: Iterable[OperationItem], mode: OperationMode) -> None:
+        for item in items:
+            self.writer.writerow(
+                tuple(
+                    csv_cell(value)
+                    for value in (
+                        datetime.now().astimezone().isoformat(timespec="seconds"),
+                        item.record.source,
+                        mode,
+                        "pending",
+                        item.record.name,
+                        item.record.location,
+                        item.record.size,
+                        item.record.checksum,
+                        "操作準備；尚無結果不代表已刪除",
+                    )
+                )
+            )
+        self._flush()
+
+    def append(self, outcomes: Iterable[ActionOutcome]) -> None:
+        for outcome in outcomes:
+            self.writer.writerow(outcome_row(outcome))
+        self._flush()
+
+    def close(self) -> None:
+        self.handle.close()
 
 
 def default_report_dir() -> Path:
@@ -32,33 +120,11 @@ def write_action_report(
 
     with temporary.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(
-            (
-                "timestamp",
-                "source",
-                "operation_mode",
-                "status",
-                "name",
-                "location",
-                "size_bytes",
-                "checksum",
-                "reason",
-            )
-        )
+        writer.writerow(FIELDS)
         for report in reports:
             for outcome in report.outcomes:
-                writer.writerow(
-                    (
-                        outcome.occurred_at,
-                        outcome.record.source,
-                        outcome.operation_mode,
-                        outcome.status,
-                        outcome.record.name,
-                        outcome.record.location,
-                        outcome.record.size,
-                        outcome.record.checksum,
-                        outcome.error or "",
-                    )
-                )
+                writer.writerow(outcome_row(outcome))
+        handle.flush()
+        os.fsync(handle.fileno())
     temporary.replace(destination)
     return destination.resolve()

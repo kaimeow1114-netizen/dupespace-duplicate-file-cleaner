@@ -1,0 +1,33 @@
+DUPESPACE third-party notices
+
+DUPESPACE's own source code is licensed under MIT. Its third-party dependencies retain
+their respective licenses. This notice does not relicense Qt or any other dependency.
+
+Qt for Python / PySide6 Essentials / Shiboken6 and Qt runtime libraries
+Copyright The Qt Company Ltd. and other contributors.
+The desktop application uses the LGPLv3 option for the dynamically linked Qt components.
+The complete LGPLv3 and referenced GPLv3 texts accompany this notice.
+
+Sources and build instructions:
+https://code.qt.io/cgit/pyside/pyside-setup.git/
+https://download.qt.io/official_releases/QtForPython/
+https://download.qt.io/official_releases/qt/
+https://doc.qt.io/qtforpython-6/building_from_source/index.html
+
+The distributed onedir application keeps the Qt and PySide6 DLLs separately under
+_internal/PySide6 and _internal/shiboken6. You may replace these libraries with compatible
+modified versions, or rebuild the MIT-licensed application from its public source:
+https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner
+There is no application restriction on reverse engineering for debugging modifications
+to these LGPL libraries. The application does not statically link or encrypt the Qt DLLs.
+
+The build collects installed dependency metadata and available license files. Exact
+versions and their upstream project addresses are in those metadata directories.
+Qt core/gui/widgets/svg and their bundled dependencies may include additional third-party
+notices; see https://doc.qt.io/qt-6/licenses-used-in-qt.html.
+
+Lucide/Feather vector geometry
+ISC license; see lucide-license.txt for the full copyright notice and terms.
+
+The DUPESPACE sound files are project-created and distributed under the project MIT license.
+Windows system fonts are used from the operating system and are not redistributed.

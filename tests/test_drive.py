@@ -209,7 +209,25 @@ def test_desktop_oauth_enables_pkce_and_strips_json_secret(
     assert calls["config"]["installed"]["client_secret"] == ""
     assert calls["scopes"] == [DRIVE_SCOPE]
     assert calls["kwargs"] == {"autogenerate_code_verifier": True}
-    assert calls["server"] == {"port": 0, "open_browser": True}
+    assert calls["server"] == {"port": 0, "open_browser": True, "timeout_seconds": 180}
+
+
+def test_noninteractive_auth_never_opens_browser(monkeypatch, tmp_path):
+    import pytest
+
+    monkeypatch.setattr(drive_module, "_desktop_oauth_config", lambda: {"installed": {}})
+    monkeypatch.setattr(drive_module, "load_protected_token", lambda: None)
+
+    class NoFlow:
+        @staticmethod
+        def from_client_config(*_args, **_kwargs):
+            pytest.fail("Silent reconnect must not open OAuth")
+
+    monkeypatch.setattr(
+        drive_module, "_load_google_modules", lambda: (object, object, NoFlow, object)
+    )
+    with pytest.raises(drive_module.DriveAuthenticationError):
+        build_drive_service(interactive=False)
 
 
 def test_drive_scanner_paginates_and_skips_unsafe_items() -> None:
@@ -273,20 +291,32 @@ def test_drive_files_smaller_than_one_mib_are_shown_but_not_preselected() -> Non
 
 def test_drive_identical_owned_folder_trees_are_trash_candidates() -> None:
     size = str(1024 * 1024)
-    pages = [{"files": [
-        drive_folder("old-folder", name="Original"),
-        drive_item(
-            "old-photo", name="photo.jpg", size=size, checksum="photo", parents=["old-folder"]
-        ),
-        drive_folder(
-            "new-folder",
-            name="Copy",
-            createdTime="2026-02-01T00:00:00Z",
-        ),
-        drive_item(
-            "new-photo", name="photo.jpg", size=size, checksum="photo", parents=["new-folder"]
-        ),
-    ]}]
+    pages = [
+        {
+            "files": [
+                drive_folder("old-folder", name="Original"),
+                drive_item(
+                    "old-photo",
+                    name="photo.jpg",
+                    size=size,
+                    checksum="photo",
+                    parents=["old-folder"],
+                ),
+                drive_folder(
+                    "new-folder",
+                    name="Copy",
+                    createdTime="2026-02-01T00:00:00Z",
+                ),
+                drive_item(
+                    "new-photo",
+                    name="photo.jpg",
+                    size=size,
+                    checksum="photo",
+                    parents=["new-folder"],
+                ),
+            ]
+        }
+    ]
 
     report = GoogleDriveScanner().scan(FakeService(pages))
     group = next(group for group in report.groups if group.records[0].item_kind == "folder")
@@ -298,18 +328,22 @@ def test_drive_identical_owned_folder_trees_are_trash_candidates() -> None:
 
 
 def test_drive_folder_with_shortcut_or_non_owner_is_never_candidate() -> None:
-    pages = [{"files": [
-        drive_folder("first", name="First"),
-        drive_item(
-            "shortcut",
-            parents=["first"],
-            mimeType="application/vnd.google-apps.shortcut",
-            size=None,
-            md5Checksum=None,
-        ),
-        drive_folder("second", name="Second", ownedByMe=False),
-        drive_item("second-file", parents=["second"]),
-    ]}]
+    pages = [
+        {
+            "files": [
+                drive_folder("first", name="First"),
+                drive_item(
+                    "shortcut",
+                    parents=["first"],
+                    mimeType="application/vnd.google-apps.shortcut",
+                    size=None,
+                    md5Checksum=None,
+                ),
+                drive_folder("second", name="Second", ownedByMe=False),
+                drive_item("second-file", parents=["second"]),
+            ]
+        }
+    ]
 
     report = GoogleDriveScanner().scan(FakeService(pages))
 
@@ -318,28 +352,32 @@ def test_drive_folder_with_shortcut_or_non_owner_is_never_candidate() -> None:
 
 def test_drive_folder_system_metadata_option_is_strict_by_default() -> None:
     size = str(1024 * 1024)
-    pages = [{"files": [
-        drive_folder("first", name="First"),
-        drive_item(
-            "first-photo", name="photo.jpg", size=size, checksum="photo", parents=["first"]
-        ),
-        drive_item("first-noise", name="Thumbs.db", checksum="one", parents=["first"]),
-        drive_folder("second", name="Second"),
-        drive_item(
-            "second-photo", name="photo.jpg", size=size, checksum="photo", parents=["second"]
-        ),
-        drive_item("second-noise", name="Thumbs.db", checksum="two", parents=["second"]),
-    ]}]
+    pages = [
+        {
+            "files": [
+                drive_folder("first", name="First"),
+                drive_item(
+                    "first-photo", name="photo.jpg", size=size, checksum="photo", parents=["first"]
+                ),
+                drive_item("first-noise", name="Thumbs.db", checksum="one", parents=["first"]),
+                drive_folder("second", name="Second"),
+                drive_item(
+                    "second-photo",
+                    name="photo.jpg",
+                    size=size,
+                    checksum="photo",
+                    parents=["second"],
+                ),
+                drive_item("second-noise", name="Thumbs.db", checksum="two", parents=["second"]),
+            ]
+        }
+    ]
 
     strict = GoogleDriveScanner().scan(FakeService(pages))
-    relaxed = GoogleDriveScanner().scan(
-        FakeService(pages), ignore_system_metadata=True
-    )
+    relaxed = GoogleDriveScanner().scan(FakeService(pages), ignore_system_metadata=True)
 
     assert not any(group.records[0].item_kind == "folder" for group in strict.groups)
-    folder_group = next(
-        group for group in relaxed.groups if group.records[0].item_kind == "folder"
-    )
+    folder_group = next(group for group in relaxed.groups if group.records[0].item_kind == "folder")
     assert all(record.ignored_metadata_count == 1 for record in folder_group.records)
     assert any("系統暫存中繼資料" in warning for warning in relaxed.warnings)
 

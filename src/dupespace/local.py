@@ -74,11 +74,23 @@ def _metadata_token(stat_result: os.stat_result) -> str:
     )
 
 
-def _hash_file(path: Path, expected: os.stat_result, chunk_size: int) -> str:
+def _hash_file(
+    path: Path,
+    expected: os.stat_result,
+    chunk_size: int,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
+        if _metadata_token(os.fstat(handle.fileno())) != _metadata_token(expected):
+            raise SnapshotChangedError("file identity changed before hashing")
         while chunk := handle.read(chunk_size):
+            if _is_cancelled(cancel_event):
+                raise ScanCancelled("Local scan cancelled")
             digest.update(chunk)
+        if _metadata_token(os.fstat(handle.fileno())) != _metadata_token(expected):
+            raise SnapshotChangedError("file changed while hashing")
 
     current = path.stat()
     if _metadata_token(current) != _metadata_token(expected):
@@ -113,10 +125,7 @@ class _FolderSnapshot:
 
     @property
     def metadata_token(self) -> str:
-        return (
-            f"folder-v1:{self.actual_count}:{self.actual_bytes}:"
-            f"{self.latest_mtime_ns}"
-        )
+        return f"folder-v1:{self.actual_count}:{self.actual_bytes}:{self.latest_mtime_ns}"
 
 
 def _path_key(path: Path) -> str:
@@ -166,20 +175,36 @@ def _ancestors_within(path: Path, root: Path) -> tuple[Path, ...]:
     return tuple(ancestors)
 
 
-def _is_project_folder(folder: Path) -> bool:
+def _is_project_folder(
+    folder: Path,
+    cache: dict[Path, tuple[str, bool]] | None = None,
+) -> bool:
     """Recognize common source-control and build roots without following links."""
 
     try:
+        stamp = _metadata_token(folder.stat())
+        if cache is not None and folder in cache and cache[folder][0] == stamp:
+            return cache[folder][1]
+        found = False
         with os.scandir(folder) as entries:
             for entry in entries:
                 if is_project_marker_name(entry.name):
-                    return True
+                    found = True
+                    break
+        if cache is not None:
+            cache[folder] = (stamp, found)
+        return found
     except (OSError, PermissionError):
-        return False
+        return True
     return False
 
 
-def detect_safety_context(path: Path, root: Path) -> SafetyContext:
+def detect_safety_context(
+    path: Path,
+    root: Path,
+    *,
+    project_cache: dict[Path, tuple[str, bool]] | None = None,
+) -> SafetyContext:
     """Classify semantic contexts where an exact copy may still be required."""
 
     project_folder: Path | None = None
@@ -189,7 +214,7 @@ def detect_safety_context(path: Path, root: Path) -> SafetyContext:
     for ancestor in _ancestors_within(path, root):
         folded = ancestor.name.casefold()
         if project_folder is None and (
-            is_package_directory_name(folded) or _is_project_folder(ancestor)
+            is_package_directory_name(folded) or _is_project_folder(ancestor, project_cache)
         ):
             project_folder = ancestor
         if backup_folder is None and folded in _BACKUP_NAMES:
@@ -225,6 +250,7 @@ def _folder_snapshot(
     ignore_system_metadata: bool,
     checksum_cache: dict[tuple[int, int], str] | None = None,
     hash_content: bool = True,
+    cancel_event: threading.Event | None = None,
 ) -> _FolderSnapshot:
     """Create a deterministic, content-based folder manifest without following links."""
 
@@ -244,6 +270,8 @@ def _folder_snapshot(
     latest_mtime_ns = 0
     stack: list[Path] = [folder]
     while stack:
+        if _is_cancelled(cancel_event):
+            raise ScanCancelled("Local scan cancelled")
         current = stack.pop()
         if (
             is_reparse_point(current)
@@ -254,6 +282,8 @@ def _folder_snapshot(
             raise UnsafePathError("資料夾含受保護、雲端預留或重新解析項目。")
         with os.scandir(current) as entries:
             for entry in entries:
+                if _is_cancelled(cancel_event):
+                    raise ScanCancelled("Local scan cancelled")
                 candidate = Path(entry.path)
                 folded = entry.name.casefold()
                 if entry.is_symlink() or is_reparse_point(candidate):
@@ -290,7 +320,7 @@ def _folder_snapshot(
                 file_checksum = cache.get(identity)
                 if file_checksum is None:
                     file_checksum = (
-                        _hash_file(candidate, stat_result, chunk_size)
+                        _hash_file(candidate, stat_result, chunk_size, cancel_event=cancel_event)
                         if hash_content
                         else "metadata-only"
                     )
@@ -321,6 +351,8 @@ def _folder_records(
     chunk_size: int,
     ignore_system_metadata: bool,
     warnings: list[str],
+    cancel_event: threading.Event | None = None,
+    progress: ProgressCallback | None = None,
 ) -> tuple[FileRecord, ...]:
     records: list[FileRecord] = []
     checksum_cache: dict[tuple[int, int], str] = {}
@@ -328,16 +360,28 @@ def _folder_records(
         root = Path(scan_root.physical_path)
         candidates: list[Path] = []
         for current, directory_names, _file_names in os.walk(root, topdown=True, followlinks=False):
+            if _is_cancelled(cancel_event):
+                raise ScanCancelled("Local scan cancelled")
             current_path = Path(current)
             safe_names: list[str] = []
             for name in directory_names:
                 candidate = current_path / name
-                if is_reparse_point(candidate) or safety_policy.is_protected(candidate):
+                if (
+                    is_reparse_point(candidate)
+                    or safety_policy.is_protected(candidate)
+                    or safety_policy.has_protected_attributes(candidate)
+                    or is_cloud_placeholder(candidate)
+                    or _is_project_folder(candidate)
+                    or is_package_directory_name(name.casefold())
+                ):
                     continue
                 safe_names.append(name)
                 candidates.append(candidate)
             directory_names[:] = safe_names
-        for folder in candidates:
+        for index, folder in enumerate(candidates, 1):
+            if _is_cancelled(cancel_event):
+                raise ScanCancelled("Local scan cancelled")
+            _emit(progress, "folders", index, len(candidates), f"比對資料夾結構：{folder.name}")
             try:
                 snapshot = _folder_snapshot(
                     folder,
@@ -346,6 +390,7 @@ def _folder_records(
                     chunk_size=chunk_size,
                     ignore_system_metadata=ignore_system_metadata,
                     checksum_cache=checksum_cache,
+                    cancel_event=cancel_event,
                 )
                 if snapshot.comparable_count == 0:
                     continue
@@ -492,7 +537,6 @@ class LocalScanner:
                                     skipped += 1
                                     continue
                                 examined += 1
-                                examined_bytes += stat_result.st_size
                                 if stat_result.st_size == 0:
                                     skipped += 1
                                     continue
@@ -501,6 +545,7 @@ class LocalScanner:
                                     skipped += 1
                                     continue
                                 seen_physical_files.add(identity)
+                                examined_bytes += stat_result.st_size
                                 by_size[stat_result.st_size].append(
                                     (Path(entry.path), stat_result, scan_root)
                                 )
@@ -526,17 +571,22 @@ class LocalScanner:
             for item in bucket
         ]
         records: list[FileRecord] = []
+        project_cache: dict[Path, tuple[str, bool]] = {}
         for index, (path, expected_stat, scan_root) in enumerate(hash_candidates, start=1):
             if _is_cancelled(cancel_event):
                 raise ScanCancelled("Local scan cancelled")
             try:
-                context = detect_safety_context(path, Path(scan_root.physical_path))
+                context = detect_safety_context(
+                    path, Path(scan_root.physical_path), project_cache=project_cache
+                )
                 # Identical project files can be independently required by separate programs.
                 # Do not hash or surface them as duplicate candidates, even for manual unlock.
                 if context.project:
                     skipped += 1
                     continue
-                checksum = _hash_file(path, expected_stat, self.chunk_size)
+                checksum = _hash_file(
+                    path, expected_stat, self.chunk_size, cancel_event=cancel_event
+                )
                 is_keep = scan_root.role == "keep"
                 is_locked = scan_root.role == "clean" and context.requires_unlock
                 selectable = scan_root.role == "clean" and not is_locked
@@ -589,6 +639,8 @@ class LocalScanner:
                     chunk_size=self.chunk_size,
                     ignore_system_metadata=ignore_system_metadata,
                     warnings=warnings,
+                    cancel_event=cancel_event,
+                    progress=progress,
                 )
             )
         )
@@ -620,9 +672,7 @@ class LocalScanner:
         )
         if ignore_system_metadata:
             ignored_metadata = sum(
-                record.ignored_metadata_count
-                for group in folder_groups
-                for record in group.records
+                record.ignored_metadata_count for group in folder_groups for record in group.records
             )
             if ignored_metadata:
                 warnings.append(
@@ -795,6 +845,7 @@ class LocalTrashExecutor:
             try:
                 # Re-stat immediately before the reversible operation. Permanent deletion has
                 # its own executor and is never used as a fallback here.
+                _validate_local_snapshot(item.keeper, self.safety_policy, self.chunk_size)
                 _validate_local_snapshot(record, self.safety_policy, self.chunk_size)
                 trash_func(str(path))
                 outcomes.append(ActionOutcome(record, "trashed"))

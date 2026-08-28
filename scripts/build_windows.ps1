@@ -1,9 +1,12 @@
+param([string]$Python = "python")
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $projectRoot
 
-python scripts/build_icon.py
-python -m PyInstaller --noconfirm --clean DupeSpace.spec
+& $Python scripts/build_icon.py
+if ($LASTEXITCODE -ne 0) { throw "Icon build failed" }
+& $Python -m PyInstaller --noconfirm DupeSpace.spec
+if ($LASTEXITCODE -ne 0) { throw "Windows executable build failed" }
 
 $innoCandidates = @(
     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
@@ -14,3 +17,4 @@ if (-not $inno) {
     throw "Inno Setup 6 is required to build DupeSpace-Setup.exe"
 }
 & $inno "packaging\dupespace.iss"
+if ($LASTEXITCODE -ne 0) { throw "Windows installer build failed" }

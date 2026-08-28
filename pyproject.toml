@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dupespace"
-version = "0.6.0"
+version = "1.0.0"
 description = "A safety-first duplicate file cleaner for Windows and Google Drive."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,13 +12,14 @@ license = { text = "MIT" }
 authors = [{ name = "DupeSpace contributors" }]
 keywords = ["duplicate-files", "google-drive", "file-cleaner", "windows"]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "License :: OSI Approved :: MIT License",
   "Operating System :: Microsoft :: Windows",
   "Programming Language :: Python :: 3",
   "Topic :: System :: Filesystems",
 ]
 dependencies = [
+  "PySide6-Essentials>=6.8,<7",
   "google-api-python-client>=2.170,<3",
   "google-auth-httplib2>=0.2,<1",
   "google-auth-oauthlib>=1.2,<2",
@@ -44,7 +45,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-"dupespace.assets" = ["*.png", "*.ico", "*.wav"]
+"dupespace.assets" = ["*.png", "*.ico", "*.wav", "*.txt"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

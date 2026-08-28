@@ -77,6 +77,26 @@ def test_hard_link_identity_is_not_counted_twice(tmp_path: Path) -> None:
     assert len(report.groups) == 1
     assert len(report.groups[0].records) == 2
     assert report.skipped_files == 1
+    assert report.examined_bytes == len(b"payload") * 2
+
+
+def test_scan_cancels_during_folder_stage(tmp_path, monkeypatch):
+    import threading
+
+    from dupespace.local import ScanCancelled
+
+    keep, clean, roots = scan_roots(tmp_path)
+    for root in (keep, clean):
+        (root / "album").mkdir()
+        (root / "album" / "photo.bin").write_bytes(b"image")
+    cancel = threading.Event()
+
+    def progress(update):
+        if update.stage == "folders":
+            cancel.set()
+
+    with pytest.raises(ScanCancelled):
+        LocalScanner(safety_policy=TEST_POLICY).scan(roots, progress=progress, cancel_event=cancel)
 
 
 def test_local_trash_rechecks_metadata(tmp_path: Path) -> None:
@@ -122,11 +142,7 @@ def test_local_permanent_delete_never_targets_keeper(tmp_path: Path) -> None:
     (keep / "keeper.bin").write_bytes(b"duplicate")
     (clean / "extra.bin").write_bytes(b"duplicate")
     report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
-    selected = {
-        record.key
-        for record in report.groups[0].records
-        if record.root_role == "clean"
-    }
+    selected = {record.key for record in report.groups[0].records if record.root_role == "clean"}
     items = operation_items(report.groups, selected, "permanent")
     removed: list[str] = []
 
@@ -145,11 +161,7 @@ def test_local_permanent_delete_skips_changed_checksum(tmp_path: Path) -> None:
     first.write_bytes(b"duplicate")
     second.write_bytes(b"duplicate")
     report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
-    selected = {
-        record.key
-        for record in report.groups[0].records
-        if record.root_role == "clean"
-    }
+    selected = {record.key for record in report.groups[0].records if record.root_role == "clean"}
     target = next(record for record in report.groups[0].records if record.key in selected)
     target_path = Path(target.location)
     original_mtime = target_path.stat().st_mtime_ns
@@ -158,9 +170,7 @@ def test_local_permanent_delete_skips_changed_checksum(tmp_path: Path) -> None:
 
     action = LocalPermanentDeleteExecutor(
         unlink_func=lambda _path: None, safety_policy=TEST_POLICY
-    ).delete(
-        operation_items(report.groups, selected, "permanent")
-    )
+    ).delete(operation_items(report.groups, selected, "permanent"))
 
     assert not action.deleted
     assert action.skipped
@@ -268,9 +278,7 @@ def test_application_backup_and_sync_contexts_are_locked_by_default(
     target_path.write_bytes(content)
 
     report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
-    target = next(
-        record for record in report.groups[0].records if record.root_role == "clean"
-    )
+    target = next(record for record in report.groups[0].records if record.root_role == "clean")
 
     assert getattr(target.safety_context, risk_flag)
     assert target.safety_context.locked_folder == str(target_path.parent)
@@ -325,9 +333,7 @@ def test_identical_folder_trees_are_recycle_bin_candidates(tmp_path: Path) -> No
         (folder / "notes.txt").write_text("same", encoding="utf-8")
 
     report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
-    folder_group = next(
-        group for group in report.groups if group.records[0].item_kind == "folder"
-    )
+    folder_group = next(group for group in report.groups if group.records[0].item_kind == "folder")
     target = next(record for record in folder_group.records if record.root_role == "clean")
 
     assert target.entry_count == 2
@@ -371,14 +377,10 @@ def test_system_metadata_is_strict_by_default_and_optional_with_warning(
     (duplicate / ".DS_Store").write_bytes(b"two")
 
     strict = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
-    relaxed = LocalScanner(safety_policy=TEST_POLICY).scan(
-        roots, ignore_system_metadata=True
-    )
+    relaxed = LocalScanner(safety_policy=TEST_POLICY).scan(roots, ignore_system_metadata=True)
 
     assert not any(group.records[0].item_kind == "folder" for group in strict.groups)
-    folder_group = next(
-        group for group in relaxed.groups if group.records[0].item_kind == "folder"
-    )
+    folder_group = next(group for group in relaxed.groups if group.records[0].item_kind == "folder")
     assert all(record.ignored_metadata_count == 1 for record in folder_group.records)
     assert any("系統暫存中繼資料" in warning for warning in relaxed.warnings)
 

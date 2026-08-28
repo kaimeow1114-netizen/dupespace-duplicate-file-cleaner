@@ -1,5 +1,5 @@
 #define MyAppName "DupeSpace"
-#define MyAppVersion "0.6.0"
+#define MyAppVersion "1.0.0"
 #define MyAppPublisher "DupeSpace contributors"
 #define MyAppURL "https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner"
 #define MyAppExeName "DupeSpace.exe"

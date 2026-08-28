@@ -6,10 +6,27 @@
 [Read the Windows download guide](https://dupespace.app/download) ·
 [View the latest release](https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner/releases/latest)
 
+## Windows V1 桌面版
+
+V1 採用原生 Qt 桌面介面：深青色側邊導覽、明亮工作區、保留區／清理區卡片、
+Google 帳號區、可搜尋的虛擬列表、清理紀錄與安全中心。Windows 本機整理不需登入。
+Google Drive 資料存取權驗證仍在準備示範影片與審查階段，不能視為已完成驗證的正式服務。
+
+操作流程是「選擇位置 → 掃描 → 檢查副本 → 選擇方式／確認 → 執行 → 結果」。
+永久刪除切換後清空所有選取，資料夾只能移至垃圾桶；重新掃描會撤銷這次解鎖與確認。
+常用位置可以儲存成設定檔，但不儲存解鎖、刪除選取或高風險確認。
+
+清理前先寫入操作日誌，每個結果都落盤。垃圾桶中的檔案仍占用儲存空間，
+「已移至垃圾桶容量」不會被描述為「已實際釋放磁碟空間」。
+
+開發者可執行 `python scripts/desktop_preview.py` 產生原生介面預覽（全部為合成資料），
+或執行 `DupeSpace.exe --smoke-test` 驗證打包介面能啟動；這兩種檢查不會清理使用者檔案。
+
 DUPESPACE is a free, open-source, safety-first duplicate file and mirror-folder cleaner. Windows scans use explicit
 **keep roots** and **clean roots**: a result is shown only when the same size and full SHA-256
 content exist in both roles. Every keep-root file is protected. Google Drive keeps its global,
-oldest-file keeper policy. Both surfaces page large result sets and produce per-file CSV audits.
+oldest-file keeper policy. The desktop uses a native virtual table, the web progressively renders
+large result sets, and both produce per-file CSV audits.
 
 Content equality means “duplicate candidate”, not “safe to delete everywhere.” Clean-root-only
 groups are not shown. Zero-byte files are ignored; on Windows, files smaller than 1 MiB can be
@@ -49,8 +66,8 @@ a full summary and countdown.
 
 - Full SHA-256 comparison for Windows files and stable Google-provided checksums for Drive files;
   mirror folders also require identical relative trees.
-- Seven-step, friendly desktop flow with cards, animation, empty/error/success states, safe stop,
-  and metrics for scan count, groups, copies, selected files, estimated/actual bytes, duplicate
+- Native Qt desktop flow with a sidebar, account area, cards, animation, empty/error/success states,
+  safe stop, and metrics for scan count, groups, copies, selected files, successful logical bytes, duplicate
   percentage, and disk/cloud capacity percentage.
 - Progressive result rendering and small Drive batches of 10 operations, with request timeouts,
   shared keeper validation, and immediate removal of confirmed results from the web UI.
@@ -128,7 +145,9 @@ The web app stores OAuth tokens only inside an encrypted Secure, HttpOnly, SameS
 sliding maximum age of 30 days. Short-lived signed scan proofs still expire after 30 minutes, and
 disconnecting attempts to revoke the Google token before clearing the session. File content never
 passes through the DUPESPACE server. The Windows app stores its desktop token only under the
-current user’s DupeSpace local application data. Credentials, secrets, tokens, and user data do
+current user’s DupeSpace local application data, protected by user-bound Windows DPAPI. Failed
+encryption never falls back to plaintext. DPAPI does not protect against malware already running
+as that user. Credentials, secrets, tokens, and user data do
 not belong in Git.
 
 See [docs/SAFETY.md](docs/SAFETY.md) and [docs/WEB_DEPLOYMENT.md](docs/WEB_DEPLOYMENT.md).
@@ -158,13 +177,15 @@ contains its full product-purpose and privacy copy for search engines and Google
 python -m pip install -e ".[build]"
 python scripts/build_icon.py
 python -m PyInstaller --noconfirm --clean DupeSpace.spec
-powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1
+powershell -File scripts/build_windows.ps1 -Python .venv/Scripts/python.exe
 ```
 
 The executable is written to `dist\DupeSpace\`; the installer is
 `release\DupeSpace-Setup.exe`. Tagged GitHub releases build and publish the installer
 automatically. Only the public Desktop OAuth Client ID is injected from protected Actions
 configuration during the release build; the Web Client Secret is never bundled.
+The build keeps Qt DLLs separate and includes third-party notices and LGPL/GPL license texts.
+See `src/dupespace/assets/third-party-notices.txt` for source/rebuild and library replacement details.
 
 ## Known limits
 

@@ -25,6 +25,8 @@ token.json
 # Local operation data
 .dupespace/
 .tools/
+outputs/desktop-v1-preview/
+*.dpapi
 
 # Editors and operating systems
 .idea/

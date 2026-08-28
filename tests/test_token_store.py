@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+
+import pytest
 
 from dupespace import token_store
 
@@ -53,3 +56,18 @@ def test_clear_tokens_preserves_reports(tmp_path: Path, monkeypatch) -> None:
 
     assert report.read_text(encoding="utf-8") == "audit"
     assert not token_store.protected_token_path().exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows DPAPI integration")
+def test_real_dpapi_roundtrip_and_tamper_rejection(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    synthetic = json.dumps({"refresh_token": "synthetic-test-only-not-a-real-token"})
+    path = token_store.save_protected_token(synthetic)
+    assert token_store.load_protected_token() == synthetic
+    payload = path.read_bytes()
+    assert synthetic.encode() not in payload
+    damaged = bytearray(payload)
+    damaged[-1] ^= 0xFF
+    path.write_bytes(damaged)
+    with pytest.raises(token_store.TokenProtectionError):
+        token_store.load_protected_token()

@@ -314,6 +314,7 @@ def build_drive_service(
     credentials_path: str | os.PathLike[str] | None = None,
     *,
     token_path: str | os.PathLike[str] | None = None,
+    interactive: bool = True,
 ) -> Any:
     """Authorize DupeSpace Desktop; the new app-data path forces a fresh sign-in."""
 
@@ -365,12 +366,14 @@ def build_drive_service(
                 raise DriveAuthenticationError(f"Google 登入權杖更新失敗：{error}") from error
         else:
             try:
+                if not interactive:
+                    raise DriveAuthenticationError("請按連接 Google Drive，重新完成授權。")
                 flow = InstalledAppFlow.from_client_config(
                     data,
                     [DRIVE_SCOPE],
                     autogenerate_code_verifier=True,
                 )
-                creds = flow.run_local_server(port=0, open_browser=True)
+                creds = flow.run_local_server(port=0, open_browser=True, timeout_seconds=180)
             except Exception as error:  # noqa: BLE001 - normalize auth library errors
                 raise DriveAuthenticationError(f"Google OAuth 登入失敗：{error}") from error
 

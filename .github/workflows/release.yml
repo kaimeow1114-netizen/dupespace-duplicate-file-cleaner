@@ -17,7 +17,11 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - run: python -m pip install -e ".[build]"
+      - run: python -m pip install -e ".[build,dev]"
+      - run: python -m ruff check .
+      - run: python -m pytest
+        env:
+          QT_QPA_PLATFORM: offscreen
       - name: Inject public Desktop OAuth client ID
         shell: pwsh
         env:
@@ -31,16 +35,41 @@ jobs:
           [IO.File]::WriteAllText("src/dupespace/_desktop_oauth.py", $content, [Text.UTF8Encoding]::new($false))
       - run: python scripts/build_icon.py
       - run: python -m PyInstaller --noconfirm --clean DupeSpace.spec
+      - name: Smoke test packaged native application
+        shell: pwsh
+        run: |
+          $app = Start-Process -FilePath "dist/DupeSpace/DupeSpace.exe" -ArgumentList "--smoke-test" -WindowStyle Hidden -PassThru
+          if (-not $app.WaitForExit(60000)) { throw "Packaged application did not exit its smoke test" }
+          if ($app.ExitCode -ne 0) { throw "Packaged application smoke test failed" }
       - shell: powershell
         run: '& "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe" "packaging\\dupespace.iss"'
+      - name: Exercise actual Recycle Bin on generated CI fixtures
+        run: python -m pytest tests/test_recycle_bin_integration.py
+        env:
+          DUPESPACE_RECYCLE_QA: "1"
+      - name: Download existing upgrade baseline
+        run: gh release download v0.6.0 --pattern DupeSpace-Setup.exe --dir previous-installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Validate upgrade and uninstall in disposable Windows runner
+        shell: pwsh
+        run: ./scripts/test_installer_upgrade.ps1 -PreviousInstaller previous-installer/DupeSpace-Setup.exe -NewInstaller release/DupeSpace-Setup.exe
+      - name: Record installer SHA-256
+        shell: pwsh
+        run: |
+          $digest = (Get-FileHash -Algorithm SHA256 -LiteralPath "release/DupeSpace-Setup.exe").Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("release/SHA256SUMS.txt", "$digest  DupeSpace-Setup.exe`n", [Text.UTF8Encoding]::new($false))
       - uses: actions/upload-artifact@v4
         with:
           name: DupeSpace-Windows
           path: |
             release/DupeSpace-Setup.exe
+            release/SHA256SUMS.txt
             dist/DupeSpace/**
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: release/DupeSpace-Setup.exe
+          files: |
+            release/DupeSpace-Setup.exe
+            release/SHA256SUMS.txt
           generate_release_notes: true

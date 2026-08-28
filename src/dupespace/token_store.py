@@ -5,6 +5,7 @@ import json
 import os
 from ctypes import wintypes
 from pathlib import Path
+from uuid import uuid4
 
 from .paths import app_data_dir
 
@@ -39,10 +40,22 @@ def _dpapi_transform(value: bytes, *, protect: bool) -> bytes:
 
     source, source_buffer = _blob(value)
     result = _DataBlob()
-    crypt32 = ctypes.windll.crypt32
-    kernel32 = ctypes.windll.kernel32
+    crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     description = "DUPESPACE OAuth token" if protect else None
     function = crypt32.CryptProtectData if protect else crypt32.CryptUnprotectData
+    function.argtypes = [
+        ctypes.POINTER(_DataBlob),
+        wintypes.LPCWSTR if protect else ctypes.c_void_p,
+        ctypes.POINTER(_DataBlob),
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(_DataBlob),
+    ]
+    function.restype = wintypes.BOOL
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel32.LocalFree.restype = ctypes.c_void_p
     try:
         if protect:
             ok = function(
@@ -51,18 +64,17 @@ def _dpapi_transform(value: bytes, *, protect: bool) -> bytes:
                 None,
                 None,
                 None,
-                0,
+                1,
                 ctypes.byref(result),
             )
         else:
-            description_pointer = ctypes.c_wchar_p()
             ok = function(
                 ctypes.byref(source),
-                ctypes.byref(description_pointer),
                 None,
                 None,
                 None,
-                0,
+                None,
+                1,
                 ctypes.byref(result),
             )
         if not ok:
@@ -91,8 +103,12 @@ def unprotect_token(payload: bytes) -> str:
 def save_protected_token(token_json: str) -> Path:
     target = protected_token_path()
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_suffix(".tmp")
-    temporary.write_bytes(protect_token(token_json))
+    temporary = target.with_name(f"oauth-{uuid4().hex}.tmp")
+    payload = protect_token(token_json)
+    with temporary.open("xb") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
     os.replace(temporary, target)
     legacy_token_path().unlink(missing_ok=True)
     return target
@@ -104,7 +120,9 @@ def load_protected_token() -> str | None:
         try:
             return unprotect_token(target.read_bytes())
         except (OSError, UnicodeError, json.JSONDecodeError) as error:
-            raise TokenProtectionError(f"OAuth 權杖已損毀或不屬於目前 Windows 帳號：{error}") from error
+            raise TokenProtectionError(
+                f"OAuth 權杖已損毀或不屬於目前 Windows 帳號：{error}"
+            ) from error
 
     legacy = legacy_token_path()
     if not legacy.exists():
