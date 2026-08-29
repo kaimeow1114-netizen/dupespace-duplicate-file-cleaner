@@ -14,7 +14,7 @@ export function SiteHeader() {
         <nav aria-label="主要導覽">
           <a href="/#features">功能特色</a><a href="/cleaner">線上清理</a><a href="/download">Windows 客戶端</a><a href="/support">安全整理指南</a><a href="/#faq">常見問題</a>
         </nav>
-        <div className="nav-actions"><SessionBadge /><GitHubStars /><a className="nav-cta" href="/cleaner"><span>立即清理</span><ArrowRight className="nav-cta-arrow" size={20} strokeWidth={1.8} aria-hidden="true" /></a></div>
+        <div className="nav-actions"><GitHubStars /><a className="nav-cta" href="/cleaner"><span>立即清理</span><ArrowRight className="nav-cta-arrow" size={20} strokeWidth={1.8} aria-hidden="true" /></a><SessionBadge /></div>
       </div>
     </header>
   );

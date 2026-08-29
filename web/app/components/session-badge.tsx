@@ -1,12 +1,12 @@
 "use client";
 
-import { Cloud, LogOut } from "lucide-react";
+import { LogOut, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 
 type SessionState = {
   connected: boolean;
   configured: boolean;
-  user?: { displayName?: string; emailAddress?: string };
+  user?: { displayName?: string; emailAddress?: string; photoLink?: string };
 };
 
 export function SessionBadge() {
@@ -25,6 +25,7 @@ export function SessionBadge() {
           user: user ? {
             displayName: typeof user.displayName === "string" ? user.displayName : undefined,
             emailAddress: typeof user.emailAddress === "string" ? user.emailAddress : undefined,
+            photoLink: typeof user.photoLink === "string" ? user.photoLink : undefined,
           } : undefined,
         });
       })
@@ -41,8 +42,10 @@ export function SessionBadge() {
 
   return (
     <div className="session-badge" aria-label={`Google Drive 已連線 ${session.user?.emailAddress ?? ""}`}>
-      <span className="session-indicator"><Cloud size={14} aria-hidden="true" /></span>
-      <span><b>Google Drive 已連線</b><small>{session.user?.emailAddress ?? session.user?.displayName ?? "已驗證帳號"}</small></span>
+      <a className="session-avatar" href="/cleaner" aria-label="開啟 Google Drive 帳號與清理頁">
+        {session.user?.photoLink ? <img src={session.user.photoLink} alt="" referrerPolicy="no-referrer" /> : <UserRound size={17} aria-hidden="true" />}{/* eslint-disable-line @next/next/no-img-element */}
+      </a>
+      <span className="session-copy"><b>Google Drive 已連線</b><small>{session.user?.emailAddress ?? session.user?.displayName ?? "已驗證帳號"}</small></span>
       <button type="button" onClick={disconnect} aria-label="中斷 Google Drive 連線"><LogOut size={14} aria-hidden="true" /><span>中斷</span></button>
     </div>
   );

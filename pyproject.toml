@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dupespace"
-version = "1.0.0"
+version = "1.0.1"
 description = "A safety-first duplicate file cleaner for Windows and Google Drive."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,7 +12,7 @@ license = { text = "MIT" }
 authors = [{ name = "DupeSpace contributors" }]
 keywords = ["duplicate-files", "google-drive", "file-cleaner", "windows"]
 classifiers = [
-  "Development Status :: 4 - Beta",
+  "Development Status :: 5 - Production/Stable",
   "License :: OSI Approved :: MIT License",
   "Operating System :: Microsoft :: Windows",
   "Programming Language :: Python :: 3",

@@ -10,4 +10,4 @@ __all__ = [
     "ScanReport",
 ]
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"

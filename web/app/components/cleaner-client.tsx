@@ -278,7 +278,6 @@ export function CleanerClient() {
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [confirmationText, setConfirmationText] = useState("");
   const [countdown, setCountdown] = useState(0);
-  const [ignoreSystemMetadata, setIgnoreSystemMetadata] = useState(false);
   const [treeDrawer, setTreeDrawer] = useState<DriveGroup | null>(null);
   const [treeLimit, setTreeLimit] = useState(200);
   const [undoBatch, setUndoBatch] = useState<UndoBatch | null>(null);
@@ -409,7 +408,7 @@ export function CleanerClient() {
       const response = await fetch("/api/google/scan", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ignoreSystemMetadata, protectedProfile: profile }),
+        body: JSON.stringify({ ignoreSystemMetadata: false, protectedProfile: profile }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(errorMessage(body, "掃描失敗"));
@@ -632,23 +631,6 @@ export function CleanerClient() {
           <div><b>{account?.displayName ?? (connected ? "Google Drive 已連線" : "尚未連線")}</b><small>{account?.emailAddress ?? "登入帳號顯示於此"}</small></div>
         </div>
       </section>
-      <label className="metadata-option">
-        <input
-          type="checkbox"
-          aria-label="忽略系統暫存檔"
-          checked={ignoreSystemMetadata}
-          disabled={running}
-          onChange={(event) => {
-            setIgnoreSystemMetadata(event.target.checked);
-            setScan(null);
-            setSelected(new Set());
-            setTreeDrawer(null);
-            setStatus("系統暫存檔規則已變更，請重新掃描 Google Drive");
-          }}
-        />
-        <AlertTriangle size={18} aria-hidden="true" /><span><b>進階：忽略系統暫存檔</b><small>預設關閉。開啟後，.DS_Store、Thumbs.db、desktop.ini 不參與資料夾鏡像比對；移除資料夾時仍會一併進垃圾桶。</small></span>
-      </label>
-
       <section className={`health-panel ${healthState.level}`} aria-label="儲存空間健康評分">
         <div className="health-score-ring">
           <svg viewBox="0 0 108 108" aria-hidden="true"><circle cx="54" cy="54" r="47" /><motion.circle cx="54" cy="54" r="47" pathLength={100} strokeDasharray="100" animate={{ strokeDashoffset: 100 - (healthScore ?? 0) }} transition={{ duration: reducedMotion ? 0 : .8, ease: "easeOut" }} /></svg>

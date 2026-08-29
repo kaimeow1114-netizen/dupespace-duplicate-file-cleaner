@@ -205,6 +205,23 @@ test("keeps large duplicate results typed, ordered and preview-light", async () 
   assert.match(clientSource, /\/\^\[=\+\\-@\\t\\r\\n\]\//);
 });
 
+test("presents Google Drive and recoverable Windows cleanup without an alarming metadata toggle", async () => {
+  const [response, cleanerSource, css] = await Promise.all([
+    render("/cleaner"),
+    readFile(new URL("../app/components/cleaner-client.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  const html = await response.text();
+  assert.match(html, /Google Drive 線上清理/);
+  assert.match(html, /Windows 本機資料夾/);
+  assert.match(html, /href="\/download"/);
+  assert.match(html, /不在瀏覽器中永久移除 Windows 檔案/);
+  assert.doesNotMatch(html, /進階：忽略系統暫存檔/);
+  assert.doesNotMatch(cleanerSource, /setIgnoreSystemMetadata|className="metadata-option"/);
+  assert.match(cleanerSource, /ignoreSystemMetadata: false/);
+  assert.match(css, /\.cleaner-source-switch\s*\{[^}]*grid-template-columns:1fr 1fr/);
+});
+
 test("renders a valid English alternate and keeps interface source free of emoji", async () => {
   const response = await render("/en");
   assert.equal(response.status, 200);
