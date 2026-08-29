@@ -1,5 +1,5 @@
 #define MyAppName "DupeSpace"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "DupeSpace contributors"
 #define MyAppURL "https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner"
 #define MyAppExeName "DupeSpace.exe"
@@ -25,6 +25,8 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
+CloseApplications=yes
+RestartApplications=no
 UninstallDisplayIcon={app}\{#MyAppExeName}
 VersionInfoVersion={#MyAppVersion}
 

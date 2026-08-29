@@ -139,9 +139,10 @@ test("keeps responsive layouts stable and batch sounds bounded", async () => {
 });
 
 test("ships the high-fidelity motion system with an accessible static fallback", async () => {
-  const [dashboard, showcase, css] = await Promise.all([
+  const [dashboard, showcase, lowerPage, css] = await Promise.all([
     readFile(new URL("../app/components/hero-dashboard.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/motion-showcase.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/lower-page-motion.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
   assert.match(dashboard, /scale: 0\.9/);
@@ -154,7 +155,17 @@ test("ships the high-fidelity motion system with an accessible static fallback",
   assert.match(showcase, /whileHover=\{reducedMotion \? undefined : \{ y: -3 \}\}/);
   assert.match(showcase, /--glow-x/);
   assert.match(showcase, /useSpring/);
+  assert.match(lowerPage, /export function StorageIntelligenceMotion/);
+  assert.match(lowerPage, /className="trend-line"/);
+  assert.match(lowerPage, /export function PrivacyFlowMotion/);
+  assert.match(lowerPage, /DATA BOUNDARY/);
+  assert.match(lowerPage, /export function TrustMatrixMotion/);
+  assert.match(lowerPage, /AnimatePresence/);
+  assert.match(lowerPage, /useReducedMotion/);
   assert.match(css, /\.hash-particles/);
+  assert.match(css, /\.intelligence-bento/);
+  assert.match(css, /\.privacy-flow-card/);
+  assert.match(css, /\.faq-motion-list/);
   assert.match(css, /\.magnetic-surface::before/);
   assert.match(css, /@media \(prefers-reduced-motion:reduce\)/);
 
@@ -230,7 +241,7 @@ test("renders a valid English alternate and keeps interface source free of emoji
   assert.match(html, /hrefLang="en" href="https:\/\/dupespace\.app\/en"/);
   const sources = await Promise.all([
     "page.tsx", "components/cleaner-client.tsx", "components/hero-dashboard.tsx",
-    "components/motion-showcase.tsx", "components/site-shell.tsx", "components/github-stars.tsx",
+    "components/motion-showcase.tsx", "components/lower-page-motion.tsx", "components/site-shell.tsx", "components/github-stars.tsx",
   ].map((path) => readFile(new URL(`../app/${path}`, import.meta.url), "utf8")));
   const emoji = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
   for (const source of sources) assert.doesNotMatch(source, emoji);
@@ -315,6 +326,8 @@ test("renders a dedicated Windows download explanation page", async () => {
   assert.match(html, /下載 DupeSpace-Setup\.exe/);
   assert.match(html, /保留區永遠不刪/);
   assert.match(html, /程式碼專案硬性排除/);
+  assert.match(html, /v1\.1\.0 起可在側邊欄檢查更新/);
+  assert.match(html, /核對 GitHub Release 的檔案大小與 SHA-256/);
   assert.match(html, /rel="canonical" href="https:\/\/dupespace\.app\/download"/);
 });
 

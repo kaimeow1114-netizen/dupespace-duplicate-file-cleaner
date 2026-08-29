@@ -5,12 +5,14 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from contextlib import suppress
 from importlib.resources import files
 from pathlib import Path
 
 from PySide6.QtCore import (
     QEasingCurve,
     QObject,
+    QProcess,
     QPropertyAnimation,
     QSize,
     Qt,
@@ -65,6 +67,14 @@ from ..models import ProgressUpdate, ScanReport, ScanRoot
 from ..paths import app_data_dir
 from ..reporting import default_report_dir
 from ..sound import SoundPlayer
+from ..updater import (
+    ReleaseInfo,
+    UpdateError,
+    VerifiedInstaller,
+    check_for_update,
+    download_update,
+    verify_installer,
+)
 from .dialogs import ConfirmationDialog, DetailsDialog
 from .operations import CleanupResult, run_cleanup
 from .state import ScanSession, format_bytes, read_preferences, save_preferences
@@ -84,6 +94,7 @@ from .widgets import (
 
 WEBSITE = "https://dupespace.app"
 GITHUB = "https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner"
+UPDATE_INTERVAL_SECONDS = 24 * 60 * 60
 
 
 class Worker(QObject):
@@ -147,6 +158,16 @@ class MainWindow(QMainWindow):
         self.root_lists: dict[str, QListWidget] = {}
         self.root_views: dict[str, QStackedWidget] = {}
         self.nav_buttons = {}
+        self.update_thread: QThread | None = None
+        self.update_worker: Worker | None = None
+        self.update_release: ReleaseInfo | None = None
+        self.verified_installer: VerifiedInstaller | None = None
+        self.update_dialog: QDialog | None = None
+        self._update_result = None
+        self._update_error: Exception | None = None
+        self._update_callback: Callable | None = None
+        self._update_manual = False
+        self._update_job = ""
         self.setWindowTitle("DUPESPACE · 安心留好每一份重要檔案")
         self.setWindowIcon(QIcon(str(files("dupespace.assets").joinpath("dupespace.ico"))))
         self.setMinimumSize(980, 580)
@@ -156,6 +177,8 @@ class MainWindow(QMainWindow):
         self._build_shell()
         self._refresh_roots()
         self.navigate("local")
+        if restore_session:
+            QTimer.singleShot(2200, self._auto_update_check)
 
     def _build_shell(self) -> None:
         central = QWidget()
@@ -206,7 +229,12 @@ class MainWindow(QMainWindow):
         preferences.setIcon(icon("settings", "#78BDB7"))
         preferences.clicked.connect(self._settings)
         side.addWidget(preferences)
-        side.addWidget(label(f"WINDOWS  /  {__version__}", "small"))
+        self.update_button = button("檢查更新", kind="nav")
+        self.update_button.setIcon(icon("download", "#78BDB7"))
+        self.update_button.clicked.connect(self.check_updates)
+        side.addWidget(self.update_button)
+        self.version_label = label(f"WINDOWS  /  {__version__}", "small")
+        side.addWidget(self.version_label)
         shell.addWidget(sidebar)
         workspace = QWidget()
         space = QVBoxLayout(workspace)
@@ -1070,6 +1098,7 @@ class MainWindow(QMainWindow):
         for nav in self.nav_buttons.values():
             nav.setEnabled(False)
         self.account_chip.setEnabled(False)
+        self.update_button.setEnabled(False)
         self.model.busy = True
         self.progress_title.setText(title)
         self.progress_subtitle.setText(subtitle)
@@ -1142,6 +1171,7 @@ class MainWindow(QMainWindow):
         for nav in self.nav_buttons.values():
             nav.setEnabled(True)
         self.account_chip.setEnabled(True)
+        self.update_button.setEnabled(self.update_thread is None)
         self._refresh_roots()
         if self._job_error is not None:
             error = self._job_error
@@ -1238,6 +1268,269 @@ class MainWindow(QMainWindow):
             "請到 Google 帳戶的第三方連線頁面檢查。"
         )
 
+    def _auto_update_check(self) -> None:
+        if self.busy:
+            QTimer.singleShot(30_000, self._auto_update_check)
+            return
+        try:
+            last_check = float(self.preferences.get("last_update_check", 0))
+        except (TypeError, ValueError):
+            last_check = 0
+        if time.time() - last_check >= UPDATE_INTERVAL_SECONDS:
+            self.check_updates(manual=False)
+
+    def check_updates(self, _checked: bool = False, *, manual: bool = True) -> None:
+        if self.busy:
+            if manual:
+                self.global_notice.setText("目前工作結束後再檢查更新，避免干擾掃描或清理。")
+            return
+        if self.update_thread is not None:
+            return
+        if self.update_release is not None:
+            if manual:
+                self._show_update_offer(self.update_release)
+            return
+        self.update_button.setText("正在檢查更新")
+        self._start_update_job(
+            lambda _emit: check_for_update(__version__),
+            self._update_checked,
+            manual=manual,
+            job="check",
+        )
+
+    def _start_update_job(
+        self,
+        task: Callable,
+        callback: Callable,
+        *,
+        manual: bool,
+        job: str,
+    ) -> None:
+        if self.update_thread is not None:
+            return
+        self._update_result = None
+        self._update_error = None
+        self._update_callback = callback
+        self._update_manual = manual
+        self._update_job = job
+        self.update_button.setEnabled(False)
+        self.update_thread = QThread(self)
+        self.update_worker = Worker(task)
+        self.update_worker.moveToThread(self.update_thread)
+        self.update_thread.started.connect(self.update_worker.run)
+        self.update_worker.progress.connect(self._update_progress)
+        self.update_worker.result.connect(self._receive_update_result)
+        self.update_worker.error.connect(self._receive_update_error)
+        self.update_worker.finished.connect(
+            self.update_thread.quit, Qt.ConnectionType.DirectConnection
+        )
+        self.update_worker.finished.connect(self.update_worker.deleteLater)
+        self.update_thread.finished.connect(self._update_finished)
+        self.update_thread.finished.connect(self.update_thread.deleteLater)
+        self.update_thread.start()
+
+    @Slot(object)
+    def _receive_update_result(self, result) -> None:
+        self._update_result = result
+
+    @Slot(object)
+    def _receive_update_error(self, error) -> None:
+        self._update_error = error
+
+    @Slot(object)
+    def _update_progress(self, update: ProgressUpdate) -> None:
+        if self.update_dialog is None or self._update_job != "download":
+            return
+        progress = self.update_dialog.findChild(QProgressBar, "updateProgress")
+        status = self.update_dialog.findChild(QLabel, "updateStatus")
+        if progress is not None and update.total:
+            progress.setRange(0, 1000)
+            progress.setValue(min(1000, int(update.current / update.total * 1000)))
+        if status is not None:
+            status.setText(
+                f"已下載 {format_bytes(update.current)} / {format_bytes(update.total)}，"
+                "完成後會核對 SHA-256。"
+            )
+
+    @Slot()
+    def _update_finished(self) -> None:
+        if self.update_thread is not None and not self.update_thread.wait(100):
+            QTimer.singleShot(25, self._update_finished)
+            return
+        error = self._update_error
+        result = self._update_result
+        callback = self._update_callback
+        manual = self._update_manual
+        job = self._update_job
+        self.update_thread = None
+        self.update_worker = None
+        self._update_callback = None
+        self.update_button.setEnabled(not self.busy)
+        if error is not None:
+            if self.update_dialog is not None:
+                self.update_dialog.close()
+                self.update_dialog = None
+            self.update_button.setText("檢查更新")
+            if manual or job == "download":
+                message = (
+                    "更新檔無法通過安全檢查，沒有執行任何安裝程式。"
+                    if isinstance(error, UpdateError)
+                    else "目前無法完成更新檢查，請稍後再試。"
+                )
+                self.global_notice.setText(message)
+                self.sound.play("error")
+        elif callback is not None:
+            callback(result)
+        if self.close_requested and not self.busy:
+            self.close()
+
+    def _update_checked(self, release: ReleaseInfo | None) -> None:
+        now = time.time()
+        self.preferences["last_update_check"] = now
+        with suppress(OSError):
+            save_preferences({"last_update_check": now})
+        if release is None:
+            self.update_button.setText("已是最新版本")
+            if self._update_manual:
+                self.global_notice.setText(f"目前使用的 DUPESPACE {__version__} 已是最新版本。")
+            QTimer.singleShot(3500, self._reset_update_button)
+            return
+        self.update_release = release
+        self.update_button.setText(f"更新至 {release.version}")
+        self.global_notice.setText(
+            f"DUPESPACE {release.version} 已發布。可直接在應用程式內下載、驗證並安裝。"
+        )
+        if self._update_manual:
+            self._show_update_offer(release)
+
+    def _reset_update_button(self) -> None:
+        if self.update_release is None and self.update_thread is None:
+            self.update_button.setText("檢查更新")
+
+    def _show_update_offer(self, release: ReleaseInfo) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("DUPESPACE｜有可用更新")
+        dialog.setMinimumWidth(510)
+        box = QVBoxLayout(dialog)
+        box.setContentsMargins(28, 26, 28, 26)
+        box.setSpacing(17)
+        box.addWidget(label(f"DUPESPACE {release.version} 已準備好", "heading"))
+        box.addWidget(
+            label(
+                f"目前版本 {__version__}。安裝檔會直接從 DUPESPACE 的公開 GitHub Release "
+                "下載，完成後先核對檔案大小與 SHA-256，再讓你決定是否啟動安裝。",
+                "muted",
+                wrap=True,
+            )
+        )
+        box.addWidget(Notice("不會靜默安裝，也不會以系統管理員權限在背景執行。"))
+        notes = button("查看版本說明", "external", "subtle")
+        notes.clicked.connect(lambda: self._open_url(release.release_url))
+        box.addWidget(notes)
+        actions = QHBoxLayout()
+        actions.addStretch()
+        later = button("稍後", kind="subtle")
+        later.clicked.connect(dialog.reject)
+        actions.addWidget(later)
+        download = button("下載並驗證更新", "download", "primary")
+        download.clicked.connect(dialog.accept)
+        actions.addWidget(download)
+        box.addLayout(actions)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._download_release(release)
+
+    def _download_release(self, release: ReleaseInfo) -> None:
+        if self.busy or self.update_thread is not None:
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("DUPESPACE｜正在準備更新")
+        dialog.setMinimumWidth(500)
+        dialog.setModal(True)
+        box = QVBoxLayout(dialog)
+        box.setContentsMargins(28, 26, 28, 26)
+        box.setSpacing(16)
+        box.addWidget(label(f"正在下載 DUPESPACE {release.version}", "heading"))
+        status = label("正在連接公開 GitHub Release。", "muted", wrap=True)
+        status.setObjectName("updateStatus")
+        box.addWidget(status)
+        progress = QProgressBar()
+        progress.setObjectName("updateProgress")
+        progress.setRange(0, 0)
+        box.addWidget(progress)
+        box.addWidget(
+            label("下載過程不會掃描、上傳或變更你的檔案。", "small", wrap=True)
+        )
+        self.update_dialog = dialog
+        dialog.show()
+
+        def task(emit):
+            return download_update(
+                release,
+                progress=lambda current, total: emit(
+                    ProgressUpdate("download", current, total, "正在下載並驗證更新")
+                ),
+            )
+
+        self._start_update_job(
+            task,
+            self._update_downloaded,
+            manual=True,
+            job="download",
+        )
+
+    def _update_downloaded(self, installer: VerifiedInstaller) -> None:
+        if self.update_dialog is not None:
+            self.update_dialog.close()
+            self.update_dialog = None
+        self.verified_installer = installer
+        self._confirm_install(installer)
+
+    def _confirm_install(self, installer: VerifiedInstaller) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("DUPESPACE｜更新已通過驗證")
+        dialog.setMinimumWidth(510)
+        box = QVBoxLayout(dialog)
+        box.setContentsMargins(28, 26, 28, 26)
+        box.setSpacing(17)
+        box.addWidget(label("更新檔已通過 SHA-256 驗證", "heading"))
+        box.addWidget(
+            label(
+                f"版本 {installer.version} · {format_bytes(installer.size)}。按下開始安裝前，"
+                "DUPESPACE 會再讀取一次檔案並核對雜湊；若內容有任何變化就會停止。",
+                "muted",
+                wrap=True,
+            )
+        )
+        box.addWidget(Notice("安裝程式會顯示自己的步驟。應用程式將在成功啟動安裝後關閉。"))
+        actions = QHBoxLayout()
+        actions.addStretch()
+        later = button("稍後安裝", kind="subtle")
+        later.clicked.connect(dialog.reject)
+        actions.addWidget(later)
+        install = button("現在開始安裝", "check", "primary")
+        install.clicked.connect(dialog.accept)
+        actions.addWidget(install)
+        box.addLayout(actions)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._launch_installer(installer)
+
+    def _launch_installer(self, installer: VerifiedInstaller) -> None:
+        try:
+            path = verify_installer(installer)
+        except UpdateError:
+            self.global_notice.setText(
+                "更新檔在下載後發生變化，操作已取消；沒有執行任何安裝程式。"
+            )
+            self.sound.play("error")
+            return
+        started = QProcess.startDetached(str(path), [], str(path.parent))
+        success = bool(started[0] if isinstance(started, tuple) else started)
+        if not success:
+            self.global_notice.setText("無法啟動已驗證的安裝程式，應用程式會保持開啟。")
+            self.sound.play("error")
+            return
+        self.close()
+
     def _settings(self) -> None:
         dialog = QDialog(self)
         dialog.setWindowTitle("DUPESPACE｜偏好設定")
@@ -1327,10 +1620,14 @@ class MainWindow(QMainWindow):
         QDesktopServices.openUrl(QUrl(url))
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if self.busy:
+        update_running = self.update_thread is not None and self.update_thread.isRunning()
+        if self.busy or update_running:
             self.close_requested = True
-            self.request_stop()
-            self.global_notice.setText("會在目前操作安全結束並保存結果後關閉；不會強制終止執行緒。")
+            if self.busy:
+                self.request_stop()
+            self.global_notice.setText(
+                "會在目前操作或更新檢查安全結束後關閉；不會強制終止執行緒。"
+            )
             event.ignore()
         else:
             event.accept()

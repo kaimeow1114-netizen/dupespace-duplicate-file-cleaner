@@ -13,3 +13,5 @@ def test_installer_preserves_upgrade_app_id_and_uses_new_names() -> None:
     assert "90C16F8A-44AF-4B0C-A389-F26143240E0A" in installer
     assert f'#define MyAppVersion "{version}"' in installer
     assert "OutputBaseFilename=DupeSpace-Setup" in installer
+    assert "CloseApplications=yes" in installer
+    assert "RestartApplications=no" in installer

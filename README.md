@@ -94,6 +94,9 @@ a full summary and countdown.
 - UTF-8 CSV audit outcomes with timestamp, source, mode, status, path/Drive ID, bytes, checksum,
   and reason.
 - Windows installer with optional first-install desktop shortcut.
+- A built-in Windows updater that checks the public GitHub Release at most once per day, downloads
+  in the background, verifies the declared size and SHA-256 twice, and starts the visible installer
+  only after the user confirms. It never silently executes or elevates an update.
 - Full-bleed public landing pages, a separate ad-free browser cleaner, privacy/terms pages, PWA
   icon suite, SEO metadata, AdSense Auto Ads verification code, and Google Limited Use disclosures.
 - A shared teal motion language across web and desktop: spring dashboard entrance, subtle SHA-256
@@ -113,6 +116,8 @@ a full summary and countdown.
 Download
 [DupeSpace-Setup.exe](https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner/releases/latest/download/DupeSpace-Setup.exe).
 The installer offers an optional desktop shortcut; Python is not required on the user’s computer.
+Users installing v1.1.0 or later can check for updates from the desktop sidebar. Existing v1.0.1
+installations need this one manual upgrade before in-app updates become available.
 
 Developers can run from source:
 

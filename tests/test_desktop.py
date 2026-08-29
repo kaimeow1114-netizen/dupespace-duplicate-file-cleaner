@@ -196,6 +196,13 @@ def test_pending_drive_status_and_every_navigation_page(window):
     assert window.account_chip.text() == "本機模式 · 無需登入"
 
 
+def test_sidebar_exposes_safe_in_app_updates_without_network_on_test_start(window):
+    assert window.update_button.text() == "檢查更新"
+    assert window.update_button.icon().isNull() is False
+    assert "WINDOWS" in window.version_label.text()
+    assert window.update_thread is None
+
+
 def test_account_chip_uses_real_identity_without_new_scope(window):
     window._accept_account((object(), "測試使用者", "preview@example.test"))
     assert "preview@example.test" in window.account_chip.text()
