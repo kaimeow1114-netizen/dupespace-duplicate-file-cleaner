@@ -1,10 +1,11 @@
 # DUPESPACE safety guide
 
 DUPESPACE treats matching content as a duplicate candidate, not proof that every path is
-disposable. Windows scans require at least one keep root and one clean root. Roots are resolved to
-physical long paths and may not be equal, nested, or overlapping. Only size + full SHA-256 groups
-that cross from keep to clean are shown; clean-only duplicates are completely excluded. All
-keep-root records are locked and every group keeps at least one deterministic keeper.
+disposable. Windows scans require one or more user-selected cleanup roots. Roots are resolved to
+physical long paths and may not be equal, nested, or overlapping. Each size + full SHA-256 group
+locks its oldest exact copy as the deterministic keeper. Users may optionally protect a strict
+subfolder of a cleanup root; those records participate in comparison but can never be selected.
+Changing roots or rescanning resets every selection, temporary unlock, and confirmation.
 
 Zero-byte files are ignored. Files below 1 MiB are visible but not preselected. Project/package
 trees, applications/install resources, backups/snapshots, and sync folders are excluded from

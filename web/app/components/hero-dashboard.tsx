@@ -72,7 +72,7 @@ export function HeroDashboard() {
         <div className="scan-heading"><div><small>SHA-256 CONTENT SCAN</small><b>{cleaned ? "安全清理完成" : "正在精確比對內容"}</b></div><strong>{cleaned ? "100%" : "82%"}</strong></div>
         <div className="scan-progress"><motion.i initial={{ width: 0 }} animate={{ width: cleaned ? "100%" : "82%" }} transition={{ duration: reducedMotion ? 0 : 1.1 }} /></div>
         <div className="hash-stream" aria-hidden="true"><span>SHA-256</span><i>8f14e45fceea...</i><i>c9f0f895fb98...</i><i>45c48cce2e2d...</i></div>
-        <div className="dashboard-columns"><span>保留區 · PROTECTED</span><span>待清理副本 · DUPLICATE</span></div>
+        <div className="dashboard-columns"><span>最舊原檔 · PROTECTED</span><span>待清理副本 · DUPLICATE</span></div>
         <div className="dashboard-files">
           {files.map((file, index) => <motion.div key={file.path} className={`demo-file ${file.keeper ? "safe" : "duplicate"} ${cleaned && !file.keeper ? "cleaned" : ""}`} initial={reducedMotion ? false : { opacity: 0, x: index % 2 ? 14 : -14 }} animate={{ opacity: cleaned && !file.keeper ? .5 : 1, x: 0 }} transition={{ delay: reducedMotion ? 0 : .45 + index * .09 }}><i>{file.keeper ? <ShieldCheck size={15} aria-hidden="true" /> : cleaned ? <CheckCircle2 size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}</i><span><b>{file.name}</b><small>{file.path}</small></span><em>{file.keeper ? "保留" : cleaned ? "已回收" : "待清"}</em></motion.div>)}
         </div>

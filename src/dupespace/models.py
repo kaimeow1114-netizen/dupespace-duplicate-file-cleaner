@@ -197,9 +197,9 @@ class OperationItem:
         if self.record.item_kind != self.keeper.item_kind:
             raise ValueError("Target and keeper must have the same item kind")
         if self.record.source == "local":
-            if self.keeper.root_role != "keep" or self.record.root_role != "clean":
+            if self.keeper.root_role not in {"keep", "clean"} or self.record.root_role != "clean":
                 raise ValueError(
-                    "Local operations require a keep-root keeper and clean-root target"
+                    "Local operations require a protected keeper and clean-root target"
                 )
             if not self.record.selectable:
                 raise ValueError("A locked local file cannot be an operation target")

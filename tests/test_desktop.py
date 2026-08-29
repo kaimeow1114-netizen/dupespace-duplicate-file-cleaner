@@ -26,6 +26,7 @@ from dupespace.models import (  # noqa: E402
     FileRecord,
     SafetyContext,
     ScanReport,
+    ScanRoot,
 )
 
 
@@ -189,11 +190,11 @@ def test_large_permanent_confirmation_requires_exact_count_and_wait(application)
 
 
 def test_pending_drive_status_and_every_navigation_page(window):
-    for key in ("drive", "history", "safety", "local"):
+    for key in ("drive", "history", "safety", "github", "local"):
         window.nav_buttons[key].click()
         assert window.current_page == key
     assert window.connect_button.text() == "連接 Google Drive"
-    assert window.account_chip.text() == "本機模式 · 無需登入"
+    assert window.account_chip.text() == "未登入"
 
 
 def test_sidebar_exposes_safe_in_app_updates_without_network_on_test_start(window):
@@ -203,8 +204,48 @@ def test_sidebar_exposes_safe_in_app_updates_without_network_on_test_start(windo
     assert window.update_thread is None
 
 
-def test_account_chip_uses_real_identity_without_new_scope(window):
-    window._accept_account((object(), "測試使用者", "preview@example.test"))
+def test_sidebar_collapses_to_icons_and_preserves_account_access(window):
+    window._toggle_sidebar()
+    assert window.sidebar.width() == 72
+    assert window.nav_buttons["local"].text() == ""
+    assert window.account_chip.text() == ""
+    assert "未登入" in window.account_chip.toolTip()
+    window._toggle_sidebar()
+    assert window.sidebar.width() == 220
+    assert window.nav_buttons["local"].text() == "本機清理"
+    assert window.account_chip.text() == "未登入"
+
+
+def test_folder_picker_shows_cleanup_and_optional_nested_protection(window):
+    window.session.roots = (
+        ScanRoot("D:/照片", "clean"),
+        ScanRoot("D:/照片/原始檔", "keep"),
+    )
+    window._refresh_roots()
+    assert window.root_picker.count() == 2
+    assert "1 個整理位置" in window.root_summary.text()
+    assert "1 個保護資料夾" in window.root_summary.text()
+    window.root_picker.setCurrentRow(0)
+    assert "D:/照片" in window.current_root_feedback.text()
+    assert window.protect_root_button.isEnabled()
+    window.root_picker.setCurrentRow(1)
+    assert "永遠不可選取" in window.current_root_feedback.text()
+    assert not window.protect_root_button.isEnabled()
+
+
+def test_progress_displays_current_full_folder_path(window):
+    from dupespace.models import ProgressUpdate
+
+    current = "D:/照片/2026/旅行"
+    window._progress(ProgressUpdate("enumerating", 42, None, f"正在掃描：{current}"))
+    assert current in window.progress_path.toolTip()
+    assert "正在讀取資料夾" in window.progress_stage.text()
+    assert "42" in window.progress_count.text()
+
+
+def test_account_chip_uses_real_identity_and_avatar_slot(window):
+    window._auth_silent = False
+    window._accept_account((object(), "測試使用者", "preview@example.test", b""))
     assert "preview@example.test" in window.account_chip.text()
     assert window.drive_scan.isVisible()
     window._disconnected(None)

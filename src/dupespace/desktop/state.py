@@ -26,17 +26,31 @@ def format_bytes(value: int) -> str:
 def validate_roots(
     roots: tuple[ScanRoot, ...], policy: WindowsSafetyPolicy = DEFAULT_WINDOWS_SAFETY_POLICY
 ) -> tuple[ScanRoot, ...]:
-    """Validate additions even before both roles have been chosen."""
+    """Validate cleanup roots and optional protected subfolders."""
     checked: list[ScanRoot] = []
     for root in roots:
         if root.role not in {"keep", "clean"}:
-            raise ValueError("掃描位置必須指定保留區或清理區。")
+            raise ValueError("掃描位置必須指定整理位置或保護子資料夾。")
         path = policy.validate_scan_root(root.physical_path)
-        for previous in checked:
-            prior = Path(previous.physical_path)
-            if path == prior or path.is_relative_to(prior) or prior.is_relative_to(path):
-                raise ValueError("位置不能相同或互相包含。請分別選擇獨立的保留區與清理區。")
         checked.append(ScanRoot(str(path), root.role))
+    clean = [Path(root.physical_path) for root in checked if root.role == "clean"]
+    protected = [Path(root.physical_path) for root in checked if root.role == "keep"]
+    if checked and not clean:
+        raise ValueError("請先加入至少一個要整理的資料夾。")
+    for index, path in enumerate(clean):
+        if any(
+            path == other or path.is_relative_to(other) or other.is_relative_to(path)
+            for other in clean[index + 1 :]
+        ):
+            raise ValueError("整理位置不能相同、巢狀或重疊。")
+    for index, path in enumerate(protected):
+        if not any(path != root and path.is_relative_to(root) for root in clean):
+            raise ValueError("保護資料夾必須位於已加入的整理位置內。")
+        if any(
+            path == other or path.is_relative_to(other) or other.is_relative_to(path)
+            for other in protected[index + 1 :]
+        ):
+            raise ValueError("保護資料夾不能相同、巢狀或重疊。")
     return tuple(checked)
 
 
@@ -53,7 +67,7 @@ class ScanSession:
 
     @property
     def ready(self) -> bool:
-        return {root.role for root in self.roots} == {"keep", "clean"}
+        return any(root.role == "clean" for root in self.roots)
 
     def clear_scan(self) -> None:
         self.report = None

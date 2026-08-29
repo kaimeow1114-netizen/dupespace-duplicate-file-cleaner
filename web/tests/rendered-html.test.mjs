@@ -324,7 +324,8 @@ test("renders a dedicated Windows download explanation page", async () => {
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /下載 DupeSpace-Setup\.exe/);
-  assert.match(html, /保留區永遠不刪/);
+  assert.match(html, /每組鎖定最舊檔/);
+  assert.match(html, /子資料夾設為永遠不可勾選/);
   assert.match(html, /程式碼專案硬性排除/);
   assert.match(html, /v1\.1\.0 起可在側邊欄檢查更新/);
   assert.match(html, /核對 GitHub Release 的檔案大小與 SHA-256/);

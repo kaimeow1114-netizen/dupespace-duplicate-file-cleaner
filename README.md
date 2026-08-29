@@ -8,13 +8,15 @@
 
 ## Windows V1 桌面版
 
-V1 採用原生 Qt 桌面介面：深青色側邊導覽、明亮工作區、保留區／清理區卡片、
-Google 帳號區、可搜尋的虛擬列表、清理紀錄與安全中心。Windows 本機整理不需登入。
-Google Drive 資料存取權驗證仍在準備示範影片與審查階段，不能視為已完成驗證的正式服務。
+V1 採用原生 Qt 桌面介面：可收合深青色側邊導覽、明亮工作區、可點擊及拖放的
+資料夾選取區、Google 帳號、可搜尋的虛擬列表、清理紀錄、安全中心與 GitHub 回報頁。
+Windows 本機整理不需登入；登入後的帳號與頭像固定顯示於側邊欄底部。
 
 操作流程是「選擇位置 → 掃描 → 檢查副本 → 選擇方式／確認 → 執行 → 結果」。
 永久刪除切換後清空所有選取，資料夾只能移至垃圾桶；重新掃描會撤銷這次解鎖與確認。
-常用位置可以儲存成設定檔，但不儲存解鎖、刪除選取或高風險確認。
+本機只會遞迴掃描使用者加入的整理位置。每個精確重複群組自動鎖定最舊檔案，
+不再強制要求獨立保留區；使用者仍可把整理位置內的子資料夾設成永遠不可選取的
+保護資料夾。常用位置可以儲存成設定檔，但不儲存解鎖、刪除選取或高風險確認。
 
 清理前先寫入操作日誌，每個結果都落盤。垃圾桶中的檔案仍占用儲存空間，
 「已移至垃圾桶容量」不會被描述為「已實際釋放磁碟空間」。
@@ -22,15 +24,16 @@ Google Drive 資料存取權驗證仍在準備示範影片與審查階段，不�
 開發者可執行 `python scripts/desktop_preview.py` 產生原生介面預覽（全部為合成資料），
 或執行 `DupeSpace.exe --smoke-test` 驗證打包介面能啟動；這兩種檢查不會清理使用者檔案。
 
-DUPESPACE is a free, open-source, safety-first duplicate file and mirror-folder cleaner. Windows scans use explicit
-**keep roots** and **clean roots**: a result is shown only when the same size and full SHA-256
-content exist in both roles. Every keep-root file is protected. Google Drive keeps its global,
-oldest-file keeper policy. The desktop uses a native virtual table, the web progressively renders
-large result sets, and both produce per-file CSV audits.
+DUPESPACE is a free, open-source, safety-first duplicate file and mirror-folder cleaner. Windows
+scans only user-added cleanup roots and recursively visits their ordinary subfolders. Every exact
+content group locks its oldest file as the keeper. An optional nested protected folder can override
+that keeper choice, and every file inside it remains unselectable. Google Drive keeps its separate
+global oldest-file keeper policy. The desktop uses a native virtual table, the web progressively
+renders large result sets, and both produce per-file CSV audits.
 
-Content equality means “duplicate candidate”, not “safe to delete everywhere.” Clean-root-only
-groups are not shown. Zero-byte files are ignored; on Windows, files smaller than 1 MiB can be
-reviewed but are never preselected. The Google Drive web scan preselects every trash-eligible
+Content equality means “duplicate candidate”, not “safe to delete everywhere.” Zero-byte files are
+ignored; on Windows, files smaller than 1 MiB can be reviewed but are never preselected. The Google
+Drive web scan preselects every trash-eligible
 non-keeper duplicate so a recoverable trash operation takes one click after review. On Windows
 and Google Drive, recognized source-code projects and package
 environments are hard-excluded because identical configuration, dependency, and plug-in files can
@@ -82,8 +85,9 @@ a full summary and countdown.
   count, plus device-local aggregate history, path-based duplicate-cause estimates, protected
   profiles, and a user-configured capacity-cost equivalent calculator. These are organization
   aids, not disk-failure diagnostics or claims about actual billing savings.
-- Windows keep/clean root pairs reject equal, nested, overlapping, short-path, junction, symlink,
-  reparse-point, and path-normalization bypasses. Cloud placeholders are skipped without hydration.
+- Windows cleanup roots reject equal, nested, overlapping, short-path, junction, symlink,
+  reparse-point, and path-normalization bypasses. Optional protected folders must be strictly nested
+  inside one cleanup root. Cloud placeholders are skipped without hydration.
 - Deterministic locked keeper in every group; every operation independently revalidates both target
   and keeper identity, size, modification time/version, checksum, ownership, and permission.
 - Strong Windows protection discovered with system APIs, volume roots, Known Folder/environment
@@ -138,7 +142,8 @@ published web runtime or the Windows desktop application.
 2. Configure the OAuth consent screen and add test users until verification is approved.
 3. Create a **Desktop application** client for the Windows app and a separate **Web application**
    client for `https://dupespace.app`.
-4. Never put a Web Client Secret in the desktop application or GitHub.
+4. Authorize the existing Drive scope and `userinfo.email` for the desktop identity label.
+5. Never put a Web Client Secret in the desktop application or GitHub.
 
 The Desktop app is a public/native OAuth client: it uses a loopback redirect and PKCE, and does
 not use a client secret. A secret embedded in an EXE could always be extracted, even if it passed
@@ -146,9 +151,11 @@ through GitHub Actions Secrets first. The web client is confidential and keeps i
 the Sites runtime secret store.
 
 DUPESPACE uses the restricted `https://www.googleapis.com/auth/drive` scope because finding and
-managing pre-existing duplicates cannot use the narrower `drive.file` scope. Both trash and
-permanent deletion use this same scope; permanent deletion does not add another scope. Public
-distribution requires Google verification and may require a security assessment.
+managing pre-existing duplicates cannot use the narrower `drive.file` scope. The desktop also asks
+for `https://www.googleapis.com/auth/userinfo.email` only to identify the connected account in its
+sidebar. Both trash and permanent deletion use the same Drive scope; permanent deletion does not
+add another Drive permission. Public distribution requires Google verification and may require a
+security assessment.
 
 The web app stores OAuth tokens only inside an encrypted Secure, HttpOnly, SameSite cookie with a
 sliding maximum age of 30 days. Short-lived signed scan proofs still expire after 30 minutes, and
@@ -201,14 +208,14 @@ See `src/dupespace/assets/third-party-notices.txt` for source/rebuild and librar
 - Google Workspace-native files do not expose a stable binary checksum and are skipped. Shortcuts,
   non-owner folders, shared drives, project/package trees, and unverifiable folder descendants are
   excluded from whole-folder cleanup.
-- DUPESPACE compares duplicates within each source. A local clean-root candidate must have an
-  equivalent keep-root copy; a Drive candidate follows the separate oldest-keeper policy.
+- DUPESPACE compares duplicates within each source. A local group keeps its oldest exact copy or a
+  copy inside an optional protected subfolder; Drive follows its separate oldest-keeper policy.
 - DUPESPACE does not guess at temporary or junk files. Use Windows Storage Sense or Cleanup
   recommendations for operating-system cleanup.
 - Google may rate-limit very large operations. Failed items remain unchanged and are recorded;
   rescan before retrying.
-- Until Google completes restricted-scope verification, only configured test users can authorize
-  the public web app.
+- Google brand and publishing status do not replace restricted-scope review. Do not claim unrestricted
+  public authorization until the requested scope description and demonstration-video review are complete.
 
 ## License
 

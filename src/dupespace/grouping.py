@@ -48,7 +48,7 @@ def build_duplicate_groups(records: Iterable[FileRecord]) -> tuple[DuplicateGrou
 
 
 def build_local_duplicate_groups(records: Iterable[FileRecord]) -> tuple[DuplicateGroup, ...]:
-    """Return only exact groups that cross from a keep root into a clean root."""
+    """Build exact local groups, preferring optional protected-root keepers."""
 
     buckets: dict[str, list[FileRecord]] = defaultdict(list)
     for record in records:
@@ -58,16 +58,17 @@ def build_local_duplicate_groups(records: Iterable[FileRecord]) -> tuple[Duplica
 
     groups: list[DuplicateGroup] = []
     for fingerprint, bucket in buckets.items():
-        keepers = sorted(
+        protected = sorted(
             (record for record in bucket if record.root_role == "keep"), key=_keeper_rank
         )
         clean = sorted(
             (record for record in bucket if record.root_role == "clean"), key=_keeper_rank
         )
-        if not keepers or not clean:
+        if not clean or len(protected) + len(clean) < 2:
             continue
-        ordered = tuple(keepers + clean)
-        groups.append(DuplicateGroup(fingerprint, ordered, keepers[0].key))
+        keeper = protected[0] if protected else clean[0]
+        ordered = tuple(protected + clean)
+        groups.append(DuplicateGroup(fingerprint, ordered, keeper.key))
 
     return tuple(
         sorted(
@@ -119,7 +120,7 @@ def validate_selection(
 
     selected_keepers = set(selected) & protected
     if selected_keepers:
-        raise ValueError("A protected keeper or keep-root file cannot be removed")
+        raise ValueError("A protected keeper or protected-folder file cannot be removed")
 
     locked = [key for key in selected if not records[key].selectable]
     if locked:

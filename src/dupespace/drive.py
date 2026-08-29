@@ -37,6 +37,8 @@ from .token_store import (
 MINIMUM_AUTO_SELECT_BYTES = 1024 * 1024
 
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
+EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email"
+DESKTOP_SCOPES = [DRIVE_SCOPE, EMAIL_SCOPE]
 GOOGLE_FOLDER_MIME = "application/vnd.google-apps.folder"
 GOOGLE_SHORTCUT_MIME = "application/vnd.google-apps.shortcut"
 BATCH_LIMIT = 100
@@ -344,7 +346,7 @@ def build_drive_service(
     if explicit_token_file and explicit_token_file.exists():
         try:
             creds = Credentials.from_authorized_user_file(
-                str(explicit_token_file), [DRIVE_SCOPE]
+                str(explicit_token_file), DESKTOP_SCOPES
             )
         except (OSError, ValueError):
             creds = None
@@ -353,10 +355,13 @@ def build_drive_service(
             saved_token = load_protected_token()
             if saved_token:
                 creds = Credentials.from_authorized_user_info(
-                    json.loads(saved_token), [DRIVE_SCOPE]
+                    json.loads(saved_token), DESKTOP_SCOPES
                 )
         except (TokenProtectionError, ValueError, json.JSONDecodeError) as error:
             raise DriveAuthenticationError(str(error)) from error
+
+    if creds and not creds.has_scopes(DESKTOP_SCOPES):
+        creds = None
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
@@ -370,7 +375,7 @@ def build_drive_service(
                     raise DriveAuthenticationError("請按連接 Google Drive，重新完成授權。")
                 flow = InstalledAppFlow.from_client_config(
                     data,
-                    [DRIVE_SCOPE],
+                    DESKTOP_SCOPES,
                     autogenerate_code_verifier=True,
                 )
                 creds = flow.run_local_server(port=0, open_browser=True, timeout_seconds=180)
@@ -389,17 +394,50 @@ def build_drive_service(
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
-def desktop_account_identity(service: Any) -> tuple[str, str]:
-    """Return the connected Google Drive user's display name and email."""
+def desktop_account_identity(service: Any) -> tuple[str, str, str]:
+    """Return the connected Google Drive user's display name, email and avatar URL."""
 
     try:
-        response = service.about().get(fields="user(displayName,emailAddress)").execute()
+        response = service.about().get(
+            fields="user(displayName,emailAddress,photoLink)"
+        ).execute()
         user = response.get("user", {})
-        return str(user.get("displayName") or "Google Drive"), str(
-            user.get("emailAddress") or ""
+        return (
+            str(user.get("displayName") or "Google Drive"),
+            str(user.get("emailAddress") or ""),
+            str(user.get("photoLink") or ""),
         )
     except Exception as error:  # noqa: BLE001 - normalize Google transport errors
         raise DriveAuthenticationError(f"無法讀取 Google 帳號資訊：{error}") from error
+
+
+def fetch_google_avatar(photo_url: str, *, maximum_bytes: int = 1_000_000) -> bytes:
+    """Fetch a small Google account avatar without accepting arbitrary remote hosts."""
+
+    if not _is_google_avatar_url(photo_url):
+        return b""
+    request = urllib.request.Request(photo_url, headers={"User-Agent": "DUPESPACE Desktop"})
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:  # noqa: S310
+            # urllib follows redirects. Re-check the final destination before reading any
+            # bytes so a compromised photoLink cannot pivot the desktop app to another host.
+            if not _is_google_avatar_url(str(response.geturl())):
+                return b""
+            content_type = str(response.headers.get("Content-Type") or "").casefold()
+            if not content_type.startswith("image/"):
+                return b""
+            data = response.read(maximum_bytes + 1)
+            return data if len(data) <= maximum_bytes else b""
+    except (OSError, urllib.error.URLError, ValueError):
+        return b""
+
+
+def _is_google_avatar_url(value: str) -> bool:
+    parsed = urllib.parse.urlparse(value)
+    hostname = (parsed.hostname or "").casefold()
+    return parsed.scheme == "https" and (
+        hostname == "googleusercontent.com" or hostname.endswith(".googleusercontent.com")
+    )
 
 
 def disconnect_desktop_account() -> None:

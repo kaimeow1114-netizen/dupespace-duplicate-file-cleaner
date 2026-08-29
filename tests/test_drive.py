@@ -6,7 +6,7 @@ from typing import Any
 
 import dupespace.drive as drive_module
 from dupespace.drive import (
-    DRIVE_SCOPE,
+    DESKTOP_SCOPES,
     GoogleDrivePermanentDeleteExecutor,
     GoogleDriveScanner,
     GoogleDriveTrashExecutor,
@@ -207,7 +207,7 @@ def test_desktop_oauth_enables_pkce_and_strips_json_secret(
 
     assert service == "drive-service"
     assert calls["config"]["installed"]["client_secret"] == ""
-    assert calls["scopes"] == [DRIVE_SCOPE]
+    assert calls["scopes"] == DESKTOP_SCOPES
     assert calls["kwargs"] == {"autogenerate_code_verifier": True}
     assert calls["server"] == {"port": 0, "open_browser": True, "timeout_seconds": 180}
 
@@ -228,6 +228,35 @@ def test_noninteractive_auth_never_opens_browser(monkeypatch, tmp_path):
     )
     with pytest.raises(drive_module.DriveAuthenticationError):
         build_drive_service(interactive=False)
+
+
+def test_google_avatar_rejects_redirect_to_untrusted_host(monkeypatch):
+    class FakeResponse:
+        headers = {"Content-Type": "image/png"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def geturl(self):
+            return "https://example.com/tracked-avatar.png"
+
+        def read(self, _limit):
+            raise AssertionError("Untrusted redirect body must not be read")
+
+    monkeypatch.setattr(
+        drive_module.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: FakeResponse(),
+    )
+
+    result = drive_module.fetch_google_avatar(
+        "https://lh3.googleusercontent.com/a/example"
+    )
+
+    assert result == b""
 
 
 def test_drive_scanner_paginates_and_skips_unsafe_items() -> None:

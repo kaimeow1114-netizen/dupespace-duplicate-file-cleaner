@@ -16,9 +16,9 @@ from dupespace.windows_safety import WindowsSafetyPolicy
     reason="Opt-in Windows Recycle Bin integration on isolated CI fixtures",
 )
 def test_real_recycle_bin_and_permanent_delete_use_only_generated_files(tmp_path: Path):
-    keep, clean = tmp_path / "keep", tmp_path / "clean"
-    keep.mkdir()
-    clean.mkdir()
+    clean = tmp_path / "clean"
+    keep = clean / "protected"
+    keep.mkdir(parents=True)
     original = keep / "dupespace-qa-original.bin"
     reversible = clean / "dupespace-qa-trash-copy.bin"
     permanent = clean / "dupespace-qa-permanent-copy.bin"

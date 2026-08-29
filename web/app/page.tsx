@@ -50,7 +50,7 @@ export default function Home() {
 
       <section className="section faq-band" id="faq"><div className="shell faq-section"><div className="section-heading"><span className="eyebrow"><ShieldCheck size={15} aria-hidden="true" /> 常見問題</span><h2><span className="heading-phrase">開始之前，</span><wbr /><span className="heading-phrase">先把安全規則說清楚。</span></h2></div><FaqMotion /></div></section>
 
-      <section className="section download-band" id="download"><div className="shell download-section"><div className="download-card"><div className="download-mark"><HardDriveDownload size={48} aria-hidden="true" /></div><div><span className="eyebrow"><HardDriveDownload size={15} aria-hidden="true" /> WINDOWS 10 / 11</span><h2><span className="heading-phrase">需要整理本機檔案？</span><wbr /><span className="heading-phrase">Windows 版免費開源。</span></h2><p>先閱讀保留區／清理區、安全排除與復原規則，再前往下載最新版安裝程式。</p></div><a className="button secondary" href="/download">查看 Windows 版</a></div></div></section>
+      <section className="section download-band" id="download"><div className="shell download-section"><div className="download-card"><div className="download-mark"><HardDriveDownload size={48} aria-hidden="true" /></div><div><span className="eyebrow"><HardDriveDownload size={15} aria-hidden="true" /> WINDOWS 10 / 11</span><h2><span className="heading-phrase">需要整理本機檔案？</span><wbr /><span className="heading-phrase">Windows 版免費開源。</span></h2><p>拖入想整理的資料夾即可遞迴掃描，每組自動鎖定最舊檔；需要時再保護重要子資料夾。</p></div><a className="button secondary" href="/download">查看 Windows 版</a></div></div></section>
       <AdPanel />
       <SiteFooter />
     </main>

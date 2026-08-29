@@ -53,6 +53,7 @@ from PySide6.QtWidgets import (
 
 from .. import __version__
 from ..confirmations import needs_second_confirmation
+from ..diagnostics import append_diagnostic_event, safe_error_message
 from ..drive import (
     DriveAuthenticationError,
     DriveScanCancelled,
@@ -60,6 +61,7 @@ from ..drive import (
     build_drive_service,
     desktop_account_identity,
     disconnect_desktop_account,
+    fetch_google_avatar,
 )
 from ..grouping import selected_bytes, unlock_locked_folder
 from ..local import LocalScanner, ScanCancelled
@@ -85,6 +87,7 @@ from .widgets import (
     Card,
     DuplicateModel,
     FileDelegate,
+    FolderDropList,
     Notice,
     ScanOrbit,
     button,
@@ -155,9 +158,12 @@ class MainWindow(QMainWindow):
         self.worker: Worker | None = None
         self.last_result: CleanupResult | None = None
         self.current_page = "local"
-        self.root_lists: dict[str, QListWidget] = {}
-        self.root_views: dict[str, QStackedWidget] = {}
         self.nav_buttons = {}
+        self.nav_specs: dict[str, tuple[str, str]] = {}
+        self.sidebar_aux_buttons: list[tuple[QWidget, str]] = []
+        self.sidebar_collapsed = False
+        self.account_display_text = "未登入"
+        self._auth_silent = False
         self.update_thread: QThread | None = None
         self.update_worker: Worker | None = None
         self.update_release: ReleaseInfo | None = None
@@ -178,6 +184,8 @@ class MainWindow(QMainWindow):
         self._refresh_roots()
         self.navigate("local")
         if restore_session:
+            if (app_data_dir() / "oauth-token.dpapi").is_file():
+                QTimer.singleShot(350, lambda: self.connect_drive(interactive=False, silent=True))
             QTimer.singleShot(2200, self._auto_update_check)
 
     def _build_shell(self) -> None:
@@ -186,33 +194,46 @@ class MainWindow(QMainWindow):
         shell.setContentsMargins(0, 0, 0, 0)
         shell.setSpacing(0)
         self.setCentralWidget(central)
-        sidebar = QFrame()
-        sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(220)
-        side = QVBoxLayout(sidebar)
-        side.setContentsMargins(17, 27, 17, 22)
+        self.sidebar = QFrame()
+        self.sidebar.setObjectName("sidebar")
+        self.sidebar.setFixedWidth(220)
+        side = QVBoxLayout(self.sidebar)
+        side.setContentsMargins(14, 18, 14, 16)
         side.setSpacing(6)
+        brand_row = QHBoxLayout()
         logo = QLabel()
+        self.brand_logo = logo
         pixmap = QPixmap(str(files("dupespace.assets").joinpath("dupespace-icon.png")))
         logo.setPixmap(
             pixmap.scaled(
-                48,
-                48,
+                34,
+                34,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
         )
-        side.addWidget(logo)
-        side.addWidget(label("DUPESPACE", "brand"))
-        side.addWidget(label("留好重要的，整理多餘的。", "small"))
-        side.addSpacing(32)
-        side.addWidget(label("WORKSPACE", "eyebrow"))
+        brand_row.addWidget(logo)
+        self.brand_name = label("DUPESPACE", "brand")
+        brand_row.addWidget(self.brand_name, 1)
+        self.collapse_button = button("", kind="nav")
+        self.collapse_button.setIcon(icon("panel", "#78BDB7"))
+        self.collapse_button.setFixedSize(32, 34)
+        self.collapse_button.setToolTip("收合側邊欄")
+        self.collapse_button.clicked.connect(self._toggle_sidebar)
+        brand_row.addWidget(self.collapse_button)
+        side.addLayout(brand_row)
+        self.brand_slogan = label("留好重要的，整理多餘的。", "small")
+        side.addWidget(self.brand_slogan)
+        side.addSpacing(24)
+        self.workspace_label = label("WORKSPACE", "eyebrow")
+        side.addWidget(self.workspace_label)
         side.addSpacing(8)
         for key, title, glyph in (
             ("local", "本機清理", "drive"),
             ("drive", "Google Drive", "cloud"),
             ("history", "清理紀錄", "history"),
             ("safety", "安全中心", "shield"),
+            ("github", "GitHub 與回報", "github"),
         ):
             nav = button(title, kind="nav")
             nav.setIcon(icon(glyph, "#78BDB7"))
@@ -220,41 +241,32 @@ class MainWindow(QMainWindow):
             nav.setCheckable(True)
             nav.clicked.connect(lambda _checked=False, page=key: self.navigate(page))
             self.nav_buttons[key] = nav
+            self.nav_specs[key] = (title, glyph)
             side.addWidget(nav)
         side.addStretch()
-        side.addWidget(label("LOCAL FIRST", "eyebrow"))
-        side.addWidget(label("本機檔案不離開電腦。\n每次清理都有 CSV 紀錄。", "small", wrap=True))
-        side.addSpacing(18)
-        preferences = button("偏好設定", kind="nav")
+        preferences = button("偏好設定", "settings", "nav")
         preferences.setIcon(icon("settings", "#78BDB7"))
         preferences.clicked.connect(self._settings)
+        self.sidebar_aux_buttons.append((preferences, "偏好設定"))
         side.addWidget(preferences)
-        self.update_button = button("檢查更新", kind="nav")
+        self.update_button = button("檢查更新", "download", "nav")
         self.update_button.setIcon(icon("download", "#78BDB7"))
         self.update_button.clicked.connect(self.check_updates)
+        self.sidebar_aux_buttons.append((self.update_button, "檢查更新"))
         side.addWidget(self.update_button)
+        self.account_chip = button("未登入", "user", "account")
+        self.account_chip.setIcon(icon("user", "#99F6E4"))
+        self.account_chip.setIconSize(QSize(22, 22))
+        self.account_chip.setToolTip("連接 Google Drive")
+        self.account_chip.clicked.connect(lambda: self.navigate("drive"))
+        side.addWidget(self.account_chip)
         self.version_label = label(f"WINDOWS  /  {__version__}", "small")
         side.addWidget(self.version_label)
-        shell.addWidget(sidebar)
+        shell.addWidget(self.sidebar)
         workspace = QWidget()
         space = QVBoxLayout(workspace)
         space.setContentsMargins(0, 0, 0, 0)
         space.setSpacing(0)
-        topbar = QFrame()
-        topbar.setObjectName("topbar")
-        topbar.setMinimumHeight(68)
-        top = QHBoxLayout(topbar)
-        top.setContentsMargins(32, 12, 28, 12)
-        self.breadcrumb = label("工作空間 / 本機清理", "muted")
-        top.addWidget(self.breadcrumb)
-        top.addStretch()
-        self.account_chip = button("本機模式 · 無需登入", "user", "subtle")
-        self.account_chip.setMaximumWidth(300)
-        self.account_chip.clicked.connect(lambda: self.navigate("drive"))
-        top.addWidget(self.account_chip)
-        space.addWidget(topbar)
-        self.global_notice = Notice()
-        space.addWidget(self.global_notice)
         self.stack = QStackedWidget()
         self.pages = {}
         for key, page in (
@@ -265,123 +277,86 @@ class MainWindow(QMainWindow):
             ("complete", self._build_complete()),
             ("history", self._build_history()),
             ("safety", self._build_safety()),
+            ("github", self._build_github()),
         ):
             self.pages[key] = page
             self.stack.addWidget(page)
         space.addWidget(self.stack, 1)
+        self.global_notice = Notice()
+        self.global_notice.setContentsMargins(18, 0, 18, 12)
+        space.addWidget(self.global_notice)
         shell.addWidget(workspace, 1)
 
     def _build_local(self) -> QWidget:
         page, box = scroll_page()
-        box.addWidget(label("A LITTLE LESS CLUTTER. A LITTLE MORE SPACE.", "eyebrow"))
-        box.addWidget(label("空間清爽，重要檔案好好留下。", "title", wrap=True))
+        box.addWidget(label("LOCAL CLEANUP", "eyebrow"))
+        box.addWidget(label("把想整理的資料夾放進來。", "title", wrap=True))
         box.addWidget(
             label(
-                "先指定要保護的原檔，再選擇想整理的位置。只有兩邊內容完全相同的副本才會列出。",
+                "DUPESPACE 只會遞迴掃描您加入的位置；找出內容完全相同的檔案後，"
+                "每組最舊的一份會自動保留。",
                 "muted",
                 wrap=True,
             )
         )
-        profile_row = QHBoxLayout()
+        picker_card = Card(kind="clean")
+        picker_header = QHBoxLayout()
+        picker_header.addWidget(label("掃描位置", "heading"))
+        picker_header.addStretch()
+        self.root_summary = label("尚未加入資料夾", "badge")
+        picker_header.addWidget(self.root_summary)
+        picker_card.box.addLayout(picker_header)
+        self.root_picker = FolderDropList()
+        self.root_picker.folder_requested.connect(self._add_cleanup_root)
+        self.root_picker.folders_dropped.connect(self._add_dropped_roots)
+        self.root_picker.currentItemChanged.connect(self._root_selection_changed)
+        picker_card.box.addWidget(self.root_picker)
+        self.current_root_feedback = label(
+            "點選已加入的位置後，可以保護其中的子資料夾或移除該位置。",
+            "small",
+            wrap=True,
+        )
+        picker_card.box.addWidget(self.current_root_feedback)
+        picker_actions = QHBoxLayout()
+        add = button("選擇資料夾", "plus", "primary")
+        add.clicked.connect(self._add_cleanup_root)
+        picker_actions.addWidget(add)
+        self.protect_root_button = button("保護所選位置內的子資料夾", "shield")
+        self.protect_root_button.clicked.connect(self._protect_subfolder)
+        self.protect_root_button.setEnabled(False)
+        picker_actions.addWidget(self.protect_root_button)
+        self.remove_root_button = button("移除所選位置", "close", "subtle")
+        self.remove_root_button.setToolTip("只移出掃描清單，不會刪除任何檔案")
+        self.remove_root_button.clicked.connect(self._remove_selected_root)
+        self.remove_root_button.setEnabled(False)
+        picker_actions.addWidget(self.remove_root_button)
+        picker_actions.addStretch()
+        picker_card.box.addLayout(picker_actions)
+        box.addWidget(picker_card)
+        utility_row = QHBoxLayout()
         self.profiles = QComboBox()
         self.profiles.setAccessibleName("載入常用位置設定檔")
         self._refresh_profiles()
         self.profiles.activated.connect(self._load_profile)
-        profile_row.addWidget(self.profiles, 1)
+        utility_row.addWidget(self.profiles, 1)
         save = button("儲存這組位置", "folder", "subtle")
         save.clicked.connect(self._save_profile)
-        profile_row.addWidget(save)
-        box.addLayout(profile_row)
-        zones = QHBoxLayout()
-        zones.setSpacing(20)
-        for role, number, title, description, placeholder in (
-            (
-                "keep",
-                "01",
-                "保留區",
-                "這裡的所有檔案永遠不會被選取或刪除。",
-                "例如：照片原檔、文件收藏",
-            ),
-            (
-                "clean",
-                "02",
-                "清理區",
-                "只找出保留區已有的副本，清理前由你決定。",
-                "例如：匯入副本、重複下載",
-            ),
-        ):
-            card = Card(kind=role)
-            heading = QHBoxLayout()
-            heading.addWidget(label(number, "eyebrow"))
-            heading.addWidget(label(title, "heading"))
-            heading.addStretch()
-            glyph = QLabel()
-            glyph.setPixmap(
-                icon(
-                    "shield" if role == "keep" else "folder",
-                    EMERALD if role == "keep" else TEAL,
-                    28,
-                ).pixmap(28)
-            )
-            heading.addWidget(glyph)
-            card.box.addLayout(heading)
-            card.box.addWidget(label(description, "muted", wrap=True))
-            paths = QListWidget()
-            paths.setMinimumHeight(116)
-            paths.setMaximumHeight(160)
-            paths.setAccessibleName(f"{title}資料夾列表")
-            paths.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            self.root_lists[role] = paths
-            empty = QWidget()
-            empty_box = QVBoxLayout(empty)
-            empty_box.setContentsMargins(12, 14, 12, 14)
-            empty_box.addStretch()
-            empty_heading = label(
-                "想保護的原檔，從這裡開始" if role == "keep" else "想整理的位置，從這裡開始",
-                "muted",
-            )
-            empty_heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty_box.addWidget(empty_heading)
-            hint = label("選擇資料夾，不會移動任何檔案", "small")
-            hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty_box.addWidget(hint)
-            empty_box.addStretch()
-            view = QStackedWidget()
-            view.addWidget(empty)
-            view.addWidget(paths)
-            view.setFixedHeight(128)
-            self.root_views[role] = view
-            card.box.addWidget(view)
-            card.box.addWidget(label(placeholder, "small", wrap=True))
-            actions = QHBoxLayout()
-            add = button("加入資料夾", "plus", "add")
-            add.clicked.connect(
-                lambda _checked=False, selected_role=role: self._add_root(selected_role)
-            )
-            actions.addWidget(add, 1)
-            remove = button("移除", "close", "subtle")
-            remove.setToolTip("只移除掃描位置，不會刪除檔案")
-            remove.clicked.connect(
-                lambda _checked=False, selected_role=role: self._remove_root(selected_role)
-            )
-            actions.addWidget(remove)
-            card.box.addLayout(actions)
-            zones.addWidget(card, 1)
-        box.addLayout(zones)
-        box.addWidget(
-            Notice(
-                "系統位置、程式碼專案、套件與未下載的雲端檔案會受到保護。"
-                "相同設定檔可能各有用途，不會因為內容相同就清除你的專案。"
-            )
-        )
+        utility_row.addWidget(save)
+        box.addLayout(utility_row)
         actions = QHBoxLayout()
-        self.ready_text = label("加入至少一個保留區與一個清理區，就可以開始。", "muted", wrap=True)
+        self.ready_text = label("加入至少一個資料夾，就可以開始。", "muted", wrap=True)
         actions.addWidget(self.ready_text, 1)
         self.scan_button = button("開始安全掃描", "arrow", "primary")
         self.scan_button.setMinimumHeight(48)
         self.scan_button.clicked.connect(self.start_local_scan)
         actions.addWidget(self.scan_button)
         box.addLayout(actions)
+        box.addWidget(
+            Notice(
+                "程式碼專案與 Windows 系統位置不列入清理；套件、備份、同步資料夾"
+                "與雲端占位檔預設鎖定。保護子資料夾是選用功能。"
+            )
+        )
         box.addStretch()
         return page
 
@@ -390,10 +365,11 @@ class MainWindow(QMainWindow):
         box.addWidget(label("YOUR FILES STAY IN YOUR GOOGLE DRIVE", "eyebrow"))
         box.addWidget(label("雲端整理，也要先守護原檔。", "title", wrap=True))
         box.addWidget(
-            Notice(
-                "Google 資料存取權驗證尚未完成，正在準備示範影片與送審。"
-                "此功能目前不是已完成驗證的正式公開服務，登入可能受到 Google 限制。",
-                "warning",
+            label(
+                "登入後只讀取比對與操作所需的 Google Drive 資訊。"
+                "您可以隨時中斷連線並清除這台電腦上的登入權杖。",
+                "muted",
+                wrap=True,
             )
         )
         account = Card()
@@ -464,8 +440,23 @@ class MainWindow(QMainWindow):
         card.box.addWidget(self.progress_count)
         self.progress_path = label("", "small")
         self.progress_path.setMaximumWidth(850)
+        self.progress_path.setWordWrap(True)
         card.box.addWidget(self.progress_path)
         box.addWidget(card)
+        self.progress_tips = (
+            "精確比對內容，不靠檔名猜測。",
+            "硬碟沒有變胖，只是副本太熱情。",
+            "重要檔案先留下，剩下的空間交給 DUPESPACE。",
+            "不追趕進度條；安全比快一秒重要。",
+            "資料夾正在排隊報到，重複的會被分到同一組。",
+        )
+        self.progress_tip_index = 0
+        self.progress_tip = label(self.progress_tips[0], "muted", wrap=True)
+        self.progress_tip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        box.addWidget(self.progress_tip)
+        self.progress_tip_timer = QTimer(self)
+        self.progress_tip_timer.setInterval(3200)
+        self.progress_tip_timer.timeout.connect(self._rotate_progress_tip)
         self.stop_button = button("安全停止", "stop", "secondary")
         self.stop_button.clicked.connect(self.request_stop)
         box.addWidget(self.stop_button, 0, Qt.AlignmentFlag.AlignCenter)
@@ -646,8 +637,9 @@ class MainWindow(QMainWindow):
         box.addWidget(label("方便，不以犧牲檔案為代價。", "title", wrap=True))
         for title, text, glyph in (
             (
-                "保留區是不可越過的界線",
-                "所有保留區檔案永遠不能選取。清理區內自行重複、但保留區沒有的檔案不會列入。",
+                "每組一定保留一份",
+                "不必事先指定原檔位置。每組內容完全相同的檔案會鎖定最舊的一份；"
+                "也能把掃描位置內的子資料夾設為永遠不可選取的保護區。",
                 "shield",
             ),
             (
@@ -689,6 +681,63 @@ class MainWindow(QMainWindow):
         box.addStretch()
         return page
 
+    def _build_github(self) -> QWidget:
+        page, box = scroll_page()
+        box.addWidget(label("OPEN SOURCE AND ACCOUNTABLE", "eyebrow"))
+        box.addWidget(label("讓每個問題，都有地方被看見。", "title", wrap=True))
+        box.addWidget(
+            label(
+                "DUPESPACE 的程式碼、版本紀錄與已知問題皆公開。回報越完整，"
+                "越能快速定位掃描、登入或清理失敗的原因。",
+                "muted",
+                wrap=True,
+            )
+        )
+        project = Card()
+        row = QHBoxLayout()
+        mark = QLabel()
+        mark.setPixmap(icon("github", TEAL, 32).pixmap(32))
+        row.addWidget(mark)
+        details = QVBoxLayout()
+        details.addWidget(label("DUPESPACE GitHub", "heading"))
+        details.addWidget(label(f"目前桌面版本 {__version__} · 公開原始碼", "muted"))
+        row.addLayout(details, 1)
+        project.box.addLayout(row)
+        project_actions = QHBoxLayout()
+        for title, glyph, url, kind in (
+            ("查看專案", "external", GITHUB, "primary"),
+            ("回報問題", "bug", GITHUB + "/issues/new?template=bug-report.yml", "secondary"),
+            (
+                "提出功能建議",
+                "message",
+                GITHUB + "/issues/new?template=feature-request.yml",
+                "subtle",
+            ),
+        ):
+            action = button(title, glyph, kind)
+            action.clicked.connect(lambda _checked=False, address=url: self._open_url(address))
+            project_actions.addWidget(action)
+        project_actions.addStretch()
+        project.box.addLayout(project_actions)
+        box.addWidget(project)
+        report = Card()
+        report.box.addWidget(label("有效的問題回報", "heading"))
+        report.box.addWidget(
+            label(
+                "請附上 DUPESPACE 版本、Windows 版本、加入的掃描位置數量、"
+                "發生問題的階段與畫面上的完整錯誤訊息。不要公開 OAuth Token、"
+                "憑證或私人檔案內容；CSV 可能包含完整路徑，上傳前務必先檢查。",
+                "muted",
+                wrap=True,
+            )
+        )
+        diagnostics = button("開啟本機診斷紀錄位置", "folder", "subtle")
+        diagnostics.clicked.connect(self._open_diagnostics_folder)
+        report.box.addWidget(diagnostics, 0, Qt.AlignmentFlag.AlignLeft)
+        box.addWidget(report)
+        box.addStretch()
+        return page
+
     def navigate(self, key: str) -> None:
         if self.busy:
             return
@@ -699,10 +748,6 @@ class MainWindow(QMainWindow):
         if key == "drive" and self.session.source == "drive" and self.session.report:
             key = "review"
         self._show_page(key)
-        if key == "drive" and self.restore_session and self.service is None:
-            self.restore_session = False
-            if (app_data_dir() / "oauth-token.dpapi").is_file():
-                self.connect_drive(interactive=False)
 
     def _show_page(self, key: str) -> None:
         self.current_page = key
@@ -710,16 +755,6 @@ class MainWindow(QMainWindow):
         nav_key = self.session.source if key in {"review", "complete", "progress"} else key
         for name, nav in self.nav_buttons.items():
             nav.setChecked(name == nav_key)
-        titles = {
-            "local": "本機清理",
-            "drive": "Google Drive",
-            "history": "清理紀錄",
-            "safety": "安全中心",
-            "review": "檢查副本",
-            "progress": "安全處理中",
-            "complete": "整理結果",
-        }
-        self.breadcrumb.setText(f"工作空間 / {titles[key]}")
         if not self.reduced_motion:
             effect = QGraphicsOpacityEffect(self.stack)
             self.stack.setGraphicsEffect(effect)
@@ -730,53 +765,159 @@ class MainWindow(QMainWindow):
             self.fade.setEasingCurve(QEasingCurve.Type.OutCubic)
             self.fade.start()
 
+    def _toggle_sidebar(self) -> None:
+        self.sidebar_collapsed = not self.sidebar_collapsed
+        self.sidebar.setFixedWidth(72 if self.sidebar_collapsed else 220)
+        self.brand_logo.setVisible(not self.sidebar_collapsed)
+        self.brand_name.setVisible(not self.sidebar_collapsed)
+        self.brand_slogan.setVisible(not self.sidebar_collapsed)
+        self.workspace_label.setVisible(not self.sidebar_collapsed)
+        self.version_label.setVisible(not self.sidebar_collapsed)
+        self.collapse_button.setToolTip(
+            "展開側邊欄" if self.sidebar_collapsed else "收合側邊欄"
+        )
+        for key, nav in self.nav_buttons.items():
+            title, _glyph = self.nav_specs[key]
+            nav.setText("" if self.sidebar_collapsed else title)
+            nav.setToolTip(title if self.sidebar_collapsed else "")
+        for auxiliary, title in self.sidebar_aux_buttons:
+            auxiliary.setText("" if self.sidebar_collapsed else title)
+            auxiliary.setToolTip(title if self.sidebar_collapsed else "")
+        self._refresh_account_chip()
+
+    def _refresh_account_chip(self) -> None:
+        self.account_chip.setText("" if self.sidebar_collapsed else self.account_display_text)
+        self.account_chip.setToolTip(
+            f"Google Drive 已連線\n{self.account_email}"
+            if self.account_email
+            else "未登入；本機清理不需要 Google 帳號"
+        )
+
+    def _rotate_progress_tip(self) -> None:
+        self.progress_tip_index = (self.progress_tip_index + 1) % len(self.progress_tips)
+        self.progress_tip.setText(self.progress_tips[self.progress_tip_index])
+
     def _refresh_roots(self) -> None:
-        for role, listing in self.root_lists.items():
-            listing.clear()
-            for root in self.session.roots:
-                if root.role == role:
-                    item = QListWidgetItem(icon("folder"), root.physical_path)
-                    item.setData(Qt.ItemDataRole.UserRole, root.physical_path)
-                    item.setToolTip(root.physical_path)
-                    listing.addItem(item)
-            self.root_views[role].setCurrentIndex(1 if listing.count() else 0)
+        selected = self.root_picker.currentItem()
+        selected_data = selected.data(Qt.ItemDataRole.UserRole) if selected else None
+        self.root_picker.clear()
+        next_selection = None
+        for root in self.session.roots:
+            protected = root.role == "keep"
+            path = Path(root.physical_path)
+            item = QListWidgetItem(
+                icon("shield" if protected else "folder", EMERALD if protected else TEAL),
+                f"{'保護資料夾' if protected else '整理位置'}    {path.name}\n{root.physical_path}",
+            )
+            item.setData(Qt.ItemDataRole.UserRole, (root.physical_path, root.role))
+            item.setToolTip(root.physical_path)
+            item.setSizeHint(QSize(0, 68))
+            self.root_picker.addItem(item)
+            if item.data(Qt.ItemDataRole.UserRole) == selected_data:
+                next_selection = item
+        if next_selection:
+            self.root_picker.setCurrentItem(next_selection)
         self.scan_button.setEnabled(self.session.ready and not self.busy)
+        clean_count = sum(root.role == "clean" for root in self.session.roots)
+        protected_count = len(self.session.roots) - clean_count
+        self.root_summary.setText(
+            "尚未加入資料夾"
+            if not clean_count
+            else f"{clean_count} 個整理位置 · {protected_count} 個保護資料夾"
+        )
         if self.session.ready:
-            count_keep = sum(root.role == "keep" for root in self.session.roots)
             self.ready_text.setText(
-                f"{count_keep} 個保留區 · {len(self.session.roots) - count_keep} 個清理區。"
-                "掃描只讀取，不會刪除。"
+                f"將遞迴掃描 {clean_count} 個位置的所有子資料夾。掃描本身不會刪除檔案。"
             )
         else:
-            self.ready_text.setText("加入至少一個保留區與一個清理區，就可以開始。")
+            self.ready_text.setText("加入至少一個資料夾，就可以開始。")
+        self._root_selection_changed(self.root_picker.currentItem(), None)
 
-    def _add_root(self, role: str) -> None:
+    def _add_cleanup_root(self) -> None:
         folder = QFileDialog.getExistingDirectory(
             self,
-            "選擇保留區" if role == "keep" else "選擇清理區",
+            "選擇要整理的資料夾",
             "",
             QFileDialog.Option.ShowDirsOnly | QFileDialog.Option.DontResolveSymlinks,
         )
-        if not folder:
-            return
+        if folder:
+            self._add_dropped_roots([folder])
+
+    def _add_dropped_roots(self, folders) -> None:
+        roots = list(self.session.roots)
         try:
-            self.session.set_roots((*self.session.roots, ScanRoot(folder, role)))
+            for folder in dict.fromkeys(str(path) for path in folders):
+                roots.append(ScanRoot(folder, "clean"))
+            self.session.set_roots(tuple(roots))
             self.global_notice.setText("")
         except (ValueError, OSError) as error:
             self.global_notice.setText(f"這個位置不能加入：{error}")
         self._refresh_roots()
 
-    def _remove_root(self, role: str) -> None:
-        item = self.root_lists[role].currentItem()
-        if item:
-            path = item.data(Qt.ItemDataRole.UserRole)
-            try:
-                self.session.set_roots(
-                    tuple(root for root in self.session.roots if root.physical_path != path)
-                )
-            except (ValueError, OSError) as error:
-                self.global_notice.setText(f"位置已變更，請重新設定：{error}")
-            self._refresh_roots()
+    def _root_selection_changed(self, current, _previous) -> None:
+        data = current.data(Qt.ItemDataRole.UserRole) if current else None
+        if not data:
+            self.current_root_feedback.setText(
+                "點選已加入的位置後，可以保護其中的子資料夾或移除該位置。"
+            )
+            self.protect_root_button.setEnabled(False)
+            self.remove_root_button.setEnabled(False)
+            return
+        path, role = data
+        self.current_root_feedback.setText(
+            f"目前選取：{path}\n"
+            + (
+                "此位置會完整遞迴掃描；可另外保護其中一個子資料夾。"
+                if role == "clean"
+                else "此子資料夾參與內容比對，但其中的檔案永遠不可選取。"
+            )
+        )
+        self.current_root_feedback.setToolTip(path)
+        self.protect_root_button.setEnabled(role == "clean" and not self.busy)
+        self.remove_root_button.setEnabled(not self.busy)
+
+    def _protect_subfolder(self) -> None:
+        item = self.root_picker.currentItem()
+        data = item.data(Qt.ItemDataRole.UserRole) if item else None
+        if not data or data[1] != "clean":
+            return
+        clean_path = data[0]
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "選擇要保護的子資料夾",
+            clean_path,
+            QFileDialog.Option.ShowDirsOnly | QFileDialog.Option.DontResolveSymlinks,
+        )
+        if not folder:
+            return
+        try:
+            self.session.set_roots((*self.session.roots, ScanRoot(folder, "keep")))
+            self.global_notice.setText("已加入保護子資料夾；其中檔案會參與比對，但永遠不會被選取。")
+        except (ValueError, OSError) as error:
+            self.global_notice.setText(f"這個子資料夾不能保護：{error}")
+        self._refresh_roots()
+
+    def _remove_selected_root(self) -> None:
+        item = self.root_picker.currentItem()
+        data = item.data(Qt.ItemDataRole.UserRole) if item else None
+        if not data:
+            return
+        path, role = data
+        removed = Path(path)
+        roots = []
+        for root in self.session.roots:
+            candidate = Path(root.physical_path)
+            if root.physical_path == path:
+                continue
+            if role == "clean" and root.role == "keep" and candidate.is_relative_to(removed):
+                continue
+            roots.append(root)
+        try:
+            self.session.set_roots(tuple(roots))
+            self.global_notice.setText("位置已移出掃描清單，沒有刪除任何檔案。")
+        except (ValueError, OSError) as error:
+            self.global_notice.setText(f"位置無法移除：{error}")
+        self._refresh_roots()
 
     def _refresh_profiles(self) -> None:
         self.profiles.clear()
@@ -788,7 +929,7 @@ class MainWindow(QMainWindow):
 
     def _save_profile(self) -> None:
         if not self.session.ready:
-            self.global_notice.setText("先選好保留區與清理區，再儲存這組位置。")
+            self.global_notice.setText("先加入至少一個整理位置，再儲存這組位置。")
             return
         name, accepted = QInputDialog.getText(
             self, "儲存常用位置", "設定檔名稱（僅保存路徑，不保存選取或解鎖狀態）"
@@ -832,11 +973,12 @@ class MainWindow(QMainWindow):
             return
         self.session.source = "local"
         roots = self.session.roots
+        clean_names = [Path(root.physical_path).name for root in roots if root.role == "clean"]
         self._launch(
             lambda emit: LocalScanner().scan(roots, progress=emit, cancel_event=self.cancel_event),
             self._accept_scan,
             "正在仔細比對內容",
-            "掃描不會刪除任何檔案。完整比對需要一些時間。",
+            "只掃描：" + "、".join(clean_names[:4]) + (" 等位置" if len(clean_names) > 4 else ""),
         )
 
     def start_drive_scan(self) -> None:
@@ -895,7 +1037,9 @@ class MainWindow(QMainWindow):
                 f"{copies:,} 個副本 · 重複容量占已掃描 {percentage:.1f}%"
             )
         self.review_title.setText(
-            "原檔已保護，副本由你決定。" if self.session.groups else "這次沒有需要整理的副本。"
+            "每組最舊檔已保留，副本由你決定。"
+            if self.session.groups
+            else "這次沒有需要整理的副本。"
         )
         self.mode_trash.setChecked(self.session.mode == "trash")
         self.mode_permanent.setChecked(self.session.mode == "permanent")
@@ -935,7 +1079,7 @@ class MainWindow(QMainWindow):
         self.clean_button.style().polish(self.clean_button)
         if not self.session.groups:
             self.review_notice.setText(
-                "沒有找到符合安全條件的重複副本。程式碼專案、保留區與受保護位置仍受到保護；"
+                "沒有找到符合安全條件的重複副本。程式碼專案、保護資料夾與系統位置仍受到保護；"
                 "也可以重新選擇掃描位置。"
             )
         else:
@@ -972,7 +1116,7 @@ class MainWindow(QMainWindow):
         context = record.safety_context
         if not context.locked_folder or context.is_hard_protected or record.root_role != "clean":
             self.global_notice.setText(
-                "這個項目不能解除保護。系統位置、程式碼專案與保留區永遠不會解鎖。"
+                "這個項目不能解除保護。系統位置、程式碼專案與保護資料夾永遠不會解鎖。"
             )
             return
         folder = context.locked_folder
@@ -1008,7 +1152,7 @@ class MainWindow(QMainWindow):
             "Google Drive / 我的雲端硬碟"
             if self.session.source == "drive"
             else "\n".join(
-                f"{'保留' if root.role == 'keep' else '清理'}：{root.physical_path}"
+                f"{'保護子資料夾' if root.role == 'keep' else '整理位置'}：{root.physical_path}"
                 for root in self.session.roots
             )
         )
@@ -1085,7 +1229,15 @@ class MainWindow(QMainWindow):
         )
         self._show_page("complete")
 
-    def _launch(self, task: Callable, callback: Callable, title: str, subtitle: str) -> None:
+    def _launch(
+        self,
+        task: Callable,
+        callback: Callable,
+        title: str,
+        subtitle: str,
+        *,
+        show_progress: bool = True,
+    ) -> None:
         if self.busy:
             return
         self.busy = True
@@ -1094,22 +1246,27 @@ class MainWindow(QMainWindow):
         self._job_result = None
         self._job_error = None
         self._return_page = self.current_page
+        self._job_show_progress = show_progress
         self.global_notice.setText("")
         for nav in self.nav_buttons.values():
             nav.setEnabled(False)
         self.account_chip.setEnabled(False)
         self.update_button.setEnabled(False)
         self.model.busy = True
-        self.progress_title.setText(title)
-        self.progress_subtitle.setText(subtitle)
-        self.progress_stage.setText("準備中")
-        self.progress_count.setText("正在開始這次工作")
-        self.progress_path.setText("")
-        self.progress_bar.setRange(0, 0)
-        self.stop_button.setText("安全停止")
-        self.stop_button.setEnabled(True)
-        self.orbit.animate(True, self.reduced_motion)
-        self._show_page("progress")
+        if show_progress:
+            self.progress_title.setText(title)
+            self.progress_subtitle.setText(subtitle)
+            self.progress_stage.setText("準備中")
+            self.progress_count.setText("正在開始這次工作")
+            self.progress_path.setText("")
+            self.progress_tip_index = 0
+            self.progress_tip.setText(self.progress_tips[0])
+            self.progress_tip_timer.start()
+            self.progress_bar.setRange(0, 0)
+            self.stop_button.setText("安全停止")
+            self.stop_button.setEnabled(True)
+            self.orbit.animate(True, self.reduced_motion)
+            self._show_page("progress")
         self.thread = QThread(self)
         self.worker = Worker(task)
         self.worker.moveToThread(self.thread)
@@ -1138,7 +1295,13 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _progress(self, update: ProgressUpdate) -> None:
-        stages = {"validation": "重新驗證副本與保留檔", "cleanup": "逐項記錄處理結果"}
+        stages = {
+            "enumerating": "正在讀取資料夾",
+            "hashing": "正在精確比對檔案內容",
+            "folders": "正在比對資料夾結構",
+            "validation": "重新驗證副本與保留檔",
+            "cleanup": "逐項記錄處理結果",
+        }
         self.progress_stage.setText(stages.get(update.stage, "正在精確比對，保護原檔"))
         if update.total and update.total > 0:
             self.progress_bar.setRange(0, 1000)
@@ -1148,7 +1311,7 @@ class MainWindow(QMainWindow):
             )
         else:
             self.progress_bar.setRange(0, 0)
-            self.progress_count.setText(f"已檢查 {update.current:,} 個項目")
+            self.progress_count.setText(f"已檢查 {update.current:,} 個檔案")
         self.progress_path.setToolTip(update.message)
         self.progress_path.setText(
             self.progress_path.fontMetrics().elidedText(
@@ -1165,7 +1328,9 @@ class MainWindow(QMainWindow):
             return
         self.busy = False
         self.model.busy = False
-        self.orbit.animate(False)
+        if self._job_show_progress:
+            self.orbit.animate(False)
+            self.progress_tip_timer.stop()
         self.thread = None
         self.worker = None
         for nav in self.nav_buttons.values():
@@ -1184,9 +1349,11 @@ class MainWindow(QMainWindow):
             if isinstance(error, (ScanCancelled, DriveScanCancelled)):
                 message = "掃描已停止。未產生可供清理的部分結果，沒有刪除任何檔案。"
             elif isinstance(error, DriveAuthenticationError):
+                self._auth_silent = False
+                append_diagnostic_event("google_drive_authentication_failed", error)
                 message = (
-                    "無法完成 Google 連線。請檢查網路與 Google 授權狀態，"
-                    "再按連接重試；本機功能不受影響。"
+                    "無法完成 Google 連線；本機功能不受影響。\n原因："
+                    + safe_error_message(error)[:400]
                 )
             else:
                 message = "這次工作未能完成，沒有啟動後續操作。請確認位置、權限與網路狀態後重試。"
@@ -1207,15 +1374,17 @@ class MainWindow(QMainWindow):
             self.stop_button.setText("正在安全停止…")
             self.progress_subtitle.setText("正在等目前檔案或網路請求完成；之後不再開始新的批次。")
 
-    def connect_drive(self, *, interactive: bool) -> None:
+    def connect_drive(self, *, interactive: bool, silent: bool = False) -> None:
         if self.busy:
             return
 
         def connect(_emit):
             service = build_drive_service(interactive=interactive)
-            name, email = desktop_account_identity(service)
-            return service, name, email
+            name, email, photo_url = desktop_account_identity(service)
+            avatar = fetch_google_avatar(photo_url) if photo_url else b""
+            return service, name, email, avatar
 
+        self._auth_silent = silent
         self._launch(
             connect,
             self._accept_account,
@@ -1223,22 +1392,29 @@ class MainWindow(QMainWindow):
             "請在系統瀏覽器完成 Google 授權。"
             if interactive
             else "正在安全地恢復先前連線；失效時會請你重新登入。",
+            show_progress=not silent,
         )
 
     def _accept_account(self, account) -> None:
-        self.service, self.account_name, self.account_email = account
+        self.service, self.account_name, self.account_email, avatar = account
         self.drive_identity.setText(self.account_name)
         self.drive_email.setText(self.account_email or "Google Drive 已連線")
-        self.account_chip.setText(
-            self.account_chip.fontMetrics().elidedText(
-                self.account_email or self.account_name, Qt.TextElideMode.ElideMiddle, 230
-            )
+        self.account_display_text = self.account_chip.fontMetrics().elidedText(
+            self.account_email or self.account_name, Qt.TextElideMode.ElideMiddle, 160
         )
-        self.account_chip.setToolTip(f"Google Drive 已連線\n{self.account_email}")
+        if avatar:
+            pixmap = QPixmap()
+            if pixmap.loadFromData(avatar):
+                self.account_chip.setIcon(QIcon(pixmap))
+        else:
+            self.account_chip.setIcon(icon("user", "#99F6E4"))
+        self._refresh_account_chip()
         self.connect_button.hide()
         self.disconnect_button.show()
         self.drive_scan.show()
-        self._show_page("drive")
+        if not self._auth_silent:
+            self._show_page("drive")
+        self._auth_silent = False
 
     def disconnect_drive(self) -> None:
         if not self.busy:
@@ -1252,8 +1428,9 @@ class MainWindow(QMainWindow):
     def _disconnected(self, _result) -> None:
         self.service = None
         self.account_name = self.account_email = ""
-        self.account_chip.setText("本機模式 · 無需登入")
-        self.account_chip.setToolTip("")
+        self.account_display_text = "未登入"
+        self.account_chip.setIcon(icon("user", "#99F6E4"))
+        self._refresh_account_chip()
         self.drive_identity.setText("尚未連接 Google Drive")
         self.drive_email.setText("本機清理不需要 Google 帳號。")
         self.connect_button.show()
@@ -1600,6 +1777,14 @@ class MainWindow(QMainWindow):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
         else:
             self.global_notice.setText("完成第一次清理後，會自動建立報告資料夾。")
+
+    def _open_diagnostics_folder(self) -> None:
+        folder = app_data_dir()
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+        except OSError as error:
+            self.global_notice.setText(f"無法開啟診斷紀錄位置：{error}")
 
     def _open_last_report(self) -> None:
         if self.last_result:

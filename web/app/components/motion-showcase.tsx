@@ -16,7 +16,7 @@ import type { PointerEvent, ReactNode } from "react";
 
 const safetyCards: Array<{ icon: LucideIcon; eyebrow: string; title: string; body: string }> = [
   { icon: Trash2, eyebrow: "01 · RECOVERABLE", title: "預設不永久刪除", body: "檔案與鏡像資料夾先進 Windows 資源回收筒或 Google Drive 垃圾桶；失敗不會降級成永久刪除。" },
-  { icon: ShieldCheck, eyebrow: "02 · PROTECTED", title: "保留來源絕對保護", body: "Windows 採保留區對清理區的單向比對；保留區內每一份檔案與資料夾都不可勾選。" },
+  { icon: ShieldCheck, eyebrow: "02 · PROTECTED", title: "每組原檔自動保護", body: "Windows 每組鎖定最舊的一份；使用者指定的保護子資料夾也永遠不可勾選。" },
   { icon: Code2, eyebrow: "03 · CONTEXT AWARE", title: "代碼專案自動排除", body: "Git、SVN、套件目錄、虛擬環境、程式資源、備份及同步情境不會成為整體清理候選。" },
   { icon: Clock3, eyebrow: "04 · REVALIDATED", title: "變更即中止", body: "操作前再次複驗 ID、權限、檔案數、容量、最新修改時間與內容校驗碼；任何變化都取消。" },
 ];

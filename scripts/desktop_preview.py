@@ -21,6 +21,7 @@ from dupespace.models import (  # noqa: E402
     ActionReport,
     DuplicateGroup,
     FileRecord,
+    ProgressUpdate,
     ScanReport,
     ScanRoot,
 )
@@ -42,11 +43,15 @@ def sample_report() -> ScanReport:
                 key=f"preview-{index}-{role}",
                 source="local",
                 name=name,
-                location=f"D:/{'珍藏原檔' if role == 'keep' else '待整理下載'}/{name}",
+                location=(
+                    f"D:/待整理下載/{'珍藏原檔/' if role == 'keep' else '匯入副本/'}{name}"
+                ),
                 size=size,
                 checksum="f" * 64,
                 root_role=role,
-                source_root=f"D:/{'珍藏原檔' if role == 'keep' else '待整理下載'}",
+                source_root=(
+                    "D:/待整理下載/珍藏原檔" if role == "keep" else "D:/待整理下載"
+                ),
                 can_delete=True,
                 auto_selectable=role == "clean" and size >= 1024**2,
             )
@@ -82,10 +87,24 @@ def main() -> None:
         QTest.qWait(230)
         application.processEvents()
         window.grab().save(str(output / "01-first-open.png"))
-        window.session.roots = (ScanRoot("D:/珍藏原檔", "keep"), ScanRoot("D:/待整理下載", "clean"))
+        window.session.roots = (
+            ScanRoot("D:/待整理下載", "clean"),
+            ScanRoot("D:/待整理下載/珍藏原檔", "keep"),
+        )
         window._refresh_roots()
         application.processEvents()
         window.grab().save(str(output / "02-locations.png"))
+        window._show_page("progress")
+        window._progress(
+            ProgressUpdate(
+                "enumerating",
+                1284,
+                None,
+                "正在掃描：D:/待整理下載/2026 夏季照片/海邊旅行",
+            )
+        )
+        application.processEvents()
+        window.grab().save(str(output / "02b-scanning.png"))
         report = sample_report()
         window._accept_scan(report)
         application.processEvents()
@@ -96,7 +115,7 @@ def main() -> None:
         confirm = ConfirmationDialog(
             window,
             ConfirmationSnapshot(27, 14, 1024**3, "permanent", "preview"),
-            "保留：D:/珍藏原檔\n清理：D:/待整理下載",
+            "整理位置：D:/待整理下載\n保護子資料夾：D:/待整理下載/珍藏原檔",
             second=True,
         )
         confirm.show()

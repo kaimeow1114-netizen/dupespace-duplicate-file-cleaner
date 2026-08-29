@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from dupespace.desktop.state import validate_roots
 from dupespace.grouping import (
     default_selection,
     operation_items,
@@ -18,11 +19,29 @@ TEST_POLICY = WindowsSafetyPolicy([])
 
 
 def scan_roots(tmp_path: Path) -> tuple[Path, Path, list[ScanRoot]]:
-    keep = tmp_path / "keep"
     clean = tmp_path / "clean"
-    keep.mkdir()
-    clean.mkdir()
+    keep = clean / "protected"
+    keep.mkdir(parents=True)
     return keep, clean, [ScanRoot(str(keep), "keep"), ScanRoot(str(clean), "clean")]
+
+
+def test_cleanup_root_is_sufficient_and_protection_must_be_nested(tmp_path: Path) -> None:
+    clean = tmp_path / "photos"
+    protected = clean / "originals"
+    outside = tmp_path / "outside"
+    protected.mkdir(parents=True)
+    outside.mkdir()
+
+    roots = validate_roots((ScanRoot(str(clean), "clean"),), TEST_POLICY)
+    assert roots == (ScanRoot(str(clean.resolve()), "clean"),)
+    nested = validate_roots(
+        (ScanRoot(str(clean), "clean"), ScanRoot(str(protected), "keep")), TEST_POLICY
+    )
+    assert {root.role for root in nested} == {"clean", "keep"}
+    with pytest.raises(ValueError, match="保護資料夾必須"):
+        validate_roots(
+            (ScanRoot(str(clean), "clean"), ScanRoot(str(outside), "keep")), TEST_POLICY
+        )
 
 
 def test_local_scan_hashes_content_not_just_name_or_size(tmp_path: Path) -> None:
@@ -39,6 +58,72 @@ def test_local_scan_hashes_content_not_just_name_or_size(tmp_path: Path) -> None
         "first.txt",
         "renamed.bin",
     }
+
+
+def test_single_cleanup_root_keeps_oldest_copy_without_required_keep_zone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "photos"
+    root.mkdir()
+    older = root / "original.jpg"
+    newer = root / "copy.jpg"
+    payload = b"same-image" * 200_000
+    older.write_bytes(payload)
+    newer.write_bytes(payload)
+    os.utime(older, (1_700_000_000, 1_700_000_000))
+    os.utime(newer, (1_710_000_000, 1_710_000_000))
+    monkeypatch.setattr("dupespace.local.MINIMUM_AUTO_SELECT_BYTES", 1)
+
+    report = LocalScanner(safety_policy=TEST_POLICY).scan([ScanRoot(str(root), "clean")])
+
+    assert report.examined_files == 2
+    assert len(report.groups) == 1
+    assert report.groups[0].keeper.location == str(older)
+    assert default_selection(report.groups) == {f"local:{newer}"}
+
+
+def test_nested_protected_folder_participates_as_keeper_and_is_not_scanned_twice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "photos"
+    protected = root / "originals"
+    copies = root / "imports"
+    protected.mkdir(parents=True)
+    copies.mkdir()
+    payload = b"same-image" * 200_000
+    original = protected / "photo.jpg"
+    duplicate = copies / "photo-copy.jpg"
+    original.write_bytes(payload)
+    duplicate.write_bytes(payload)
+    monkeypatch.setattr("dupespace.local.MINIMUM_AUTO_SELECT_BYTES", 1)
+
+    report = LocalScanner(safety_policy=TEST_POLICY).scan(
+        [ScanRoot(str(root), "clean"), ScanRoot(str(protected), "keep")]
+    )
+
+    assert report.examined_files == 2
+    group = next(group for group in report.groups if group.records[0].item_kind == "file")
+    assert group.keeper.location == str(original)
+    assert default_selection(report.groups) == {f"local:{duplicate}"}
+
+
+def test_protected_folder_can_anchor_an_exact_duplicate_folder_group(tmp_path: Path) -> None:
+    root = tmp_path / "photos"
+    protected = root / "original-album"
+    duplicate = root / "album-copy"
+    protected.mkdir(parents=True)
+    duplicate.mkdir()
+    payload = b"p" * (1024 * 1024)
+    (protected / "photo.jpg").write_bytes(payload)
+    (duplicate / "photo.jpg").write_bytes(payload)
+
+    report = LocalScanner(safety_policy=TEST_POLICY).scan(
+        [ScanRoot(str(root), "clean"), ScanRoot(str(protected), "keep")]
+    )
+
+    group = next(group for group in report.groups if group.records[0].item_kind == "folder")
+    assert group.keeper.location == str(protected)
+    assert default_selection((group,)) == {f"local:{duplicate}"}
 
 
 def test_over_5000_duplicates_can_be_selected_without_losing_keeper(
@@ -198,11 +283,15 @@ def test_zero_byte_small_and_clean_only_groups_follow_safe_policy(tmp_path: Path
 
     report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
 
-    assert len(report.groups) == 1
-    assert {record.name for record in report.groups[0].records} == {
-        "small.bin",
-        "small-copy.bin",
-    }
+    assert len(report.groups) == 2
+    assert any(
+        {record.name for record in group.records} == {"small.bin", "small-copy.bin"}
+        for group in report.groups
+    )
+    assert any(
+        {record.name for record in group.records} == {"only-one.bin", "only-two.bin"}
+        for group in report.groups
+    )
     assert default_selection(report.groups) == set()
     assert all(record.size > 0 for group in report.groups for record in group.records)
 
@@ -410,9 +499,9 @@ def test_folder_toctou_change_cancels_recycle_bin_move(tmp_path: Path) -> None:
 
 
 def test_folder_toctou_same_size_edit_with_preserved_time_cancels(tmp_path: Path) -> None:
-    keep, clean = tmp_path / "keep", tmp_path / "clean"
-    keep.mkdir()
-    clean.mkdir()
+    clean = tmp_path / "clean"
+    keep = clean / "protected"
+    keep.mkdir(parents=True)
     original, duplicate = keep / "Original", clean / "Copy"
     original.mkdir()
     duplicate.mkdir()

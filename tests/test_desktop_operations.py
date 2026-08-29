@@ -132,9 +132,9 @@ def test_audit_neutralizes_spreadsheet_formula_payloads(value):
 
 
 def test_keeper_changed_after_first_item_blocks_second_trash(tmp_path):
-    keep, clean = tmp_path / "keep", tmp_path / "clean"
-    keep.mkdir()
-    clean.mkdir()
+    clean = tmp_path / "clean"
+    keep = clean / "protected"
+    keep.mkdir(parents=True)
     original = keep / "original.bin"
     original.write_bytes(b"same-content")
     for index in range(2):

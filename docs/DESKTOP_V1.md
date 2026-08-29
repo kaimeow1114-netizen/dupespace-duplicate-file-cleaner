@@ -7,9 +7,12 @@ workspace. Teal is the primary action, emerald marks protected originals, amber 
 attention states, and rose is reserved for permanent deletion. No emoji or artificial health
 scores are used. The existing DUPESPACE icon and original sounds are retained.
 
-- First launch explains keep/clean roles before showing statistics.
-- Navigation: local cleanup, Google Drive, history, safety, preferences.
-- Account email comes from Drive's authenticated `about.user`, using the existing Drive scope.
+- First launch exposes one large click/drop target and shows only the selected recursive scope.
+- Navigation: local cleanup, Google Drive, history, safety, GitHub/reporting, preferences.
+- The sidebar collapses, and its bottom account area shows unauthenticated state or the connected
+  Google identity and avatar.
+- Account email comes from Drive's authenticated `about.user`; Desktop OAuth uses the existing
+  Drive scope plus `userinfo.email` for the identity label.
 - Root profiles are explicit, local-only, revalidated on load, and never store unlocked state.
 - The result model virtualizes rows without creating a checkbox widget for each file.
 - A full-path detail view includes safe local image previews or two folder trees.
@@ -25,7 +28,8 @@ the same as completed restricted-scope verification.
 
 ## Safety and audit
 
-- Only clean-root candidates with a matching protected keep-root file are eligible.
+- Each cleanup-root group locks its oldest exact copy; an optional nested protected folder can
+  supply the keeper and is never eligible for selection.
 - Permanent mode clears selection. Its warnings and countdown cannot be disabled.
 - Trash and permanent deletion use separate executors; no automatic fallback exists.
 - The desktop writes intent before each operation/batch and flushes results to disk.

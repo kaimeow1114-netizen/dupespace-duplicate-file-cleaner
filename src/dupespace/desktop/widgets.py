@@ -4,14 +4,17 @@ from __future__ import annotations
 # ruff: noqa: E501
 import math
 from importlib.resources import files
+from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QListWidget,
     QPushButton,
     QStyle,
     QStyledItemDelegate,
@@ -54,6 +57,10 @@ ICON_PATHS = {
     "download": '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4m9-12v12m-5-5 5 5 5-5"/>',
     "code": '<path d="m8 7-5 5 5 5m8-10 5 5-5 5m-2-14-4 18"/>',
     "eye": '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7"/><circle cx="12" cy="12" r="3"/>',
+    "panel": '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18m5-13 4 4-4 4"/>',
+    "github": '<path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3.3-.4 6.8-1.6 6.8-7A5.4 5.4 0 0 0 19.4 4 5 5 0 0 0 19.3.5S18.2.1 15 1.8a13.4 13.4 0 0 0-7 0C4.8.1 3.7.5 3.7.5A5 5 0 0 0 3.6 4a5.4 5.4 0 0 0-1.4 3.7c0 5.3 3.5 6.5 6.8 7A4.8 4.8 0 0 0 8 18v4m-5-7c0 0 1 1 4 1"/>',
+    "bug": '<path d="m8 2 1.9 1.9M16 2l-1.9 1.9M3 13h4m10 0h4M5 7l2.3 2.3M19 7l-2.3 2.3M5 19l2.3-2.3M19 19l-2.3-2.3"/><rect x="7" y="4" width="10" height="16" rx="5"/><path d="M12 8v8"/>',
+    "message": '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/><path d="M8 9h8M8 13h5"/>',
 }
 
 
@@ -119,6 +126,93 @@ class Notice(QFrame):
     def setText(self, text: str) -> None:
         self.message.setText(text)
         self.setVisible(bool(text))
+
+
+class FolderDropList(QListWidget):
+    """Large, direct folder target with click-to-pick and safe directory drops."""
+
+    folder_requested = Signal()
+    folders_dropped = Signal(object)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("rootPicker")
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DropOnly)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setMinimumHeight(220)
+        self.setAccessibleName("要整理的資料夾與受保護子資料夾")
+
+    @staticmethod
+    def _directories(event) -> list[str]:
+        mime = event.mimeData()
+        if not mime.hasUrls():
+            return []
+        paths: list[str] = []
+        for url in mime.urls():
+            local = url.toLocalFile()
+            if local and Path(local).is_dir():
+                paths.append(str(Path(local)))
+        return paths
+
+    def dragEnterEvent(self, event) -> None:
+        if self._directories(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event) -> None:
+        if self._directories(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event) -> None:
+        paths = self._directories(event)
+        if paths:
+            self.folders_dropped.emit(paths)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def mousePressEvent(self, event) -> None:
+        if self.itemAt(event.position().toPoint()) is None:
+            self.folder_requested.emit()
+        super().mousePressEvent(event)
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if self.count():
+            return
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rectangle = self.viewport().rect().adjusted(24, 24, -24, -24)
+        painter.setPen(QColor("#0F766E"))
+        heading = QFont(self.font())
+        heading.setPointSize(14)
+        heading.setBold(True)
+        painter.setFont(heading)
+        painter.drawText(
+            rectangle.adjusted(0, 42, 0, 0),
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+            "點一下選擇資料夾",
+        )
+        painter.setPen(QColor(MUTED))
+        painter.setFont(self.font())
+        painter.drawText(
+            rectangle.adjusted(0, 78, 0, 0),
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+            "也可以直接把一個或多個資料夾拖到這裡",
+        )
+        icon("folder", TEAL, 34).paint(
+            painter,
+            rectangle.center().x() - 17,
+            rectangle.top(),
+            34,
+            34,
+        )
+        painter.end()
 
 
 class ScanOrbit(QWidget):
@@ -322,9 +416,8 @@ QFrame[kind='notice-warning'] { background: #FFFBEB; border: 1px solid #F5D99A; 
 QLabel[kind='notice'] { font-size: 12px; color: #365C54; }
 QFrame#sidebar { background: #08272B; border: none; }
 QFrame#sidebar QLabel { color: #99B9BA; }
-QFrame#sidebar QLabel[kind='brand'] { color: #F0FDFA; font-size: 21px; font-weight: 800; letter-spacing: 1px; }
+QFrame#sidebar QLabel[kind='brand'] { color: #F0FDFA; font-size: 18px; font-weight: 800; letter-spacing: 1px; }
 QFrame#sidebar QLabel[kind='eyebrow'] { color: #55C6BA; font-size: 10px; }
-QFrame#topbar { background: #FFFFFF; border-bottom: 1px solid #E2ECE9; }
 QPushButton { border: 1px solid #CFDFDB; border-radius: 9px; padding: 10px 16px; background: #FFFFFF; font-weight: 600; }
 QPushButton:hover { background: #ECF8F4; border-color: #70BCAF; }
 QPushButton:pressed { background: #DCF2EC; }
@@ -340,6 +433,8 @@ QPushButton[kind='nav'] { color: #A9C7C6; background: transparent; border: none;
 QPushButton[kind='nav']:hover { background: #103A3D; color: white; }
 QPushButton[kind='nav']:checked { background: #15464A; color: #99F6E4; border: 1px solid #26716B; }
 QPushButton[kind='nav']:focus { border: 1px solid #5EEAD4; }
+QPushButton[kind='account'] { color: #E7FFFB; background: #103A3D; border: 1px solid #275A5A; padding: 11px 12px; text-align: left; }
+QPushButton[kind='account']:hover { background: #15464A; border-color: #4FA89E; }
 QPushButton[kind='add'] { border: 1px dashed #90C6BD; background: #F6FCFA; color: #0F766E; }
 QPushButton[kind='mode']:checked { background: #DDF5EA; border: 2px solid #059669; padding: 9px 15px; }
 QPushButton[kind='risk-mode'] { color: #9F1239; }
@@ -348,6 +443,10 @@ QLineEdit, QComboBox { background: white; border: 1px solid #D4E4DF; border-radi
 QLineEdit:focus, QComboBox:focus { border: 2px solid #0D9488; padding: 8px 11px; }
 QListWidget, QTreeWidget, QTableView { background: white; border: none; selection-background-color: #DBF1EB; selection-color: #102A2C; outline: 0; }
 QListWidget::item { padding: 9px 4px; border-bottom: 1px solid #ECF2EF; }
+QListWidget#rootPicker { background: #F8FCFB; border: 2px dashed #9CCFC6; border-radius: 14px; padding: 8px; }
+QListWidget#rootPicker:hover { border-color: #14B8A6; background: #F1FBF8; }
+QListWidget#rootPicker::item { min-height: 52px; margin: 3px; padding: 10px 12px; border: 1px solid #D9EAE5; border-radius: 10px; background: white; }
+QListWidget#rootPicker::item:selected { background: #DDF5EA; border: 2px solid #0D9488; color: #102A2C; }
 QTableView::item { border-bottom: 1px solid #EDF3F0; padding: 5px; }
 QTableView::indicator { width: 17px; height: 17px; }
 QHeaderView::section { background: #F5F9F7; border: none; border-bottom: 1px solid #E1EDE7; padding: 12px 8px; color: #6A817B; font-size: 12px; }

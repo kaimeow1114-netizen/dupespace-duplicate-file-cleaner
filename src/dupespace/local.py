@@ -141,27 +141,50 @@ def _contains_path(parent: Path, child: Path) -> bool:
 def normalize_scan_roots(
     roots: Iterable[ScanRoot], safety_policy: WindowsSafetyPolicy
 ) -> tuple[ScanRoot, ...]:
-    """Canonicalize roots and reject every equal, nested, or overlapping pair."""
+    """Canonicalize cleanup roots and optional protected subfolders."""
 
     normalized: list[ScanRoot] = []
     for root in roots:
         if not isinstance(root, ScanRoot):
             raise TypeError("Local scans require explicit ScanRoot keep/clean roles")
         physical = safety_policy.validate_scan_root(root.physical_path)
-        candidate = ScanRoot(str(physical), root.role)
-        candidate_path = Path(candidate.physical_path)
-        for existing in normalized:
-            existing_path = Path(existing.physical_path)
-            if _contains_path(existing_path, candidate_path) or _contains_path(
-                candidate_path, existing_path
-            ):
-                raise UnsafePathError("保留區與清理區不可相同、巢狀或重疊")
-        normalized.append(candidate)
+        if root.role not in {"keep", "clean"}:
+            raise ValueError("掃描位置角色無效")
+        normalized.append(ScanRoot(str(physical), root.role))
 
-    roles = {root.role for root in normalized}
-    if "keep" not in roles or "clean" not in roles:
-        raise ValueError("請至少選擇一個保留區和一個清理區")
+    clean = [Path(root.physical_path) for root in normalized if root.role == "clean"]
+    protected = [Path(root.physical_path) for root in normalized if root.role == "keep"]
+    if not clean:
+        raise ValueError("請至少加入一個要整理的資料夾")
+    for index, path in enumerate(clean):
+        if any(
+            _contains_path(path, other) or _contains_path(other, path)
+            for other in clean[index + 1 :]
+        ):
+            raise UnsafePathError("整理位置不可相同、巢狀或重疊")
+    for index, path in enumerate(protected):
+        if not any(
+            _path_key(path) != _path_key(root) and _contains_path(root, path)
+            for root in clean
+        ):
+            raise UnsafePathError("保護資料夾必須位於已加入的整理位置內")
+        if any(
+            _contains_path(path, other) or _contains_path(other, path)
+            for other in protected[index + 1 :]
+        ):
+            raise UnsafePathError("保護資料夾不可相同、巢狀或重疊")
     return tuple(normalized)
+
+
+def _nested_protected_roots(scan_root: ScanRoot, roots: tuple[ScanRoot, ...]) -> set[str]:
+    if scan_root.role != "clean":
+        return set()
+    parent = Path(scan_root.physical_path)
+    return {
+        _path_key(Path(root.physical_path))
+        for root in roots
+        if root.role == "keep" and _contains_path(parent, Path(root.physical_path))
+    }
 
 
 def _ancestors_within(path: Path, root: Path) -> tuple[Path, ...]:
@@ -250,11 +273,14 @@ def _folder_snapshot(
     ignore_system_metadata: bool,
     checksum_cache: dict[tuple[int, int], str] | None = None,
     hash_content: bool = True,
+    allow_root: bool = False,
     cancel_event: threading.Event | None = None,
 ) -> _FolderSnapshot:
     """Create a deterministic, content-based folder manifest without following links."""
 
-    if not _contains_path(root, folder) or _path_key(root) == _path_key(folder):
+    if not _contains_path(root, folder) or (
+        _path_key(root) == _path_key(folder) and not allow_root
+    ):
         raise UnsafePathError("掃描根目錄本身不可作為重複資料夾候選。")
     if is_reparse_point(folder) or safety_policy.is_protected(folder):
         raise UnsafePathError("符號連結、junction 或受保護資料夾不可清理。")
@@ -358,7 +384,8 @@ def _folder_records(
     checksum_cache: dict[tuple[int, int], str] = {}
     for scan_root in roots:
         root = Path(scan_root.physical_path)
-        candidates: list[Path] = []
+        protected_roots = _nested_protected_roots(scan_root, roots)
+        candidates: list[Path] = [root] if scan_root.role == "keep" else []
         for current, directory_names, _file_names in os.walk(root, topdown=True, followlinks=False):
             if _is_cancelled(cancel_event):
                 raise ScanCancelled("Local scan cancelled")
@@ -366,6 +393,8 @@ def _folder_records(
             safe_names: list[str] = []
             for name in directory_names:
                 candidate = current_path / name
+                if _path_key(candidate) in protected_roots:
+                    continue
                 if (
                     is_reparse_point(candidate)
                     or safety_policy.is_protected(candidate)
@@ -390,6 +419,7 @@ def _folder_records(
                     chunk_size=chunk_size,
                     ignore_system_metadata=ignore_system_metadata,
                     checksum_cache=checksum_cache,
+                    allow_root=scan_root.role == "keep" and _path_key(folder) == _path_key(root),
                     cancel_event=cancel_event,
                 )
                 if snapshot.comparable_count == 0:
@@ -421,7 +451,7 @@ def _folder_records(
                         auto_selectable=(
                             not is_keep and snapshot.actual_bytes >= MINIMUM_AUTO_SELECT_BYTES
                         ),
-                        protection_reason="保留區資料夾永遠保留" if is_keep else None,
+                        protection_reason="保護資料夾永遠保留" if is_keep else None,
                     )
                 )
             except (OSError, UnsafePathError) as error:
@@ -483,6 +513,7 @@ class LocalScanner:
 
         for scan_root in normalized_roots:
             root = Path(scan_root.physical_path)
+            protected_roots = _nested_protected_roots(scan_root, normalized_roots)
             if not root.is_dir():
                 warnings.append(f"不是可讀取的資料夾：{root}")
                 skipped += 1
@@ -493,6 +524,13 @@ class LocalScanner:
                     raise ScanCancelled("Local scan cancelled")
                 directory = stack.pop()
                 try:
+                    _emit(
+                        progress,
+                        "enumerating",
+                        examined,
+                        None,
+                        f"正在掃描：{directory}",
+                    )
                     if self.safety_policy.is_protected(directory):
                         skipped += 1
                         warnings.append(f"已略過受保護位置：{directory}")
@@ -512,6 +550,8 @@ class LocalScanner:
                                     continue
                                 if entry.is_dir(follow_symlinks=False):
                                     child = Path(entry.path)
+                                    if _path_key(child) in protected_roots:
+                                        continue
                                     if self.safety_policy.is_protected(child):
                                         skipped += 1
                                     elif not self.safety_policy.has_protected_attributes(
@@ -567,7 +607,7 @@ class LocalScanner:
         hash_candidates = [
             item
             for bucket in by_size.values()
-            if {candidate[2].role for candidate in bucket} == {"keep", "clean"}
+            if len(bucket) >= 2
             for item in bucket
         ]
         records: list[FileRecord] = []
@@ -591,7 +631,7 @@ class LocalScanner:
                 is_locked = scan_root.role == "clean" and context.requires_unlock
                 selectable = scan_root.role == "clean" and not is_locked
                 if is_keep:
-                    protection_reason = "保留區檔案永遠保留"
+                    protection_reason = "保護資料夾內的檔案永遠保留"
                 elif is_locked:
                     protection_reason = "此檔案位於程式、備份或同步情境，需逐資料夾解鎖"
                 else:
@@ -627,7 +667,7 @@ class LocalScanner:
                 "hashing",
                 index,
                 len(hash_candidates),
-                f"正在比對內容：{path.name}",
+                f"正在比對：{path}",
             )
 
         file_groups = build_local_duplicate_groups(records)
@@ -717,7 +757,7 @@ def _validate_local_snapshot(
     chunk_size: int,
 ) -> Path:
     if record.source_root is None or record.root_role not in {"keep", "clean"}:
-        raise UnsafePathError("檔案缺少經驗證的保留區或清理區資訊")
+        raise UnsafePathError("檔案缺少經驗證的整理位置或保護資料夾資訊")
     source_root = safety_policy.validate_scan_root(record.source_root)
     if record.item_kind == "folder":
         if record.can_delete:
@@ -742,6 +782,7 @@ def _validate_local_snapshot(
             # count/bytes/latest-time token catches ordinary TOCTOU changes quickly;
             # the digest also catches same-size edits with preserved timestamps.
             hash_content=True,
+            allow_root=record.root_role == "keep" and _path_key(path) == _path_key(source_root),
         )
         if record.metadata_token is None or current.metadata_token != record.metadata_token:
             raise SnapshotChangedError("資料夾內容已變更，操作已取消。")
@@ -846,8 +887,12 @@ class LocalTrashExecutor:
                 # Re-stat immediately before the reversible operation. Permanent deletion has
                 # its own executor and is never used as a fallback here.
                 _validate_local_snapshot(item.keeper, self.safety_policy, self.chunk_size)
-                _validate_local_snapshot(record, self.safety_policy, self.chunk_size)
-                trash_func(str(path))
+                current_path = _validate_local_snapshot(
+                    record, self.safety_policy, self.chunk_size
+                )
+                if current_path != path:
+                    raise UnsafePathError("檔案實體路徑已變更，已安全跳過。")
+                trash_func(str(current_path))
                 outcomes.append(ActionOutcome(record, "trashed"))
             except (SnapshotChangedError, UnsafePathError) as error:
                 outcomes.append(ActionOutcome(record, "skipped", str(error)))
