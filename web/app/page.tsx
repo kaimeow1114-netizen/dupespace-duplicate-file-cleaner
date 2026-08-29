@@ -1,6 +1,6 @@
 import { AdPanel } from "./components/ad-panel";
 import { HeroDashboard } from "./components/hero-dashboard";
-import { MotionHeroActions, SafetyMotionGrid } from "./components/motion-showcase";
+import { HowItWorksMotion, MotionHeroActions, SafetyMotionGrid } from "./components/motion-showcase";
 import { SiteFooter, SiteHeader } from "./components/site-shell";
 import { BarChart3, CheckCircle2, HardDriveDownload, Layers3, Settings2, ShieldCheck, TrendingUp } from "lucide-react";
 
@@ -39,7 +39,7 @@ export default function Home() {
 
       <section className="section feature-band" id="features"><div className="shell"><div className="section-heading"><span className="eyebrow"><ShieldCheck size={15} aria-hidden="true" /> SAFE BY DESIGN</span><h2><span className="heading-phrase">讓每次清理，</span><wbr /><span className="heading-phrase">都有清楚的安全邊界。</span></h2><p>內容相同只能成為候選。DUPESPACE 先保護用途、來源與目錄情境，再讓使用者決定要處理哪一份。</p></div><SafetyMotionGrid /></div></section>
 
-      <section className="section alternate"><div className="shell split"><div><span className="eyebrow light"><Layers3 size={15} aria-hidden="true" /> HOW IT WORKS</span><h2><span className="heading-phrase">比對檔案內容，</span><wbr /><span className="heading-phrase">不靠檔名猜測。</span></h2><p>Windows 使用完整 SHA-256；Google Drive 使用 API 提供的內容校驗碼。重複資料夾還會逐一核對相對路徑、檔案大小與校驗碼，只有 100% 鏡像一致才會顯示。</p><a className="button mint" href="/support">閱讀安全整理指南</a></div><ol className="steps"><li><span>1</span><div><b>掃描</b><small>只讀取比對需要的中繼資料與校驗碼</small></div></li><li><span>2</span><div><b>檢查</b><small>查看完整路徑、預覽與雙樹鏡像差異</small></div></li><li><span>3</span><div><b>回收空間</b><small>預設移至垃圾桶，保留復原機會</small></div></li></ol></div></section>
+      <section className="section alternate"><div className="shell split"><div><span className="eyebrow light"><Layers3 size={15} aria-hidden="true" /> HOW IT WORKS</span><h2><span className="heading-phrase">比對檔案內容，</span><wbr /><span className="heading-phrase">不靠檔名猜測。</span></h2><p>Windows 使用完整 SHA-256；Google Drive 使用 API 提供的內容校驗碼。重複資料夾還會逐一核對相對路徑、檔案大小與校驗碼，只有 100% 鏡像一致才會顯示。</p><a className="button mint" href="/support">閱讀安全整理指南</a></div><HowItWorksMotion /></div></section>
 
       <section className="section retention-band" id="insights"><div className="shell retention-section"><div className="section-heading"><span className="eyebrow"><TrendingUp size={15} aria-hidden="true" /> STORAGE INTELLIGENCE</span><h2><span className="heading-phrase">把一次整理，</span><wbr /><span className="heading-phrase">變成持續可見的成果。</span></h2><p>僅保存不含檔名、路徑或檔案 ID 的裝置端彙總數據；趨勢與費用均為整理參考，不代表硬碟健康診斷或實際帳單節省。</p></div><div className="retention-grid"><article><TrendingUp aria-hidden="true" /><b>儲存健康趨勢</b><p>以重複容量與群組數建立 0 至 100 的整理指標，清理後立即更新。</p></article><article><BarChart3 aria-hidden="true" /><b>重複成因分析</b><p>依路徑線索推估下載、通訊軟體暫存、跨資料夾複製與其他來源。</p></article><article><Settings2 aria-hidden="true" /><b>自訂防護設定檔</b><p>保存軟體專案與影音備份等常用保護規則，專案排除仍是硬性安全底線。</p></article></div></div></section>
 

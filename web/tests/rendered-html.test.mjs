@@ -23,6 +23,7 @@ test("renders the DUPESPACE product landing page with canonical SEO metadata", a
   assert.match(html, /FAQPage/);
   assert.match(html, /site\.webmanifest/);
   assert.match(html, /開始極速安全掃描/);
+  assert.match(html, /motion-steps/);
   assert.match(html, /ca-pub-7998471640181666/);
   assert.match(html, /<a[^>]+href="\/#features"[^>]*>功能特色<\/a>/);
   assert.match(html, /translate="no"[^>]*lang="en"[^>]*>DUPE<em>SPACE<\/em>/);
