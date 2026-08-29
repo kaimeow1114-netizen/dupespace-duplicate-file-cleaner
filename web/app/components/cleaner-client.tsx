@@ -4,13 +4,20 @@ import { motion, useReducedMotion } from "framer-motion";
 import {
   AlertCircle,
   AlertTriangle,
+  Archive,
   CheckCircle2,
+  ChevronDown,
   Cloud,
   Download,
   Eye,
   File,
+  FileAudio,
+  FileImage,
+  FileText,
+  FileVideo,
   Folder,
   FolderTree,
+  Layers3,
   LoaderCircle,
   LogIn,
   RotateCcw,
@@ -85,11 +92,62 @@ type Confirmation = {
 };
 type UndoBatch = { items: DriveRecord[]; expiresAt: number };
 type HealthHistory = { timestamp: string; score: number; reclaimedBytes: number };
+type GroupCategory = "video" | "image" | "pdf" | "document" | "audio" | "folder" | "archive" | "other";
 
 const GIB = 1024 ** 3;
 const MUTATION_BATCH_SIZE = 10;
 const OPERATION_TIMEOUT_MS = 45_000;
 const DEFAULT_SOUND_VOLUME = .22;
+const CATEGORY_ORDER: GroupCategory[] = ["video", "image", "pdf", "document", "audio", "folder", "archive", "other"];
+const CATEGORY_LABELS: Record<GroupCategory, string> = {
+  video: "影片",
+  image: "圖片",
+  pdf: "PDF",
+  document: "重要文件",
+  audio: "音訊",
+  folder: "資料夾",
+  archive: "壓縮檔",
+  other: "其他",
+};
+
+function groupCategory(group: DriveGroup): GroupCategory {
+  if (group.itemKind === "folder") return "folder";
+  const record = group.records[0];
+  const mime = record?.mimeType.toLowerCase() ?? "";
+  const name = record?.name.toLowerCase() ?? "";
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("image/")) return "image";
+  if (mime === "application/pdf" || name.endsWith(".pdf")) return "pdf";
+  if (mime.startsWith("audio/")) return "audio";
+  if (/word|document|spreadsheet|presentation|text|rtf|epub|opendocument/.test(mime) || /\.(docx?|xlsx?|pptx?|od[ftp]|rtf|txt|csv|md)$/i.test(name)) return "document";
+  if (/zip|compressed|archive|rar|7z|tar|gzip/.test(mime) || /\.(zip|rar|7z|tar|gz|bz2|xz)$/i.test(name)) return "archive";
+  return "other";
+}
+
+function groupKey(group: DriveGroup): string {
+  return `${group.itemKind}:${group.fingerprint}:${group.records[0]?.id ?? "empty"}`;
+}
+
+function sortScanResult(result: ScanResult): ScanResult {
+  return {
+    ...result,
+    groups: [...result.groups].sort((left, right) => {
+      const categoryDifference = CATEGORY_ORDER.indexOf(groupCategory(left)) - CATEGORY_ORDER.indexOf(groupCategory(right));
+      if (categoryDifference) return categoryDifference;
+      return right.reclaimableBytes - left.reclaimableBytes;
+    }),
+  };
+}
+
+function CategoryIcon({ category, size = 17 }: { category: GroupCategory; size?: number }) {
+  if (category === "video") return <FileVideo size={size} aria-hidden="true" />;
+  if (category === "image") return <FileImage size={size} aria-hidden="true" />;
+  if (category === "pdf" || category === "document") return <FileText size={size} aria-hidden="true" />;
+  if (category === "audio") return <FileAudio size={size} aria-hidden="true" />;
+  if (category === "folder") return <Folder size={size} aria-hidden="true" />;
+  if (category === "archive") return <Archive size={size} aria-hidden="true" />;
+  return <File size={size} aria-hidden="true" />;
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -147,7 +205,9 @@ function percent(value: number, total: number): number {
 }
 
 function csvCell(value: unknown): string {
-  return `"${String(value ?? "").replaceAll('"', '""')}"`;
+  const text = String(value ?? "");
+  const safe = /^[=+\-@\t\r\n]/.test(text) ? `'${text}` : text;
+  return `"${safe.replaceAll('"', '""')}"`;
 }
 
 function removeSuccessfulRecords(scan: ScanResult, successfulIds: Set<string>): ScanResult {
@@ -211,6 +271,8 @@ export function CleanerClient() {
   const [actualBytes, setActualBytes] = useState(0);
   const [visibleGroups, setVisibleGroups] = useState(24);
   const [recordLimits, setRecordLimits] = useState<Record<string, number>>({});
+  const [category, setCategory] = useState<GroupCategory | "all">("all");
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [audit, setAudit] = useState<AuditOutcome[]>([]);
   const [account, setAccount] = useState<ScanResult["user"]>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
@@ -311,6 +373,12 @@ export function CleanerClient() {
     }
     return result;
   }, [records]);
+  const categoryCounts = useMemo(() => {
+    const counts = Object.fromEntries(CATEGORY_ORDER.map((item) => [item, 0])) as Record<GroupCategory, number>;
+    for (const group of scan?.groups ?? []) counts[groupCategory(group)] += 1;
+    return counts;
+  }, [scan]);
+  const filteredGroups = useMemo(() => scan?.groups.filter((group) => category === "all" || groupCategory(group) === category) ?? [], [category, scan]);
   const expectedPhrase = confirmation ? `永久刪除 ${confirmation.records.length} 個檔案` : "";
   const needsSecond = confirmation ? confirmation.records.length > 5 : false;
   const largeRisk = confirmation ? confirmation.records.length >= 500 || confirmation.records.reduce((sum, item) => sum + item.size, 0) >= GIB || confirmation.records.length >= 5000 : false;
@@ -346,11 +414,16 @@ export function CleanerClient() {
       const body = await response.json();
       if (!response.ok) throw new Error(errorMessage(body, "掃描失敗"));
       if (!isScanResult(body)) throw new Error("Google Drive 回傳了無效的掃描資料");
-      setScan(body);
+      const ordered = sortScanResult(body);
+      setScan(ordered);
       setUndoBatch(null);
       setAccount(body.user);
       setMode("trash");
-      setSelected(new Set(body.groups.flatMap((group: DriveGroup) => group.records
+      setCategory("all");
+      setVisibleGroups(18);
+      setRecordLimits({});
+      setExpandedGroups(ordered.groups[0] ? new Set([groupKey(ordered.groups[0])]) : new Set());
+      setSelected(new Set(ordered.groups.flatMap((group: DriveGroup) => group.records
         .filter((record) => !record.keeper && record.canTrash && record.autoSelectable)
         .map((record) => record.id))));
       setStatus(body.duplicateCopies
@@ -618,28 +691,57 @@ export function CleanerClient() {
           <div><b>{scan.groups.length.toLocaleString()} 組 · {scan.duplicateCopies.toLocaleString()} 個重複副本</b><span>掃描 {scan.examined.toLocaleString()} 個項目，略過 {scan.skipped.toLocaleString()} 個不適用項目；其中 {scan.projectProtected.toLocaleString()} 個專案項目受到硬性保護</span></div>
           <div><button className="text-button" onClick={() => setSelected(new Set(records.filter((record) => selectable(record)).map((record) => record.id)))} disabled={mode === "permanent"}>選取全部重複副本</button><button className="text-button" onClick={() => setSelected(new Set())}>清除選取</button></div>
         </div>
+        {!!scan.groups.length && <nav className="category-filter" aria-label="依檔案類型篩選重複群組">
+          <button className={category === "all" ? "active" : ""} onClick={() => { setCategory("all"); setVisibleGroups(18); }}><Layers3 size={17} aria-hidden="true" /><span>全部</span><b>{scan.groups.length.toLocaleString()}</b></button>
+          {CATEGORY_ORDER.filter((item) => categoryCounts[item] > 0).map((item) => <button key={item} className={category === item ? "active" : ""} onClick={() => { setCategory(item); setVisibleGroups(18); }}><CategoryIcon category={item} /><span>{CATEGORY_LABELS[item]}</span><b>{categoryCounts[item].toLocaleString()}</b></button>)}
+        </nav>}
         {!scan.groups.length && <div className="empty-state"><ShieldCheck size={36} aria-hidden="true" /><h3>目前很乾淨</h3><p>沒有找到可安全比對的重複檔案或完整鏡像資料夾。</p></div>}
         <div className="group-list">
-          {scan.groups.slice(0, visibleGroups).map((group, groupIndex) => {
-            const key = `${group.fingerprint}-${groupIndex}`;
-            const limit = recordLimits[key] ?? 80;
-            return <details className="duplicate-group" key={key} open={groupIndex < 3}>
-              <summary><span><b>{group.itemKind === "folder" ? "重複資料夾" : "重複檔案"}群組 {groupIndex + 1}</b><small>{group.records.length.toLocaleString()} 份相同內容{group.itemKind === "folder" ? ` · ${group.tree.length.toLocaleString()} 個檔案 100% 鏡像對齊` : ""}</small></span><strong>{formatBytes(group.reclaimableBytes)}</strong></summary>
-              {group.itemKind === "folder" && <div className="folder-match-banner"><span><CheckCircle2 size={13} aria-hidden="true" />100% 鏡像對齊</span><b>{group.tree.length.toLocaleString()} 個檔案，完整路徑、大小與校驗碼一致</b><button className="text-button" onClick={() => { setTreeDrawer(group); setTreeLimit(200); }}><FolderTree size={14} aria-hidden="true" />開啟雙樹比對</button></div>}
-              <div className="record-list">
-                {group.records.slice(0, limit).map((record) => <label className={`record ${record.keeper ? "keeper" : selected.has(record.id) ? "selected" : ""}`} key={record.id}>
-                  <input type="checkbox" checked={!record.keeper && selected.has(record.id)} disabled={!selectable(record) || running} onChange={() => toggle(record)} />
-                  <span className="file-preview">{record.thumbnailLink ? <img src={record.thumbnailLink} alt={`${record.name} 預覽`} loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : record.itemKind === "folder" ? <Folder size={22} aria-hidden="true" /> : <File size={22} aria-hidden="true" />}</span>{/* eslint-disable-line @next/next/no-img-element */}
-                  <span className="record-name"><b>{record.name}</b><small className="record-path">{record.path}</small><small>{record.itemKind === "folder" ? `${record.entryCount.toLocaleString()} 個可比對檔案${record.ignoredMetadataCount ? ` · 忽略 ${record.ignoredMetadataCount} 個暫存檔` : ""}` : record.modifiedTime ? new Date(record.modifiedTime).toLocaleString("zh-TW") : "日期不明"}{record.webViewLink ? <> · <a href={record.webViewLink} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}><Eye size={11} aria-hidden="true" />在 Drive 預覽</a></> : null}</small></span>
-                  <span className="record-size">{formatBytes(record.size)}</span>
-                  <span className={`record-state ${record.keeper ? "safe" : !selectable(record) ? "locked" : ""}`}>{record.keeper ? "保留" : mode === "permanent" && record.itemKind === "folder" ? "僅限垃圾桶" : !selectable(record) ? "無權限" : selected.has(record.id) ? (mode === "trash" ? "垃圾桶" : "永久刪除") : "略過"}</span>
-                </label>)}
-                {group.records.length > limit && <button className="load-more" onClick={() => setRecordLimits((current) => ({ ...current, [key]: limit + 160 }))}>再顯示 {Math.min(160, group.records.length - limit)} 個副本</button>}
-              </div>
-            </details>;
+          {filteredGroups.slice(0, visibleGroups).map((group) => {
+            const key = groupKey(group);
+            const limit = recordLimits[key] ?? 40;
+            const expanded = expandedGroups.has(key);
+            const keeper = group.records.find((record) => record.keeper) ?? group.records[0];
+            const copies = group.records.filter((record) => !record.keeper);
+            const itemCategory = groupCategory(group);
+            return <article className={`duplicate-group category-${itemCategory}`} key={key}>
+              <button className="group-summary" type="button" aria-expanded={expanded} onClick={() => setExpandedGroups((current) => current.has(key) ? new Set() : new Set([key]))}>
+                <span className="category-badge"><CategoryIcon category={itemCategory} /><b>{CATEGORY_LABELS[itemCategory]}</b></span>
+                <span className="group-title"><b>{keeper?.name ?? "未命名項目"}</b><small>{copies.length.toLocaleString()} 個重複副本{group.itemKind === "folder" ? ` · ${group.tree.length.toLocaleString()} 個檔案 100% 鏡像` : ""}</small></span>
+                <span className="group-saving"><small>可整理</small><strong>{formatBytes(group.reclaimableBytes)}</strong></span>
+                <ChevronDown className="group-chevron" size={20} aria-hidden="true" />
+              </button>
+              {expanded && <div className="group-body">
+                {group.itemKind === "folder" && <div className="folder-match-banner"><span><CheckCircle2 size={15} aria-hidden="true" />100% 鏡像對齊</span><b>{group.tree.length.toLocaleString()} 個檔案，完整路徑、大小與校驗碼一致</b><button className="text-button" onClick={() => { setTreeDrawer(group); setTreeLimit(200); }}><FolderTree size={16} aria-hidden="true" />開啟雙樹比對</button></div>}
+                <div className="group-comparison">
+                  <aside className="keeper-preview">
+                    <div className="keeper-visual">
+                      {keeper?.thumbnailLink ? <img src={keeper.thumbnailLink} alt={`${keeper.name} 保留檔案預覽`} loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : <CategoryIcon category={itemCategory} size={46} />}{/* eslint-disable-line @next/next/no-img-element */}
+                      <span><ShieldCheck size={15} aria-hidden="true" />受保護原始檔</span>
+                    </div>
+                    <b>{keeper?.name}</b>
+                    <p>{keeper?.path}</p>
+                    <small>{keeper ? formatBytes(keeper.size) : ""}{keeper?.modifiedTime ? ` · ${new Date(keeper.modifiedTime).toLocaleString("zh-TW")}` : ""}</small>
+                    {keeper?.webViewLink && <a href={keeper.webViewLink} target="_blank" rel="noreferrer"><Eye size={15} aria-hidden="true" />在 Google Drive 預覽</a>}
+                  </aside>
+                  <div className="copy-panel">
+                    <div className="copy-panel-heading"><span><Trash2 size={17} aria-hidden="true" />待處理副本</span><small>副本內容與左側保留檔一致，不重複下載縮圖</small></div>
+                    <div className="record-list">
+                      {copies.slice(0, limit).map((record) => <label className={`record ${selected.has(record.id) ? "selected" : ""}`} key={record.id}>
+                        <input type="checkbox" checked={selected.has(record.id)} disabled={!selectable(record) || running} onChange={() => toggle(record)} />
+                        <span className="record-name"><b>{record.name}</b><small className="record-path">{record.path}</small><small>{record.itemKind === "folder" ? `${record.entryCount.toLocaleString()} 個可比對檔案${record.ignoredMetadataCount ? ` · 忽略 ${record.ignoredMetadataCount} 個暫存檔` : ""}` : record.modifiedTime ? new Date(record.modifiedTime).toLocaleString("zh-TW") : "日期不明"}{record.webViewLink ? <> · <a href={record.webViewLink} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}><Eye size={13} aria-hidden="true" />在 Drive 預覽</a></> : null}</small></span>
+                        <span className="record-size">{formatBytes(record.size)}</span>
+                        <span className={`record-state ${!selectable(record) ? "locked" : ""}`}>{mode === "permanent" && record.itemKind === "folder" ? "僅限垃圾桶" : !selectable(record) ? "無權限" : selected.has(record.id) ? (mode === "trash" ? "垃圾桶" : "永久刪除") : "略過"}</span>
+                      </label>)}
+                      {copies.length > limit && <button className="load-more" onClick={() => setRecordLimits((current) => ({ ...current, [key]: limit + 80 }))}>再顯示 {Math.min(80, copies.length - limit)} 個副本</button>}
+                    </div>
+                  </div>
+                </div>
+              </div>}
+            </article>;
           })}
         </div>
-        {scan.groups.length > visibleGroups && <button className="load-more" onClick={() => setVisibleGroups((value) => value + 24)}>載入更多重複群組</button>}
+        {filteredGroups.length > visibleGroups && <button className="load-more" onClick={() => setVisibleGroups((value) => value + 18)}>載入更多重複群組</button>}
         <div className={`trash-dock ${mode === "permanent" ? "permanent" : ""}`}><div><span>已選 {selected.size.toLocaleString()} 個副本 · {scan.groups.length.toLocaleString()} 個群組</span><strong>可節省 {formatBytes(selectedBytes)} · {reclaimPercent.toFixed(1)}%</strong></div><div className="dock-actions">{audit.length > 0 && <button className="button secondary" onClick={downloadCsv}><Download size={16} aria-hidden="true" />下載 CSV 稽核報告</button>}<button className={`button ${mode === "trash" ? "primary" : "danger"}`} onClick={requestOperation} disabled={!selected.size || running}>{mode === "trash" ? <><Trash2 size={17} aria-hidden="true" />移至 Google Drive 垃圾桶</> : <><AlertTriangle size={17} aria-hidden="true" />立即永久刪除（無法復原）</>}</button></div></div>
       </>}
 

@@ -71,6 +71,10 @@ a full summary and countdown.
   percentage, and disk/cloud capacity percentage.
 - Progressive result rendering and small Drive batches of 10 operations, with request timeouts,
   shared keeper validation, and immediate removal of confirmed results from the web UI.
+- A wide Google Drive workbench that sorts duplicate groups by video, image, PDF, important
+  document, audio, folder, archive, and other types. Only one expanded group is rendered at a
+  time, and it loads one protected-keeper preview; duplicate copies remain lightweight text/path
+  rows. AdSense remains excluded from every cleaner, login, scan, result, and mutation surface.
 - A two-click Google Drive trash flow with a non-blocking 10-second undo bar. Undo calls a real,
   same-origin restore API and requires the original signed scan proof; it is not a visual-only
   rollback. Permanent deletion keeps its separate high-risk confirmations.

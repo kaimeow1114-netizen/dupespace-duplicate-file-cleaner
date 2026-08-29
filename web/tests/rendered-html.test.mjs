@@ -185,6 +185,25 @@ test("ships health scoring, persistent session status and a real trash restore p
   assert.doesNotMatch(workerSource, /restore[\s\S]{0,1800}method: "DELETE"/);
 });
 
+test("keeps large duplicate results typed, ordered and preview-light", async () => {
+  const [clientSource, css] = await Promise.all([
+    readFile(new URL("../app/components/cleaner-client.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(clientSource, /\["video", "image", "pdf", "document", "audio", "folder", "archive", "other"\]/);
+  assert.match(clientSource, /categoryDifference[\s\S]{0,180}right\.reclaimableBytes - left\.reclaimableBytes/);
+  assert.match(clientSource, /expanded && <div className="group-body">/);
+  assert.match(clientSource, /keeper\?\.thumbnailLink/);
+  assert.doesNotMatch(clientSource, /record\.thumbnailLink/);
+  assert.match(clientSource, /current\.has\(key\) \? new Set\(\) : new Set\(\[key\]\)/);
+  assert.match(clientSource, /recordLimits\[key\] \?\? 40/);
+  assert.match(clientSource, /setVisibleGroups\(18\)/);
+  assert.match(css, /\.cleaner-wrap\s*\{[^}]*1680px/);
+  assert.match(css, /\.group-comparison\s*\{[^}]*grid-template-columns/);
+  assert.match(css, /\.keeper-visual\s*\{[^}]*aspect-ratio:4\/3/);
+  assert.match(clientSource, /\/\^\[=\+\\-@\\t\\r\\n\]\//);
+});
+
 test("renders a valid English alternate and keeps interface source free of emoji", async () => {
   const response = await render("/en");
   assert.equal(response.status, 200);
