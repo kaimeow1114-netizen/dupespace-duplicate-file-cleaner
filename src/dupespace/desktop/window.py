@@ -1088,7 +1088,12 @@ class MainWindow(QMainWindow):
         self.worker.progress.connect(self._progress)
         self.worker.result.connect(self._receive_result)
         self.worker.error.connect(self._receive_error)
-        self.worker.finished.connect(self.thread.quit)
+        # Stop the worker event loop in the emitting thread.  A queued call to
+        # QThread.quit() can be starved while the GUI is processing a close
+        # request, which left an otherwise completed worker alive on Linux.
+        # quit() is thread-safe and the direct connection makes shutdown
+        # deterministic without force-terminating the thread.
+        self.worker.finished.connect(self.thread.quit, Qt.ConnectionType.DirectConnection)
         self.worker.finished.connect(self.worker.deleteLater)
         self.thread.finished.connect(self._finished)
         self.thread.finished.connect(self.thread.deleteLater)
