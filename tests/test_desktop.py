@@ -254,7 +254,9 @@ def test_progress_displays_current_full_folder_path(window):
 def test_account_chip_uses_real_identity_and_avatar_slot(window):
     window._auth_silent = False
     window._accept_account((object(), "測試使用者", "preview@example.test", b""))
-    assert "preview@example.test" in window.account_chip.text()
+    assert window.account_chip.text()
+    assert "preview@example.test" in window.account_chip.toolTip()
+    assert window.account_email == "preview@example.test"
     assert window.drive_scan.isVisible()
     window._disconnected(None)
     assert not window.drive_scan.isVisible()

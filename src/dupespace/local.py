@@ -62,6 +62,14 @@ def _identity(stat_result: os.stat_result) -> tuple[int, int]:
     return (stat_result.st_dev, stat_result.st_ino)
 
 
+def _creation_time(stat_result: os.stat_result) -> float | None:
+    """Use birth time when available; POSIX ctime is not a creation timestamp."""
+    birth_time = getattr(stat_result, "st_birthtime", None)
+    if birth_time is not None:
+        return birth_time
+    return stat_result.st_ctime if os.name == "nt" else None
+
+
 def _metadata_token(stat_result: os.stat_result) -> str:
     return ":".join(
         str(value)
@@ -439,7 +447,7 @@ def _folder_records(
                         tree_entries=snapshot.tree_entries,
                         ignored_metadata_count=snapshot.ignored_metadata_count,
                         system_metadata_ignored=ignore_system_metadata,
-                        created_at=stat_result.st_ctime,
+                        created_at=_creation_time(stat_result),
                         modified_at=snapshot.latest_mtime_ns / 1_000_000_000,
                         metadata_token=snapshot.metadata_token,
                         can_trash=True,
@@ -644,7 +652,7 @@ class LocalScanner:
                         location=str(path),
                         size=expected_stat.st_size,
                         checksum=checksum,
-                        created_at=expected_stat.st_ctime,
+                        created_at=_creation_time(expected_stat),
                         modified_at=expected_stat.st_mtime,
                         metadata_token=_metadata_token(expected_stat),
                         can_delete=True,

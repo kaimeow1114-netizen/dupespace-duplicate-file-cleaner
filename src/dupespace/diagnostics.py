@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from .paths import app_data_dir
 
@@ -38,7 +38,7 @@ def append_diagnostic_event(event: str, error: BaseException) -> None:
             rotated = target.with_suffix(".previous.jsonl")
             target.replace(rotated)
         payload = {
-            "time": datetime.now(UTC).isoformat(),
+            "time": datetime.now(timezone.utc).isoformat(),
             "event": event[:80],
             "error_type": type(error).__name__,
             "message": safe_error_message(error),

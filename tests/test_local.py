@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,11 +12,33 @@ from dupespace.grouping import (
     operation_items,
     validate_selection,
 )
-from dupespace.local import LocalPermanentDeleteExecutor, LocalScanner, LocalTrashExecutor
+from dupespace.local import (
+    LocalPermanentDeleteExecutor,
+    LocalScanner,
+    LocalTrashExecutor,
+    _creation_time,
+)
 from dupespace.models import ScanRoot
 from dupespace.windows_safety import UnsafePathError, WindowsSafetyPolicy
 
 TEST_POLICY = WindowsSafetyPolicy([])
+
+
+@pytest.mark.parametrize(
+    ("platform", "birth_time", "expected"),
+    [("nt", None, 200), ("posix", None, None), ("nt", 100, 100),
+     ("posix", 100, 100), ("posix", 0, 0)],
+)
+def test_creation_time_never_uses_posix_metadata_change_time(
+    platform, birth_time, expected, monkeypatch
+) -> None:
+    metadata = SimpleNamespace(st_ctime=200)
+    if birth_time is not None:
+        metadata.st_birthtime = birth_time
+    with monkeypatch.context() as patch:
+        patch.setattr("dupespace.local.os.name", platform)
+        actual = _creation_time(metadata)
+    assert actual == expected
 
 
 def scan_roots(tmp_path: Path) -> tuple[Path, Path, list[ScanRoot]]:
