@@ -557,15 +557,22 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
   const protectedProfile = ["project", "media", "strict"].includes(requestBody.protectedProfile ?? "")
     ? requestBody.protectedProfile as "project" | "media" | "strict"
     : "project";
-  const [drive, aboutResponse] = await Promise.all([
+  const [drive, about] = await Promise.all([
     listDrive(session),
-    googleFetch(session, "https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress,photoLink),storageQuota"),
+    (async (): Promise<{
+      storageQuota?: { limit?: string; usage?: string };
+      user?: DriveUser;
+    }> => {
+      const response = await googleFetch(session, "https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress,photoLink),storageQuota");
+      if (!response.ok) {
+        await response.body?.cancel();
+        return {};
+      }
+      // Consume this body within its own deadline, before waiting for all file pages.
+      return await response.json();
+    })(),
   ]);
   const { files, listed, paths, examined, skipped, projectProtected, protectedIds } = drive;
-  const about = aboutResponse.ok ? await aboutResponse.json() as {
-    storageQuota?: { limit?: string; usage?: string };
-    user?: { displayName?: string; emailAddress?: string; photoLink?: string };
-  } : {};
   const filesById = new Map(listed.map((file) => [file.id, file]));
   const fileBuckets = new Map<string, DriveFile[]>();
   for (const file of files) {
@@ -1147,6 +1154,9 @@ export async function handleGoogleDriveApi(request: Request, env: GoogleDriveEnv
     if (url.pathname === "/api/google/delete" && request.method === "POST") return await mutate(request, env, "permanent");
     return json({ error: "找不到 API 路徑" }, 404);
   } catch (error) {
+    if (url.pathname === "/api/google/scan" && error instanceof Error && error.name === "TimeoutError") {
+      return json({ error: "Google Drive 回應逾時，這次掃描未完成；請稍後重新掃描，尚未執行清理。" }, 504);
+    }
     const message = error instanceof Error ? error.message : "伺服器處理失敗";
     const status = message.includes("登入") ? 401 : message.includes("設定") ? 503 : message.includes("來源") ? 403 : 500;
     return json({ error: message }, status);
