@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import csv
+import os
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -153,7 +155,10 @@ def test_audit_neutralizes_spreadsheet_formula_payloads(value):
     assert csv_cell("D:/photos/photo.jpg") == "D:/photos/photo.jpg"
 
 
-def test_keeper_changed_after_first_item_blocks_second_trash(tmp_path):
+@pytest.mark.parametrize("equal_timestamps", [False, True])
+def test_keeper_changed_after_first_item_blocks_second_trash(
+    tmp_path, monkeypatch, equal_timestamps
+):
     clean = tmp_path / "clean"
     keep = clean / "protected"
     keep.mkdir(parents=True)
@@ -161,6 +166,10 @@ def test_keeper_changed_after_first_item_blocks_second_trash(tmp_path):
     original.write_bytes(b"same-content")
     for index in range(2):
         (clean / f"copy-{index}.bin").write_bytes(b"same-content")
+    if equal_timestamps:
+        monkeypatch.setattr("dupespace.local._creation_time", lambda _: 1000)
+        for path in clean.glob("*.bin"):
+            os.utime(path, (1000, 1000))
     policy = WindowsSafetyPolicy([])
     report = LocalScanner(safety_policy=policy).scan(
         (ScanRoot(str(keep), "keep"), ScanRoot(str(clean), "clean"))
@@ -175,7 +184,7 @@ def test_keeper_changed_after_first_item_blocks_second_trash(tmp_path):
 
     def simulate_trash(path):
         moved.append(path)
-        original.write_bytes(b"CHANGED-KEEP")
+        Path(keeper.location).write_bytes(b"CHANGED-KEEP")
 
     result = LocalTrashExecutor(trash_func=simulate_trash, safety_policy=policy).trash(items)
     assert len(moved) == 1
