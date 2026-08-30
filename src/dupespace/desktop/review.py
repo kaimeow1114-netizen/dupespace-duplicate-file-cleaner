@@ -7,9 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import (
-    QAbstractListModel,
     QObject,
-    QRect,
     QRunnable,
     QSize,
     Qt,
@@ -18,25 +16,18 @@ from PySide6.QtCore import (
     Signal,
 )
 from PySide6.QtGui import (
-    QColor,
     QDesktopServices,
-    QFont,
     QImage,
     QImageReader,
-    QPainter,
-    QPen,
     QPixmap,
     QTextOption,
 )
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
-    QListView,
     QScrollArea,
-    QStyledItemDelegate,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -44,10 +35,11 @@ from PySide6.QtWidgets import (
 
 from ..models import FileRecord
 from ..windows_safety import DEFAULT_WINDOWS_SAFETY_POLICY, is_cloud_placeholder
-from .state import ScanSession, format_bytes
-from .widgets import INK, MUTED, TEAL, button, icon, label
+from .state import format_bytes
+from .widgets import TEAL, button, icon, label
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+SHELL_SUFFIXES = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".heic", ".psd"}
 
 
 def file_type(record: FileRecord) -> tuple[int, str, str]:
@@ -56,7 +48,7 @@ def file_type(record: FileRecord) -> tuple[int, str, str]:
         return 3, "資料夾", "folder"
     if suffix in {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}:
         return 0, "影片", "video"
-    if suffix in IMAGE_SUFFIXES | {".heic", ".gif", ".tiff", ".raw"}:
+    if suffix in IMAGE_SUFFIXES | {".heic", ".psd", ".gif", ".tiff", ".raw"}:
         return 1, "圖片", "image"
     if suffix in {".pdf", ".doc", ".docx", ".txt", ".xlsx", ".pptx", ".odt"}:
         return 2, "PDF" if suffix == ".pdf" else "文件", "file"
@@ -76,13 +68,28 @@ class PreviewJob(QRunnable):
     def run(self):
         image = QImage()
         try:
+            if self.record.source == "drive":
+                from .cloud_thumbnail import read_thumbnail
+
+                image = read_thumbnail(self.record.thumbnail_url)
+                return
             path = DEFAULT_WINDOWS_SAFETY_POLICY.validate_regular_file(self.record.location)
             if is_cloud_placeholder(path):
                 return
             info = path.stat()
-            if info.st_size != self.record.size or info.st_size > 16 * 1024**2:
+            if info.st_size != self.record.size:
                 return
             if self.record.modified_at is not None and info.st_mtime != self.record.modified_at:
+                return
+            if path.suffix.casefold() in SHELL_SUFFIXES:
+                from .shell_thumbnail import shell_thumbnail
+
+                image = shell_thumbnail(path)
+                after = path.stat()
+                if (after.st_size, after.st_mtime_ns) != (info.st_size, info.st_mtime_ns):
+                    image = QImage()
+                return
+            if info.st_size > 16 * 1024**2:
                 return
             reader = QImageReader(str(path))
             reader.setAllocationLimit(32)
@@ -121,9 +128,8 @@ class PreviewCache(QObject):
 
     def get(self, record):
         if (
-            record.source != "local"
-            or record.item_kind != "file"
-            or Path(record.name).suffix.casefold() not in IMAGE_SUFFIXES
+            record.item_kind != "file"
+            or Path(record.name).suffix.casefold() not in IMAGE_SUFFIXES | SHELL_SUFFIXES
             or record.safety_context.is_hard_protected
         ):
             return None
@@ -144,290 +150,6 @@ class PreviewCache(QObject):
         while len(self.cache) > self.LIMIT:
             self.cache.popitem(last=False)
         self.changed.emit()
-
-
-class ReviewModel(QAbstractListModel):
-    selection_changed = Signal()
-
-    def __init__(self, session: ScanSession):
-        super().__init__()
-        self.session, self.rows, self.ends = session, [], set()
-        self.query, self.busy = "", False
-
-    def refresh(self, query=None):
-        if query is not None:
-            self.query = query.casefold().strip()
-        self.beginResetModel()
-        self.rows, self.ends = [], set()
-        groups = sorted(
-            self.session.groups, key=lambda g: (file_type(g.keeper)[0], -g.reclaimable_bytes)
-        )
-        for number, group in enumerate(groups, 1):
-            if self.query and not any(self.query in r.location.casefold() for r in group.records):
-                continue
-            self.rows.append((group, group.keeper, number))
-            self.rows.extend((group, r, number) for r in group.records if r.key != group.keeper_key)
-            self.ends.add(len(self.rows) - 1)
-        self.endResetModel()
-
-    def rowCount(self, parent=None):
-        return 0 if parent is not None and parent.isValid() else len(self.rows)
-
-    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
-        if not index.isValid() or index.row() >= len(self.rows):
-            return None
-        group, record, number = self.rows[index.row()]
-        if role == Qt.ItemDataRole.DisplayRole:
-            return record.name
-        if role == Qt.ItemDataRole.ToolTipRole:
-            return f"{record.location}\n{record.protection_reason or record.checksum}"
-        if role == Qt.ItemDataRole.AccessibleTextRole:
-            status = "保留原檔" if record.key == group.keeper_key else "副本"
-            return f"群組 {number}，{status}，{record.name}，{record.location}"
-        if role == Qt.ItemDataRole.CheckStateRole and self.session.allowed(group, record):
-            return (
-                Qt.CheckState.Checked
-                if record.key in self.session.selected
-                else Qt.CheckState.Unchecked
-            )
-        return None
-
-    def flags(self, index):
-        result = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
-        if index.isValid() and not self.busy:
-            group, record, _ = self.rows[index.row()]
-            if self.session.allowed(group, record):
-                result |= Qt.ItemFlag.ItemIsUserCheckable
-        return result
-
-    def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
-        if self.busy or not index.isValid() or role != Qt.ItemDataRole.CheckStateRole:
-            return False
-        group, record, _ = self.rows[index.row()]
-        if not self.session.allowed(group, record):
-            return False
-        if value in (Qt.CheckState.Checked, Qt.CheckState.Checked.value):
-            self.session.selected.add(record.key)
-        else:
-            self.session.selected.discard(record.key)
-        self.session.reminders.invalidate()
-        self.dataChanged.emit(index, index)
-        self.selection_changed.emit()
-        return True
-
-
-def hit_rects(rect: QRect, keeper: bool):
-    if keeper:
-        preview_width = 150 if rect.width() >= 570 else 92
-        return QRect(), rect.adjusted(preview_width + 34, 58, -16, -28)
-    return QRect(rect.left() + 10, rect.top() + 9, 44, 48), rect.adjusted(64, 8, -18, -14)
-
-
-class GroupDelegate(QStyledItemDelegate):
-    def __init__(self, view, previews):
-        super().__init__(view)
-        self.view, self.previews = view, previews
-
-    def sizeHint(self, option, index):
-        group, record, _ = index.model().rows[index.row()]
-        return QSize(
-            0,
-            (182 if record.key == group.keeper_key else 76)
-            + (14 if index.row() in index.model().ends else 0),
-        )
-
-    def paint(self, painter: QPainter, option, index):
-        group, record, number = index.model().rows[index.row()]
-        keeper = record.key == group.keeper_key
-        allowed = index.model().session.allowed(group, record)
-        checked = record.key in index.model().session.selected
-        hovered = self.view.hover_row == index.row()
-        active = self.view.detail_key == record.key
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        r = option.rect.adjusted(2, 0, -3, -14 if index.row() in index.model().ends else 0)
-        if hovered:
-            r.adjust(-1, 0, 1, 0)
-        painter.setPen(
-            QPen(QColor("#5ABCAF" if hovered or active else "#D6E9E3"), 1.5 if hovered else 1)
-        )
-        painter.setBrush(QColor("#EDF9F5" if hovered else "#F3FAF7" if keeper else "#FFFFFF"))
-        painter.drawRoundedRect(r, 10 if keeper else 5, 10 if keeper else 5)
-        font = QFont(option.font)
-        font.setPixelSize(14)
-        painter.setFont(font)
-        check_rect, text_rect = hit_rects(r, keeper)
-        if not keeper and r.width() >= 460:
-            text_rect.adjust(0, 0, -115, 0)
-            painter.setPen(QColor(MUTED))
-            painter.drawText(
-                r.adjusted(r.width() - 126, 18, -16, 0),
-                Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight,
-                format_bytes(record.size),
-            )
-            painter.drawText(
-                r.adjusted(r.width() - 126, 42, -16, 0),
-                Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight,
-                "受到保護" if not allowed else "副本",
-            )
-        if keeper:
-            rank, kind, glyph = file_type(record)
-            painter.setPen(QColor(TEAL))
-            font.setBold(True)
-            painter.setFont(font)
-            painter.drawText(
-                r.adjusted(18, 14, -18, 0),
-                Qt.AlignmentFlag.AlignTop,
-                f"{kind}  /  群組 {number:02}    ·    {len(group.records) - 1} 份副本",
-            )
-            preview = QRect(r.left() + 16, r.top() + 47, text_rect.left() - r.left() - 30, 116)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor("#E1F1EC"))
-            painter.drawRoundedRect(preview, 8, 8)
-            pixmap = self.previews.get(record)
-            if pixmap:
-                scaled = pixmap.scaled(
-                    preview.size() - QSize(8, 8),
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-                painter.drawPixmap(preview.center() - scaled.rect().center(), scaled)
-            else:
-                icon(glyph, TEAL, 34).paint(
-                    painter, preview.center().x() - 17, preview.center().y() - 17, 34, 34
-                )
-            icon("lock", "#059669", 15).paint(painter, text_rect.left(), r.top() + 146, 15, 15)
-            painter.setPen(QColor("#047857"))
-            font.setPixelSize(12)
-            font.setBold(False)
-            painter.setFont(font)
-            painter.drawText(text_rect.left() + 22, r.top() + 159, "保留原檔 · 不會刪除")
-        else:
-            square = QRect(check_rect.center().x() - 10, check_rect.center().y() - 10, 20, 20)
-            painter.setPen(QPen(QColor(TEAL if checked else "#7DA79B"), 1.6))
-            painter.setBrush(QColor(TEAL if checked and allowed else "#FFFFFF"))
-            painter.drawRoundedRect(square, 4, 4)
-            if allowed and checked:
-                icon("check", "#FFFFFF", 16).paint(painter, square.adjusted(2, 2, -2, -2))
-            elif not allowed:
-                icon("lock", "#059669", 14).paint(painter, square.adjusted(3, 3, -3, -3))
-        font.setPixelSize(15)
-        font.setBold(True)
-        painter.setFont(font)
-        painter.setPen(QColor(TEAL if hovered else INK))
-        painter.drawText(
-            text_rect,
-            Qt.AlignmentFlag.AlignTop,
-            painter.fontMetrics().elidedText(
-                record.name, Qt.TextElideMode.ElideRight, text_rect.width()
-            ),
-        )
-        font.setPixelSize(12)
-        font.setBold(False)
-        painter.setFont(font)
-        painter.setPen(QColor(MUTED))
-        painter.drawText(
-            text_rect.adjusted(0, 24, 0, 0),
-            Qt.AlignmentFlag.AlignTop,
-            painter.fontMetrics().elidedText(
-                record.location, Qt.TextElideMode.ElideMiddle, text_rect.width()
-            ),
-        )
-        if keeper:
-            painter.drawText(
-                text_rect.adjusted(0, 50, 0, 0),
-                Qt.AlignmentFlag.AlignTop,
-                format_bytes(record.size),
-            )
-        painter.restore()
-
-
-class GroupView(QListView):
-    details_requested = Signal(object, object)
-
-    def __init__(self, model, previews, parent=None):
-        super().__init__(parent)
-        self.hover_row, self.detail_key = -1, None
-        self.setModel(model)
-        self.setItemDelegate(GroupDelegate(self, previews))
-        self.setMouseTracking(True)
-        self.setResizeMode(QListView.ResizeMode.Adjust)
-        self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.setSpacing(0)
-        self.setAccessibleName("重複群組；空白鍵勾選副本，Enter 查看詳細資料")
-        self.setStyleSheet("QListView { background: transparent; border: none; outline: 0; }")
-        previews.changed.connect(self.viewport().update)
-
-    def _zone(self, index, point):
-        group, record, _ = self.model().rows[index.row()]
-        check, text = hit_rects(self.visualRect(index), record.key == group.keeper_key)
-        return "check" if check.contains(point) else "details" if text.contains(point) else "row"
-
-    def mouseMoveEvent(self, event):
-        index = self.indexAt(event.position().toPoint())
-        self.hover_row = index.row() if index.isValid() else -1
-        hand = index.isValid() and self._zone(index, event.position().toPoint()) == "details"
-        self.viewport().setCursor(
-            Qt.CursorShape.PointingHandCursor if hand else Qt.CursorShape.ArrowCursor
-        )
-        self.viewport().update()
-        super().mouseMoveEvent(event)
-
-    def leaveEvent(self, event):
-        self.hover_row = -1
-        self.viewport().update()
-        super().leaveEvent(event)
-
-    def mousePressEvent(self, event):
-        if event.button() != Qt.MouseButton.LeftButton:
-            return
-        index = self.indexAt(event.position().toPoint())
-        if not index.isValid():
-            return
-        self.setCurrentIndex(index)
-        zone = self._zone(index, event.position().toPoint())
-        if zone == "check":
-            self._toggle(index)
-        elif zone == "details":
-            self._details(index)
-        event.accept()
-
-    def mouseReleaseEvent(self, event):
-        event.accept()
-
-    def mouseDoubleClickEvent(self, event):
-        # A second checkbox click remains a checkbox click, never a details gesture.
-        self.mousePressEvent(event)
-
-    def _toggle(self, index):
-        state = index.data(Qt.ItemDataRole.CheckStateRole)
-        if state is not None:
-            self.model().setData(
-                index,
-                Qt.CheckState.Unchecked
-                if state == Qt.CheckState.Checked
-                else Qt.CheckState.Checked,
-                Qt.ItemDataRole.CheckStateRole,
-            )
-
-    def _details(self, index):
-        if not self.model().busy:
-            group, record, _ = self.model().rows[index.row()]
-            self.detail_key = record.key
-            self.details_requested.emit(group, record)
-            self.viewport().update()
-
-    def keyPressEvent(self, event):
-        index = self.currentIndex()
-        if index.isValid() and event.key() == Qt.Key.Key_Space:
-            self._toggle(index)
-        elif index.isValid() and event.key() in {Qt.Key.Key_Enter, Qt.Key.Key_Return}:
-            self._details(index)
-        else:
-            super().keyPressEvent(event)
 
 
 class DetailsPane(QFrame):

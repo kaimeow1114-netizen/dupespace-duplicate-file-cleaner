@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { calculateHealthScore, getHealthState } from "../../lib/health-score";
+import { GroupThumbnail } from "./group-thumbnail";
 
 type OperationMode = "trash" | "permanent";
 type DriveRecord = {
@@ -665,8 +666,8 @@ export function CleanerClient() {
         <section className="mode-section" aria-labelledby="mode-title">
           <div><span className="eyebrow"><ShieldCheck size={14} aria-hidden="true" /> 步驟 4</span><h2 id="mode-title">選擇處理方式</h2><p>檔案與完整鏡像資料夾都可移至垃圾桶；資料夾永遠不能永久刪除。垃圾桶失敗絕不會自動改成永久刪除。</p></div>
           <div className="mode-options">
-            <label htmlFor="mode-trash" className={`mode-card recommended ${mode === "trash" ? "selected" : ""}`}><span className="sr-only">選擇移至垃圾桶</span><input id="mode-trash" aria-label="移至垃圾桶" type="radio" name="mode" checked={mode === "trash"} onChange={() => chooseMode("trash")} disabled={running} /><span><b>移至垃圾桶</b><small>預設、建議。仍可從 Google Drive 垃圾桶復原。</small><em>建議</em></span></label>
-            <label htmlFor="mode-permanent" className={`mode-card high-risk ${mode === "permanent" ? "selected" : ""}`}><span className="sr-only">選擇立即永久刪除</span><input id="mode-permanent" aria-label="立即永久刪除" type="radio" name="mode" checked={mode === "permanent"} onChange={() => chooseMode("permanent")} disabled={running} /><span><b>立即永久刪除</b><small>高風險進階功能，刪除後沒有任何復原方式。</small><em>無法復原</em></span></label>
+            <label htmlFor="mode-trash" className={`mode-card recommended ${mode === "trash" ? "selected" : ""}`}><span className="sr-only">選擇移至垃圾桶</span><input id="mode-trash" aria-label="移至垃圾桶" type="radio" name="mode" checked={mode === "trash"} onChange={() => chooseMode("trash")} disabled={running} /><span className="mode-copy"><span className="mode-heading"><b>移至垃圾桶</b><em>建議</em></span><small>預設、建議。仍可從 Google Drive 垃圾桶復原。</small></span></label>
+            <label htmlFor="mode-permanent" className={`mode-card high-risk ${mode === "permanent" ? "selected" : ""}`}><span className="sr-only">選擇立即永久刪除</span><input id="mode-permanent" aria-label="立即永久刪除" type="radio" name="mode" checked={mode === "permanent"} onChange={() => chooseMode("permanent")} disabled={running} /><span className="mode-copy"><span className="mode-heading"><b>立即永久刪除</b><em>無法復原</em></span><small>高風險進階功能，刪除後沒有任何復原方式。</small></span></label>
           </div>
         </section>
         <div className="results-toolbar">
@@ -688,8 +689,8 @@ export function CleanerClient() {
             const itemCategory = groupCategory(group);
             return <article className={`duplicate-group category-${itemCategory}`} key={key}>
               <button className="group-summary" type="button" aria-expanded={expanded} onClick={() => setExpandedGroups((current) => current.has(key) ? new Set() : new Set([key]))}>
-                <span className="category-badge"><CategoryIcon category={itemCategory} /><b>{CATEGORY_LABELS[itemCategory]}</b></span>
-                <span className="group-title"><b>{keeper?.name ?? "未命名項目"}</b><small>{copies.length.toLocaleString()} 個重複副本{group.itemKind === "folder" ? ` · ${group.tree.length.toLocaleString()} 個檔案 100% 鏡像` : ""}</small></span>
+                {itemCategory === "image" || itemCategory === "video" ? <GroupThumbnail key={`${keeper.id}:${keeper.version}`} url={keeper.thumbnailLink} name={keeper.name} video={itemCategory === "video"} /> : <span className="category-badge"><CategoryIcon category={itemCategory} /><b>{CATEGORY_LABELS[itemCategory]}</b></span>}
+                <span className="group-title"><b>{keeper?.name ?? "未命名項目"}</b><small>{CATEGORY_LABELS[itemCategory]} · {copies.length.toLocaleString()} 個重複副本{group.itemKind === "folder" ? ` · ${group.tree.length.toLocaleString()} 個檔案 100% 鏡像` : ""}</small></span>
                 <span className="group-saving"><small>可整理</small><strong>{formatBytes(group.reclaimableBytes)}</strong></span>
                 <ChevronDown className="group-chevron" size={20} aria-hidden="true" />
               </button>

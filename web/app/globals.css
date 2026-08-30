@@ -259,6 +259,9 @@ button, a { -webkit-tap-highlight-color:transparent; }
 .duplicate-group { margin:12px 0; overflow:hidden; background:white; border:1px solid #d6e3e3; border-radius:16px; box-shadow:0 7px 22px rgba(8,43,64,.045); }
 .group-summary { width:100%; display:grid; grid-template-columns:110px minmax(0,1fr) 110px 24px; align-items:center; gap:16px; padding:18px 20px; text-align:left; color:inherit; background:#f8fbfa; border:0; cursor:pointer; }
 .group-summary:hover { background:#f2f9f7; }
+.group-thumbnail { position:relative; display:grid; place-items:center; width:96px; height:72px; overflow:hidden; color:#0d9488; background:#e3f3ee; border:1px solid #cde6df; border-radius:10px; }
+.group-thumbnail img { display:block; width:100%; height:100%; object-fit:contain; }
+.thumbnail-video-mark { position:absolute; bottom:3px; right:3px; display:grid; place-items:center; padding:3px; color:white; background:rgba(8,39,43,.8); border-radius:4px; }
 .category-badge { display:inline-flex; width:max-content; align-items:center; gap:8px; padding:7px 10px; color:#087c72; background:#e1f7f3; border-radius:9px; }
 .category-badge b { font-size:12px; }
 .category-video .category-badge { color:#7c3aed; background:#f1eafe; }
@@ -324,10 +327,11 @@ button, a { -webkit-tap-highlight-color:transparent; }
 .mode-card { position:relative; display:flex; gap:12px; padding:17px; border:2px solid #dbe6e7; border-radius:15px; cursor:pointer; transition:border-color .2s,box-shadow .2s,transform .2s; }
 .mode-card:hover { transform:translateY(-1px); }
 .mode-card input { margin-top:3px; accent-color:var(--mint); }
-.mode-card span,.mode-card b,.mode-card small { display:block; }
-.mode-card b { color:var(--navy); font-size:14px; }
-.mode-card small { margin-top:5px; color:#70848c; font-size:10px; line-height:1.5; }
-.mode-card em { display:inline-block; margin-top:9px; padding:4px 7px; color:#087c72; background:#ddf7f3; border-radius:6px; font-size:8px; font-style:normal; font-weight:900; }
+.mode-card .mode-copy { min-width:0; }
+.mode-card .mode-heading { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.mode-card b { color:var(--navy); font-size:18px; line-height:1.5; }
+.mode-card small { display:block; margin-top:6px; color:#536d77; font-size:15px; line-height:1.6; }
+.mode-card em { display:inline-block; padding:3px 8px; color:#087c72; background:#ddf7f3; border-radius:6px; font-size:13px; font-style:normal; font-weight:800; white-space:nowrap; }
 .mode-card.selected { border-color:var(--mint); box-shadow:0 8px 24px rgba(22,199,183,.12); }
 .mode-card.high-risk input { accent-color:var(--red); }
 .mode-card.high-risk.selected { border-color:var(--red); background:#fffafa; box-shadow:0 8px 24px rgba(216,75,75,.12); }
@@ -509,6 +513,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible {
   .metric-grid { grid-template-columns:1fr; }
   .metric-grid article { border-right:0; border-bottom:1px solid var(--line); }
   .group-summary { grid-template-columns:88px minmax(0,1fr) 22px; gap:10px; padding:15px 13px; }
+  .group-thumbnail { width:80px; height:60px; }
   .group-saving { display:none; }
   .group-comparison { grid-template-columns:1fr; padding:14px; }
   .keeper-preview { display:grid; grid-template-columns:110px minmax(0,1fr); column-gap:13px; }

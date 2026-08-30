@@ -7,6 +7,10 @@ from tempfile import TemporaryDirectory
 
 
 def main() -> None:
+    import multiprocessing
+
+    multiprocessing.freeze_support()
+
     from PySide6.QtCore import QTimer
     from PySide6.QtGui import QFont
     from PySide6.QtWidgets import QApplication

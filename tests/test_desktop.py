@@ -15,8 +15,8 @@ from PySide6.QtWidgets import QApplication, QCheckBox, QDialog  # noqa: E402
 
 from dupespace.confirmations import ConfirmationSnapshot  # noqa: E402
 from dupespace.desktop.dialogs import ConfirmationDialog, DetailsDialog  # noqa: E402
+from dupespace.desktop.group_cards import ReviewModel, copy_hit_rects  # noqa: E402
 from dupespace.desktop.operations import CleanupResult  # noqa: E402
-from dupespace.desktop.review import ReviewModel, hit_rects  # noqa: E402
 from dupespace.desktop.state import ScanSession, read_preferences, save_preferences  # noqa: E402
 from dupespace.desktop.widgets import ProfileRow, folder_remove_rect  # noqa: E402
 from dupespace.desktop.window import MainWindow  # noqa: E402
@@ -91,7 +91,8 @@ def report_with_copies(count=2, *, size=1024**2) -> ScanReport:
 
 def test_virtual_model_handles_10000_copies_without_checkbox_widgets(window):
     window._accept_scan(report_with_copies(10_000))
-    assert window.model.rowCount() == 10_001
+    assert window.model.rowCount() == 1
+    assert window.model.visible_count(0) == 3
     assert len(window.session.selected) == 10_000
     assert window.table.findChildren(QCheckBox) == []
     assert window.table.model() is window.model
@@ -136,7 +137,8 @@ def test_small_files_are_preselected_and_rescan_restores_selection(window):
 def test_search_keeps_original_visible_with_matching_copy(window):
     window._accept_scan(report_with_copies())
     window.search.setText("不同相簿-1")
-    assert window.model.rowCount() == 3
+    assert window.model.rowCount() == 1
+    assert len(window.model.copies[0]) == 1
     assert window.model.rows[0][1].root_role == "keep"
 
 
@@ -348,8 +350,8 @@ def test_project_records_remain_hard_protected_even_if_selectable_is_tampered():
 def test_checkbox_double_click_never_opens_details(window, application):
     window._accept_scan(report_with_copies())
     application.processEvents()
-    index = window.model.index(1, 0)
-    box, text = hit_rects(window.table.visualRect(index), False)
+    index = window.model.index(0, 0)
+    box, text = copy_hit_rects(window.table.copy_rect(index, 0))
     QTest.mouseClick(window.table.viewport(), Qt.MouseButton.LeftButton, pos=box.center())
     assert "copy-0" not in window.session.selected
     assert not window.details_pane.isVisible()
@@ -369,8 +371,8 @@ def test_filename_has_hand_cursor_and_checkbox_has_arrow(window, application):
 
     window._accept_scan(report_with_copies())
     application.processEvents()
-    index = window.model.index(1, 0)
-    box, text = hit_rects(window.table.visualRect(index), False)
+    index = window.model.index(0, 0)
+    box, text = copy_hit_rects(window.table.copy_rect(index, 0))
     QTest.mouseMove(window.table.viewport(), text.topLeft() + QPoint(16, 8))
     assert window.table.viewport().cursor().shape() == Qt.CursorShape.PointingHandCursor
     QTest.mouseMove(window.table.viewport(), box.center())
@@ -450,12 +452,71 @@ def test_profile_default_name_rename_delete_and_load(window, tmp_path, monkeypat
 
 
 def test_rotating_scan_copy_is_the_large_title_and_leaves_real_path(window):
+    assert window.progress_tip_timer.interval() >= 5000
     window._scan_rotating = True
     window.progress_path.setText("D:/照片/旅行")
     window._rotate_progress_tip()
     assert window.progress_title.text() == window.progress_tips[1]
     assert window.progress_path.text() == "D:/照片/旅行"
     assert not hasattr(window, "progress_tip")
+
+
+def test_group_uses_horizontal_copies_and_incremental_expansion(window, application):
+    window._accept_scan(report_with_copies(10000))
+    application.processEvents()
+    index = window.model.index(0, 0)
+    _, keeper, copies = window.table.geometry_for(index)
+    assert copies.left() > keeper.right()
+    assert copies.top() == keeper.top()
+    assert window.model.visible_count(0) == 3
+    QTest.mouseClick(
+        window.table.viewport(),
+        Qt.MouseButton.LeftButton,
+        pos=window.table.more_rect(index).center(),
+    )
+    assert window.model.visible_count(0) == 23
+    assert len(window.session.selected) == 10000
+    assert not window.details_pane.isVisible()
+
+
+def test_narrow_details_overlay_preserves_comparison_width(window, application):
+    window.resize(1100, 700)
+    window._accept_scan(report_with_copies())
+    application.processEvents()
+    original_width = window.table.width()
+    group = window.session.groups[0]
+    window._show_details(group, group.records[1])
+    application.processEvents()
+    assert window.details_pane.parent() is window.review_surface
+    assert window.table.width() == original_width
+    assert window.details_pane.geometry().right() < window.review_surface.width()
+
+
+def test_wheel_uses_moderate_pixel_distance(window, application):
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QWheelEvent
+
+    window._accept_scan(report_with_copies(30))
+    window.model.reveal(0, 30)
+    window.table.doItemsLayout()
+    window.table.reduced_motion = True
+    event = QWheelEvent(
+        QPointF(100, 200),
+        QPointF(100, 200),
+        QPoint(),
+        QPoint(0, -120),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    window.table.wheelEvent(event)
+    assert window.table.verticalScrollBar().value() == 66
+
+
+def test_profile_background_is_explicitly_brand_colored(window):
+    assert window.profiles.objectName() == "profileCanvas"
+    assert "#profileCanvas" in window.styleSheet()
 
 
 def test_group_order_and_single_visible_keeper_preview(window, monkeypatch, application):

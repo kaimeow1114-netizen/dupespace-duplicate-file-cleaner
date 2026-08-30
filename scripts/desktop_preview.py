@@ -65,7 +65,7 @@ def sample_report() -> ScanReport:
 
 
 def main() -> None:
-    output = Path(__file__).resolve().parents[1] / "outputs" / "desktop-v13-preview"
+    output = Path(__file__).resolve().parents[1] / "outputs" / "desktop-v14-preview"
     output.mkdir(parents=True, exist_ok=True)
     application = QApplication([])
     # The offscreen platform has no Windows font database; load installed fonts for QA only.

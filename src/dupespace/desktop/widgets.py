@@ -182,7 +182,9 @@ class FolderDropList(QListWidget):
 
     def mousePressEvent(self, event) -> None:
         item = self.itemAt(event.position().toPoint())
-        if item is not None and folder_remove_rect(self.visualItemRect(item)).contains(event.position().toPoint()):
+        if item is not None and folder_remove_rect(self.visualItemRect(item)).contains(
+            event.position().toPoint()
+        ):
             if event.button() == Qt.MouseButton.LeftButton:
                 self.remove_requested.emit(item.data(Qt.ItemDataRole.UserRole))
             event.accept()
@@ -196,8 +198,14 @@ class FolderDropList(QListWidget):
 
     def mouseMoveEvent(self, event) -> None:
         item = self.itemAt(event.position().toPoint())
-        remove = item is not None and folder_remove_rect(self.visualItemRect(item)).contains(event.position().toPoint())
-        self.viewport().setCursor(Qt.CursorShape.PointingHandCursor if remove or item is None else Qt.CursorShape.ArrowCursor)
+        remove = item is not None and folder_remove_rect(self.visualItemRect(item)).contains(
+            event.position().toPoint()
+        )
+        self.viewport().setCursor(
+            Qt.CursorShape.PointingHandCursor
+            if remove or item is None
+            else Qt.CursorShape.ArrowCursor
+        )
         self.setToolTip("移出掃描清單，不會刪除檔案" if remove else "")
         super().mouseMoveEvent(event)
 
@@ -250,14 +258,18 @@ class FolderDelegate(QStyledItemDelegate):
         styled = QStyleOptionViewItem(option)
         self.initStyleOption(styled, index)
         styled.text, styled.icon = "", QIcon()
-        option.widget.style().drawControl(QStyle.ControlElement.CE_ItemViewItem, styled, painter, option.widget)
+        option.widget.style().drawControl(
+            QStyle.ControlElement.CE_ItemViewItem, styled, painter, option.widget
+        )
         data = index.data(Qt.ItemDataRole.UserRole)
         if not data:
             return
         path, role = data
         painter.save()
         rectangle = option.rect.adjusted(14, 10, -50, -8)
-        icon("shield" if role == "keep" else "folder").paint(painter, rectangle.left(), rectangle.top() + 8, 22, 22)
+        icon("shield" if role == "keep" else "folder").paint(
+            painter, rectangle.left(), rectangle.top() + 8, 22, 22
+        )
         rectangle.adjust(34, 0, 0, 0)
         heading = QFont(option.font)
         heading.setBold(True)
@@ -266,12 +278,22 @@ class FolderDelegate(QStyledItemDelegate):
         name = Path(path).name or path
         if role == "keep":
             name += " · 已保護"
-        painter.drawText(rectangle, Qt.AlignmentFlag.AlignTop, painter.fontMetrics().elidedText(name, Qt.TextElideMode.ElideRight, rectangle.width()))
+        painter.drawText(
+            rectangle,
+            Qt.AlignmentFlag.AlignTop,
+            painter.fontMetrics().elidedText(name, Qt.TextElideMode.ElideRight, rectangle.width()),
+        )
         painter.setFont(option.font)
         painter.setPen(QColor(MUTED))
-        painter.drawText(rectangle.adjusted(0, 24, 0, 0), Qt.AlignmentFlag.AlignTop, painter.fontMetrics().elidedText(path, Qt.TextElideMode.ElideMiddle, rectangle.width()))
+        painter.drawText(
+            rectangle.adjusted(0, 24, 0, 0),
+            Qt.AlignmentFlag.AlignTop,
+            painter.fontMetrics().elidedText(path, Qt.TextElideMode.ElideMiddle, rectangle.width()),
+        )
         remove = folder_remove_rect(option.rect)
-        icon("close", MUTED, 18).paint(painter, remove.center().x() - 9, remove.center().y() - 9, 18, 18)
+        icon("close", MUTED, 18).paint(
+            painter, remove.center().x() - 9, remove.center().y() - 9, 18, 18
+        )
         painter.restore()
 
 
@@ -298,13 +320,23 @@ class ProfileButton(QPushButton):
         painter.setFont(font)
         painter.setPen(QColor(INK))
         title = area.adjusted(0, 0, -preview_width - 18, 0)
-        painter.drawText(title, Qt.AlignmentFlag.AlignVCenter, painter.fontMetrics().elidedText(self.name, Qt.TextElideMode.ElideRight, title.width()))
+        painter.drawText(
+            title,
+            Qt.AlignmentFlag.AlignVCenter,
+            painter.fontMetrics().elidedText(self.name, Qt.TextElideMode.ElideRight, title.width()),
+        )
         font.setBold(False)
         font.setPixelSize(12)
         painter.setFont(font)
         painter.setPen(QColor(MUTED))
         area.setLeft(area.right() - preview_width)
-        painter.drawText(area, Qt.AlignmentFlag.AlignVCenter, painter.fontMetrics().elidedText(self.preview, Qt.TextElideMode.ElideRight, preview_width))
+        painter.drawText(
+            area,
+            Qt.AlignmentFlag.AlignVCenter,
+            painter.fontMetrics().elidedText(
+                self.preview, Qt.TextElideMode.ElideRight, preview_width
+            ),
+        )
 
 
 class ProfileRow(QWidget):
@@ -315,6 +347,8 @@ class ProfileRow(QWidget):
 
     def __init__(self, name, entries):
         super().__init__()
+        self.setObjectName("profileRow")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(4)
@@ -322,7 +356,11 @@ class ProfileRow(QWidget):
         self.main = ProfileButton(name, f"{len(names)} 個資料夾 · " + "、".join(names))
         self.main.clicked.connect(lambda: self.load.emit(name))
         row.addWidget(self.main, 1)
-        for glyph, title, signal in (("edit", "重新命名", self.rename), ("settings", "編輯位置", self.edit), ("close", "刪除設定檔", self.remove)):
+        for glyph, title, signal in (
+            ("edit", "重新命名", self.rename),
+            ("settings", "編輯位置", self.edit),
+            ("close", "刪除設定檔", self.remove),
+        ):
             action = button("", glyph, "icon")
             action.setFixedSize(34, 36)
             action.setToolTip(title)
@@ -374,11 +412,13 @@ class ScanOrbit(QWidget):
         )
 
 
-
-
 STYLES = """
 QMainWindow, QDialog { background: #F5F8F8; }
 QWidget#page { background: #F5F8F8; }
+QWidget#profileCanvas { background: #F5F8F8; }
+QWidget#profileRow { background: #ECF6F2; border: 1px solid #D4E7DF; border-radius: 10px; }
+QSplitter::handle { background: #D4E5DF; }
+QSplitter::handle:hover { background: #83CDBD; }
 QWidget { font-family: 'Segoe UI', 'Microsoft JhengHei UI', sans-serif; font-size: 14px; color: #102A2C; }
 QLabel { background: transparent; }
 QLabel[kind='eyebrow'] { color: #0F766E; font-size: 11px; font-weight: 700; letter-spacing: 2px; }

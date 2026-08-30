@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
     QGraphicsOpacityEffect,
+    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -41,6 +42,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QProgressBar,
     QScrollArea,
+    QSizePolicy,
     QSlider,
     QSplitter,
     QStackedWidget,
@@ -75,9 +77,10 @@ from ..updater import (
     verify_installer,
 )
 from .dialogs import ConfirmationDialog, DetailsDialog
+from .group_cards import GroupView, ReviewModel
 from .operations import CleanupResult, run_cleanup
 from .profiles import ProfileEditor
-from .review import DetailsPane, GroupView, PreviewCache, ReviewModel
+from .review import DetailsPane, PreviewCache
 from .state import ScanSession, format_bytes, read_preferences, save_preferences
 from .widgets import (
     EMERALD,
@@ -337,6 +340,8 @@ class MainWindow(QMainWindow):
         utility_row.addWidget(save)
         box.addLayout(utility_row)
         self.profiles = QWidget()
+        self.profiles.setObjectName("profileCanvas")
+        self.profiles.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.profile_rows = QVBoxLayout(self.profiles)
         self.profile_rows.setContentsMargins(0, 0, 0, 0)
         self.profile_rows.setSpacing(6)
@@ -344,6 +349,7 @@ class MainWindow(QMainWindow):
         self.profile_scroll.setWidgetResizable(True)
         self.profile_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.profile_scroll.setWidget(self.profiles)
+        self.profile_scroll.viewport().setStyleSheet("background: #F5F8F8;")
         box.addWidget(self.profile_scroll)
         self._refresh_profiles()
         actions = QHBoxLayout()
@@ -455,7 +461,7 @@ class MainWindow(QMainWindow):
         )
         self.progress_tip_index = 0
         self.progress_tip_timer = QTimer(self)
-        self.progress_tip_timer.setInterval(3200)
+        self.progress_tip_timer.setInterval(6000)
         self.progress_tip_timer.timeout.connect(self._rotate_progress_tip)
         self.stop_button = button("安全停止", "stop", "secondary")
         self.stop_button.clicked.connect(self.request_stop)
@@ -471,14 +477,15 @@ class MainWindow(QMainWindow):
     def _build_review(self) -> QWidget:
         page = QWidget()
         box = QVBoxLayout(page)
-        box.setContentsMargins(28, 18, 28, 18)
-        box.setSpacing(10)
+        box.setContentsMargins(20, 12, 20, 14)
+        box.setSpacing(8)
         header = QHBoxLayout()
-        headings = QVBoxLayout()
-        headings.addWidget(label("REVIEW YOUR DUPLICATES", "eyebrow"))
-        self.review_title = label("確認副本，開始整理。", "heading", wrap=True)
-        headings.addWidget(self.review_title)
-        header.addLayout(headings, 1)
+        self.review_title = label("確認副本，開始整理。", "heading")
+        header.addWidget(self.review_title)
+        self.review_source = label("", "muted")
+        self.review_source.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.review_source.setMinimumWidth(0)
+        header.addWidget(self.review_source, 1)
         locations = button("調整位置", "folder", "subtle")
         locations.clicked.connect(self._change_locations)
         header.addWidget(locations)
@@ -488,7 +495,9 @@ class MainWindow(QMainWindow):
         box.addLayout(header)
         self.review_stats = label("", "muted", wrap=True)
         box.addWidget(self.review_stats)
-        modes = QHBoxLayout()
+        self.review_toolbar = QGridLayout()
+        self.review_toolbar.setHorizontalSpacing(8)
+        self.review_toolbar.setVerticalSpacing(8)
         self.mode_group = QButtonGroup(self)
         self.mode_trash = button("移至垃圾桶 · 建議", "trash", "mode")
         self.mode_permanent = button("永久刪除 · 無法復原", "warning", "risk-mode")
@@ -498,29 +507,24 @@ class MainWindow(QMainWindow):
             mode_button.clicked.connect(
                 lambda _checked=False, choice=mode: self._change_mode(choice)
             )
-            modes.addWidget(mode_button)
-        modes.addStretch()
-        box.addLayout(modes)
         self.review_notice = Notice()
         box.addWidget(self.review_notice)
-        toolbar = QHBoxLayout()
         self.search = QLineEdit()
         self.search.setPlaceholderText("搜尋檔名或完整路徑")
         self.search.setAccessibleName("搜尋重複檔案")
         self.search.setClearButtonEnabled(True)
-        toolbar.addWidget(self.search, 1)
-        select = button("選取全部重複副本", "check", "subtle")
-        select.clicked.connect(self._select_all)
-        toolbar.addWidget(select)
-        clear = button("取消選取", kind="subtle")
-        clear.clicked.connect(self._clear_selection)
-        toolbar.addWidget(clear)
-        box.addLayout(toolbar)
+        self.review_select = button("全選副本", "check", "subtle")
+        self.review_select.setToolTip("選取全部符合安全條件的重複副本")
+        self.review_select.clicked.connect(self._select_all)
+        self.review_clear = button("取消選取", kind="subtle")
+        self.review_clear.clicked.connect(self._clear_selection)
+        box.addLayout(self.review_toolbar)
         self.model = ReviewModel(self.session)
         self.model.selection_changed.connect(self._refresh_selection)
         self.search.textChanged.connect(self.model.refresh)
         self.previews = PreviewCache(self)
         self.table = GroupView(self.model, self.previews)
+        self.table.reduced_motion = self.reduced_motion
         self.details_pane = DetailsPane(self.previews)
         self.table.details_requested.connect(self._show_details)
         self.details_pane.closed.connect(self._close_details)
@@ -532,7 +536,12 @@ class MainWindow(QMainWindow):
         self.review_splitter.addWidget(self.table)
         self.review_splitter.addWidget(self.details_pane)
         self.review_splitter.setStretchFactor(0, 1)
-        box.addWidget(self.review_splitter, 1)
+        self.review_splitter.setHandleWidth(6)
+        self.review_surface = QWidget()
+        surface_layout = QVBoxLayout(self.review_surface)
+        surface_layout.setContentsMargins(0, 0, 0, 0)
+        surface_layout.addWidget(self.review_splitter)
+        box.addWidget(self.review_surface, 1)
         self.unlock_button = button("檢查受保護的資料夾", "lock", "subtle")
         self.unlock_button.clicked.connect(self._unlock)
         box.addWidget(self.unlock_button, 0, Qt.AlignmentFlag.AlignLeft)
@@ -551,7 +560,56 @@ class MainWindow(QMainWindow):
         row.addWidget(self.clean_button)
         actionbar.box.addLayout(row)
         box.addWidget(actionbar)
+        self._layout_review_toolbar()
         return page
+
+    def _layout_review_toolbar(self):
+        controls = (
+            self.mode_trash,
+            self.mode_permanent,
+            self.search,
+            self.review_select,
+            self.review_clear,
+        )
+        for control in controls:
+            self.review_toolbar.removeWidget(control)
+        wide = self.width() - self.sidebar.width() >= 1020
+        for column in range(5):
+            self.review_toolbar.setColumnStretch(column, 0)
+        if wide:
+            for column, control in enumerate(controls):
+                self.review_toolbar.addWidget(control, 0, column)
+            self.review_toolbar.setColumnStretch(2, 1)
+        else:
+            self.review_toolbar.addWidget(self.mode_trash, 0, 0)
+            self.review_toolbar.addWidget(self.mode_permanent, 0, 1)
+            self.review_toolbar.addWidget(self.search, 1, 0, 1, 2)
+            self.review_toolbar.addWidget(self.review_select, 1, 2)
+            self.review_toolbar.addWidget(self.review_clear, 1, 3)
+            self.review_toolbar.setColumnStretch(1, 1)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "review_toolbar"):
+            self._layout_review_toolbar()
+            QTimer.singleShot(0, self._position_details)
+
+    def _position_details(self):
+        if not hasattr(self, "details_pane") or self.details_pane.isHidden():
+            return
+        available = self.review_surface.width()
+        if available < 1180:
+            self.details_pane.setParent(self.review_surface)
+            self.details_pane.setGeometry(
+                max(0, available - 360), 0, min(360, available), self.review_surface.height()
+            )
+            self.details_pane.show()
+            self.details_pane.raise_()
+        else:
+            if self.review_splitter.indexOf(self.details_pane) < 0:
+                self.review_splitter.addWidget(self.details_pane)
+            self.review_splitter.setSizes([available - 360, 360])
+            self.details_pane.show()
 
     def _build_complete(self) -> QWidget:
         page, box = scroll_page()
@@ -786,6 +844,8 @@ class MainWindow(QMainWindow):
             auxiliary.style().unpolish(auxiliary)
             auxiliary.style().polish(auxiliary)
         self._refresh_account_chip()
+        self._layout_review_toolbar()
+        QTimer.singleShot(0, self._position_details)
 
     def _refresh_account_chip(self) -> None:
         self.account_chip.setText("" if self.sidebar_collapsed else self.account_display_text)
@@ -1073,6 +1133,7 @@ class MainWindow(QMainWindow):
     def _accept_scan(self, report: ScanReport) -> None:
         self._close_details()
         self.previews.clear()
+        self.model.limits.clear()
         self.session.accept_scan(report)
         self.search.clear()
         self._show_review()
@@ -1083,6 +1144,15 @@ class MainWindow(QMainWindow):
         if self.busy:
             return
         self.model.refresh()
+        locations = [root.physical_path for root in self.session.roots if root.role == "clean"]
+        self.review_source.setText(
+            f"{Path(locations[0]).name}"
+            + (f" 等 {len(locations)} 個位置" if len(locations) > 1 else "")
+            if locations
+            else "Google Drive"
+        )
+        self.review_source.setToolTip("\n".join(locations) if locations else "Google Drive")
+        self._layout_review_toolbar()
         report = self.session.report
         if report:
             copies = sum(
@@ -1162,8 +1232,7 @@ class MainWindow(QMainWindow):
 
     def _show_details(self, group, record) -> None:
         self.details_pane.show_record(group, record)
-        available = self.review_splitter.width()
-        self.review_splitter.setSizes([max(280, available - 340), 340])
+        self._position_details()
 
     def _close_details(self) -> None:
         self.details_pane.hide()
@@ -1176,7 +1245,9 @@ class MainWindow(QMainWindow):
         if not index.isValid():
             self.global_notice.setText("請先選取想檢查的受保護副本列。")
             return
-        _group, record, _ = self.model.rows[index.row()]
+        record = self.table.current_record()
+        if record is None:
+            return
         context = record.safety_context
         if not context.locked_folder or context.is_hard_protected or record.root_role != "clean":
             self.global_notice.setText(
@@ -1798,6 +1869,7 @@ class MainWindow(QMainWindow):
             try:
                 self.sound.configure(muted=muted.isChecked(), volume=volume.value() / 100)
                 self.reduced_motion = motion.isChecked()
+                self.table.reduced_motion = self.reduced_motion
                 save_preferences({"reduced_motion": self.reduced_motion})
             except OSError:
                 self.global_notice.setText("偏好設定無法儲存，這次使用仍會套用。")

@@ -470,7 +470,7 @@ class GoogleDriveScanner:
     FIELDS = (
         "nextPageToken,incompleteSearch,"
         "files(id,name,mimeType,size,md5Checksum,sha256Checksum,createdTime,"
-        "modifiedTime,parents,ownedByMe,driveId,version,webViewLink,"
+        "modifiedTime,parents,ownedByMe,driveId,version,webViewLink,thumbnailLink,"
         "capabilities(canTrash,canDelete))"
     )
 
@@ -578,6 +578,7 @@ class GoogleDriveScanner:
                     can_delete=can_delete,
                     mime_type=mime_type,
                     web_url=item.get("webViewLink"),
+                    thumbnail_url=item.get("thumbnailLink"),
                     parent_ids=tuple(sorted(str(parent) for parent in item.get("parents", []))),
                     selectable=can_trash or can_delete,
                     auto_selectable=(can_trash and file_size >= MINIMUM_AUTO_SELECT_BYTES),
