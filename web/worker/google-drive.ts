@@ -272,7 +272,13 @@ async function googleFetch(session: OAuthSession, url: string, init?: RequestIni
   if (init?.signal) signals.push(init.signal);
   const signal = AbortSignal.any(signals);
   signal.throwIfAborted();
-  return fetch(url, { ...init, headers, signal, redirect: "error" });
+  // Workers supports manual redirects, not redirect: "error". Never forward tokens.
+  const response = await fetch(url, { ...init, headers, signal, redirect: "manual" });
+  if (response.status >= 300 && response.status < 400) {
+    await response.body?.cancel();
+    throw new Error("Google API 回傳非預期轉址，已停止請求；請稍後重試");
+  }
+  return response;
 }
 
 function checksum(file: DriveFile): string | null {
