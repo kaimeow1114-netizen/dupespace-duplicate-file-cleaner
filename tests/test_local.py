@@ -83,8 +83,9 @@ def test_local_scan_hashes_content_not_just_name_or_size(tmp_path: Path) -> None
     }
 
 
+@pytest.mark.parametrize("has_birth_time", [True, False])
 def test_single_cleanup_root_keeps_oldest_copy_without_required_keep_zone(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, has_birth_time: bool
 ) -> None:
     root = tmp_path / "photos"
     root.mkdir()
@@ -95,6 +96,12 @@ def test_single_cleanup_root_keeps_oldest_copy_without_required_keep_zone(
     newer.write_bytes(payload)
     os.utime(older, (1_700_000_000, 1_700_000_000))
     os.utime(newer, (1_710_000_000, 1_710_000_000))
+    # os.utime does not set Windows creation time; both writes can share one clock tick.
+    # Exercise explicit creation times and the modification-time fallback deterministically.
+    monkeypatch.setattr(
+        "dupespace.local._creation_time",
+        lambda metadata: metadata.st_mtime if has_birth_time else None,
+    )
     monkeypatch.setattr("dupespace.local.MINIMUM_AUTO_SELECT_BYTES", 1)
 
     report = LocalScanner(safety_policy=TEST_POLICY).scan([ScanRoot(str(root), "clean")])
