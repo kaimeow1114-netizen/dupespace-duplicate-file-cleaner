@@ -7,12 +7,19 @@ locks its oldest exact copy as the deterministic keeper. Users may optionally pr
 subfolder of a cleanup root; those records participate in comparison but can never be selected.
 Changing roots or rescanning resets every selection, temporary unlock, and confirmation.
 
-Zero-byte files are ignored. Files below 1 MiB are visible but not preselected. Project/package
+Zero-byte files are ignored. Safe trash-eligible copies of any positive size are preselected after
+every scan, including verified folders; keepers and locked items never are. Trash requires one
+explicit click after review and does not show a blocking confirmation. Permanent deletion still
+starts empty and always requires high-risk confirmation. Project/package
 trees, applications/install resources, backups/snapshots, and sync folders are excluded from
 whole-folder comparison; risky individual-file contexts remain locked by default and can be
 unlocked only for the current scan after their full path, count, bytes, and exact confirmation
 phrase are reviewed. Rescanning or changing roots resets that temporary unlock.
 Offline and recall-on-access cloud placeholders are skipped without opening or hydrating them.
+Local image previews are limited to visible keepers or one explicitly opened detail pane, a single
+decoder, eight pending requests and 40 cached thumbnails of at most 320 by 200 pixels. Images over
+16 MiB or 24 megapixels use a type icon; decoder allocation is capped at 32 MiB. Video/PDF content
+is not decoded in the list. Preview requests never fetch local file content through the server.
 
 Duplicate folders are detected separately from files. Two folder trees must have identical
 relative paths, byte sizes, and full checksums; empty folders alone do not qualify. Folder cleanup

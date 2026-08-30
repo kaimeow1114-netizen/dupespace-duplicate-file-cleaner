@@ -6,7 +6,7 @@ import math
 from importlib.resources import files
 from pathlib import Path
 
-from PySide6.QtCore import QAbstractTableModel, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
@@ -23,8 +23,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .state import ScanSession, format_bytes
-
 TEAL = "#0D9488"
 EMERALD = "#10B981"
 INK = "#102A2C"
@@ -33,6 +31,9 @@ ROSE = "#BE123C"
 
 # Lucide/Feather vector geometry; see the bundled Lucide license notice.
 ICON_PATHS = {
+    "image": '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
+    "video": '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m10 8 6 4-6 4Z"/>',
+    "edit": '<path d="m16 3 5 5L8 21H3v-5Zm-2 2 5 5"/>',
     "drive": '<rect x="2" y="12" width="20" height="8" rx="2"/><path d="m2 12 3-8h14l3 8M6 16h.01M10 16h.01"/>',
     "cloud": '<path d="M20 16.2A4.5 4.5 0 0 0 18 7.5a6 6 0 0 0-11.6-1A4.5 4.5 0 0 0 6.5 16H8m4-4v9m-3-3 3 3 3-3"/>',
     "shield": '<path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11"/><path d="m9 12 2 2 4-4"/>',
@@ -133,6 +134,7 @@ class FolderDropList(QListWidget):
 
     folder_requested = Signal()
     folders_dropped = Signal(object)
+    remove_requested = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -143,6 +145,8 @@ class FolderDropList(QListWidget):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setMinimumHeight(220)
         self.setAccessibleName("要整理的資料夾與受保護子資料夾")
+        self.setItemDelegate(FolderDelegate(self))
+        self.setMouseTracking(True)
 
     @staticmethod
     def _directories(event) -> list[str]:
@@ -177,9 +181,31 @@ class FolderDropList(QListWidget):
             event.ignore()
 
     def mousePressEvent(self, event) -> None:
-        if self.itemAt(event.position().toPoint()) is None:
+        item = self.itemAt(event.position().toPoint())
+        if item is not None and folder_remove_rect(self.visualItemRect(item)).contains(event.position().toPoint()):
+            if event.button() == Qt.MouseButton.LeftButton:
+                self.remove_requested.emit(item.data(Qt.ItemDataRole.UserRole))
+            event.accept()
+            return
+        if item is None and event.button() == Qt.MouseButton.LeftButton:
             self.folder_requested.emit()
         super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        event.accept()
+
+    def mouseMoveEvent(self, event) -> None:
+        item = self.itemAt(event.position().toPoint())
+        remove = item is not None and folder_remove_rect(self.visualItemRect(item)).contains(event.position().toPoint())
+        self.viewport().setCursor(Qt.CursorShape.PointingHandCursor if remove or item is None else Qt.CursorShape.ArrowCursor)
+        self.setToolTip("移出掃描清單，不會刪除檔案" if remove else "")
+        super().mouseMoveEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Delete and self.currentItem():
+            self.remove_requested.emit(self.currentItem().data(Qt.ItemDataRole.UserRole))
+        else:
+            super().keyPressEvent(event)
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
@@ -213,6 +239,96 @@ class FolderDropList(QListWidget):
             34,
         )
         painter.end()
+
+
+def folder_remove_rect(rect):
+    return rect.adjusted(max(0, rect.width() - 44), 10, -6, -10)
+
+
+class FolderDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        styled = QStyleOptionViewItem(option)
+        self.initStyleOption(styled, index)
+        styled.text, styled.icon = "", QIcon()
+        option.widget.style().drawControl(QStyle.ControlElement.CE_ItemViewItem, styled, painter, option.widget)
+        data = index.data(Qt.ItemDataRole.UserRole)
+        if not data:
+            return
+        path, role = data
+        painter.save()
+        rectangle = option.rect.adjusted(14, 10, -50, -8)
+        icon("shield" if role == "keep" else "folder").paint(painter, rectangle.left(), rectangle.top() + 8, 22, 22)
+        rectangle.adjust(34, 0, 0, 0)
+        heading = QFont(option.font)
+        heading.setBold(True)
+        painter.setFont(heading)
+        painter.setPen(QColor(INK))
+        name = Path(path).name or path
+        if role == "keep":
+            name += " · 已保護"
+        painter.drawText(rectangle, Qt.AlignmentFlag.AlignTop, painter.fontMetrics().elidedText(name, Qt.TextElideMode.ElideRight, rectangle.width()))
+        painter.setFont(option.font)
+        painter.setPen(QColor(MUTED))
+        painter.drawText(rectangle.adjusted(0, 24, 0, 0), Qt.AlignmentFlag.AlignTop, painter.fontMetrics().elidedText(path, Qt.TextElideMode.ElideMiddle, rectangle.width()))
+        remove = folder_remove_rect(option.rect)
+        icon("close", MUTED, 18).paint(painter, remove.center().x() - 9, remove.center().y() - 9, 18, 18)
+        painter.restore()
+
+
+class ProfileButton(QPushButton):
+    def __init__(self, name, preview):
+        super().__init__()
+        self.name, self.preview = name, preview
+        self.setMinimumWidth(0)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setAccessibleName(f"載入 {name}：{preview}")
+        self.setToolTip(f"{name}\n{preview}")
+        self.setMinimumHeight(44)
+
+    def sizeHint(self):
+        return QSize(260, 44)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        area = self.rect().adjusted(12, 0, -12, 0)
+        preview_width = min(self.width() // 2, max(0, area.width() // 2))
+        font = QFont(self.font())
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor(INK))
+        title = area.adjusted(0, 0, -preview_width - 18, 0)
+        painter.drawText(title, Qt.AlignmentFlag.AlignVCenter, painter.fontMetrics().elidedText(self.name, Qt.TextElideMode.ElideRight, title.width()))
+        font.setBold(False)
+        font.setPixelSize(12)
+        painter.setFont(font)
+        painter.setPen(QColor(MUTED))
+        area.setLeft(area.right() - preview_width)
+        painter.drawText(area, Qt.AlignmentFlag.AlignVCenter, painter.fontMetrics().elidedText(self.preview, Qt.TextElideMode.ElideRight, preview_width))
+
+
+class ProfileRow(QWidget):
+    load = Signal(str)
+    rename = Signal(str)
+    edit = Signal(str)
+    remove = Signal(str)
+
+    def __init__(self, name, entries):
+        super().__init__()
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        names = [Path(e.get("path", "")).name for e in entries if isinstance(e, dict)]
+        self.main = ProfileButton(name, f"{len(names)} 個資料夾 · " + "、".join(names))
+        self.main.clicked.connect(lambda: self.load.emit(name))
+        row.addWidget(self.main, 1)
+        for glyph, title, signal in (("edit", "重新命名", self.rename), ("settings", "編輯位置", self.edit), ("close", "刪除設定檔", self.remove)):
+            action = button("", glyph, "icon")
+            action.setFixedSize(34, 36)
+            action.setToolTip(title)
+            action.setAccessibleName(f"{title}：{name}")
+            action.clicked.connect(lambda _checked=False, s=signal: s.emit(name))
+            row.addWidget(action)
 
 
 class ScanOrbit(QWidget):
@@ -258,141 +374,6 @@ class ScanOrbit(QWidget):
         )
 
 
-class DuplicateModel(QAbstractTableModel):
-    selection_changed = Signal()
-    HEADERS = ("", "檔案與完整路徑", "保護狀態", "容量", "群組")
-
-    def __init__(self, session: ScanSession) -> None:
-        super().__init__()
-        self.session = session
-        self.rows = []
-        self.busy = False
-        self.query = ""
-        self.refresh()
-
-    def refresh(self, query: str | None = None) -> None:
-        if query is not None:
-            self.query = query.casefold().strip()
-        self.beginResetModel()
-        self.rows = [
-            (group, record, index)
-            for index, group in enumerate(self.session.groups, 1)
-            if not self.query
-            or any(self.query in record.location.casefold() for record in group.records)
-            for record in group.records
-        ]
-        self.endResetModel()
-
-    def rowCount(self, parent=None) -> int:
-        return 0 if parent is not None and parent.isValid() else len(self.rows)
-
-    def columnCount(self, parent=None) -> int:
-        return 0 if parent is not None and parent.isValid() else len(self.HEADERS)
-
-    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
-        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
-            return self.HEADERS[section]
-        return None
-
-    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
-        if not index.isValid() or index.row() >= len(self.rows):
-            return None
-        group, record, group_number = self.rows[index.row()]
-        keeper = record.key == group.keeper_key or record.root_role == "keep"
-        allowed = self.session.allowed(group, record)
-        if role == Qt.ItemDataRole.CheckStateRole and index.column() == 0 and allowed:
-            return (
-                Qt.CheckState.Checked
-                if record.key in self.session.selected
-                else Qt.CheckState.Unchecked
-            )
-        if role == Qt.ItemDataRole.DisplayRole:
-            return (
-                "",
-                record.name,
-                "保留原檔" if keeper else "受到保護" if not allowed else "可處理副本",
-                format_bytes(record.size),
-                f"{group_number:02}",
-            )[index.column()]
-        if role == Qt.ItemDataRole.UserRole:
-            return record.location
-        if role == Qt.ItemDataRole.ToolTipRole:
-            return f"{record.location}\n{record.protection_reason or record.checksum}"
-        if role == Qt.ItemDataRole.BackgroundRole:
-            return QColor("#EFFAF5") if keeper else QColor("#FFFFFF")
-        if role == Qt.ItemDataRole.ForegroundRole:
-            return QColor("#047857" if keeper else INK if allowed else MUTED)
-        if role == Qt.ItemDataRole.DecorationRole:
-            if index.column() == 1:
-                return icon("folder" if record.item_kind == "folder" else "file")
-            if index.column() == 0 and not allowed:
-                return icon("lock", "#059669" if keeper else MUTED, 16)
-        if role == Qt.ItemDataRole.TextAlignmentRole and index.column() > 1:
-            return Qt.AlignmentFlag.AlignCenter
-        return None
-
-    def flags(self, index):
-        flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
-        if index.isValid() and index.column() == 0 and not self.busy:
-            group, record, _number = self.rows[index.row()]
-            if self.session.allowed(group, record):
-                flags |= Qt.ItemFlag.ItemIsUserCheckable
-        return flags
-
-    def setData(self, index, value, role=Qt.ItemDataRole.EditRole) -> bool:
-        if self.busy or not index.isValid() or index.column() != 0:
-            return False
-        group, record, _number = self.rows[index.row()]
-        if role != Qt.ItemDataRole.CheckStateRole or not self.session.allowed(group, record):
-            return False
-        if value in (Qt.CheckState.Checked, Qt.CheckState.Checked.value):
-            self.session.selected.add(record.key)
-        else:
-            self.session.selected.discard(record.key)
-        self.session.reminders.invalidate()
-        self.dataChanged.emit(index, index, [Qt.ItemDataRole.CheckStateRole])
-        self.selection_changed.emit()
-        return True
-
-
-class FileDelegate(QStyledItemDelegate):
-    def paint(self, painter, option, index) -> None:
-        styled = QStyleOptionViewItem(option)
-        self.initStyleOption(styled, index)
-        name = styled.text
-        styled.text = ""
-        styled.icon = QIcon()
-        style = styled.widget.style() if styled.widget else None
-        if style:
-            style.drawControl(QStyle.ControlElement.CE_ItemViewItem, styled, painter, styled.widget)
-        painter.save()
-        rectangle = option.rect.adjusted(10, 8, -12, -7)
-        file_icon = index.data(Qt.ItemDataRole.DecorationRole)
-        if file_icon:
-            file_icon.paint(painter, rectangle.left(), rectangle.top() + 9, 22, 22)
-        rectangle.adjust(34, 0, 0, 0)
-        painter.setPen(QColor(INK))
-        heading = QFont(option.font)
-        heading.setBold(True)
-        painter.setFont(heading)
-        painter.drawText(
-            rectangle,
-            Qt.AlignmentFlag.AlignTop,
-            painter.fontMetrics().elidedText(name, Qt.TextElideMode.ElideRight, rectangle.width()),
-        )
-        painter.setFont(option.font)
-        painter.setPen(QColor(MUTED))
-        rectangle.adjust(0, 22, 0, 0)
-        painter.drawText(
-            rectangle,
-            Qt.AlignmentFlag.AlignTop,
-            painter.fontMetrics().elidedText(
-                str(index.data(Qt.ItemDataRole.UserRole)),
-                Qt.TextElideMode.ElideMiddle,
-                rectangle.width(),
-            ),
-        )
-        painter.restore()
 
 
 STYLES = """
@@ -429,6 +410,11 @@ QPushButton[kind='primary']:disabled { background: #BDD5CF; border-color: #BDD5C
 QPushButton[kind='danger'] { background: #BE123C; color: white; border-color: #BE123C; }
 QPushButton[kind='danger']:disabled { background: #E4BBC6; border-color: #E4BBC6; color: white; }
 QPushButton[kind='subtle'] { border-color: transparent; background: transparent; color: #526D67; padding: 8px 10px; }
+QPushButton[kind='icon'] { padding: 6px; min-width: 18px; min-height: 18px; background: transparent; border: 1px solid transparent; }
+QPushButton[kind='icon']:hover { background: #E1F3ED; border-color: #81CBBB; }
+QPushButton#sidebarToggle { padding: 0; text-align: center; border: none; background: transparent; }
+QPushButton#sidebarToggle:hover { background: #15464A; }
+QPushButton[compact='true'] { padding: 10px 0; text-align: center; }
 QPushButton[kind='nav'] { color: #A9C7C6; background: transparent; border: none; padding: 14px 17px; text-align: left; }
 QPushButton[kind='nav']:hover { background: #103A3D; color: white; }
 QPushButton[kind='nav']:checked { background: #15464A; color: #99F6E4; border: 1px solid #26716B; }

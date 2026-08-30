@@ -9,10 +9,15 @@
 ## Windows V1 桌面版
 
 V1 採用原生 Qt 桌面介面：可收合深青色側邊導覽、明亮工作區、可點擊及拖放的
-資料夾選取區、Google 帳號、可搜尋的虛擬列表、清理紀錄、安全中心與 GitHub 回報頁。
+資料夾選取區、Google 帳號、可搜尋的虛擬群組卡片、清理紀錄、安全中心與 GitHub 回報頁。
 Windows 本機整理不需登入；登入後的帳號與頭像固定顯示於側邊欄底部。
 
-操作流程是「選擇位置 → 掃描 → 檢查副本 → 選擇方式／確認 → 執行 → 結果」。
+操作流程是「選擇位置 → 掃描 → 檢查副本 → 移至垃圾桶 → 結果」。
+掃描後會選取所有符合安全條件的副本（包含小於 1 MiB 的檔案及已驗證資料夾）；
+一般垃圾桶操作不再跳出確認視窗，永久刪除仍有不可略過的高風險確認。
+每組只載入一張保留檔圖片預覽，其他副本只顯示文字。點擊檔名或路徑即可開啟右側
+詳細資料，勾選框與預覽互不干擾。資料夾列右側的 X 只移出掃描清單，不刪除檔案。
+常用位置預設以第一個整理資料夾命名，支援直接載入、改名、編輯位置與刪除設定檔。
 永久刪除切換後清空所有選取，資料夾只能移至垃圾桶；重新掃描會撤銷這次解鎖與確認。
 本機只會遞迴掃描使用者加入的整理位置。每個精確重複群組自動鎖定最舊檔案，
 不再強制要求獨立保留區；使用者仍可把整理位置內的子資料夾設成永遠不可選取的
@@ -28,12 +33,12 @@ DUPESPACE is a free, open-source, safety-first duplicate file and mirror-folder 
 scans only user-added cleanup roots and recursively visits their ordinary subfolders. Every exact
 content group locks its oldest file as the keeper. An optional nested protected folder can override
 that keeper choice, and every file inside it remains unselectable. Google Drive keeps its separate
-global oldest-file keeper policy. The desktop uses a native virtual table, the web progressively
+global oldest-file keeper policy. The desktop uses native virtual group cards, the web progressively
 renders large result sets, and both produce per-file CSV audits.
 
 Content equality means “duplicate candidate”, not “safe to delete everywhere.” Zero-byte files are
-ignored; on Windows, files smaller than 1 MiB can be reviewed but are never preselected. The Google
-Drive web scan preselects every trash-eligible
+ignored. Desktop and web scans preselect safe trash-eligible copies of any positive size, including
+verified mirror folders. Explicit protection profiles and locked contexts remain excluded. The scan selects
 non-keeper duplicate so a recoverable trash operation takes one click after review. On Windows
 and Google Drive, recognized source-code projects and package
 environments are hard-excluded because identical configuration, dependency, and plug-in files can

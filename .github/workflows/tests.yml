@@ -47,4 +47,4 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run build
       - run: npm run lint
-      - run: node --test tests/rendered-html.test.mjs
+      - run: node --test tests/*.test.mjs

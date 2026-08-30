@@ -8,7 +8,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import QPoint, Qt  # noqa: E402
 from PySide6.QtGui import QFontDatabase  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QCheckBox, QDialog  # noqa: E402
@@ -16,8 +16,9 @@ from PySide6.QtWidgets import QApplication, QCheckBox, QDialog  # noqa: E402
 from dupespace.confirmations import ConfirmationSnapshot  # noqa: E402
 from dupespace.desktop.dialogs import ConfirmationDialog, DetailsDialog  # noqa: E402
 from dupespace.desktop.operations import CleanupResult  # noqa: E402
+from dupespace.desktop.review import ReviewModel, hit_rects  # noqa: E402
 from dupespace.desktop.state import ScanSession, read_preferences, save_preferences  # noqa: E402
-from dupespace.desktop.widgets import DuplicateModel  # noqa: E402
+from dupespace.desktop.widgets import ProfileRow, folder_remove_rect  # noqa: E402
 from dupespace.desktop.window import MainWindow  # noqa: E402
 from dupespace.models import (  # noqa: E402
     ActionOutcome,
@@ -51,6 +52,11 @@ def window(application, tmp_path, monkeypatch):
     yield instance
     assert not instance.busy
     instance.close()
+    deadline = time.monotonic() + 10
+    while instance.previews.pool.activeThreadCount() and time.monotonic() < deadline:
+        application.processEvents()
+        time.sleep(0.01)
+    assert not instance.previews.pool.activeThreadCount()
     instance.deleteLater()
     application.processEvents()
 
@@ -75,7 +81,7 @@ def report_with_copies(count=2, *, size=1024**2) -> ScanReport:
             source_root="D:/待整理",
             location=f"D:/待整理/不同相簿-{index}.jpg",
             name=f"不同相簿-{index}.jpg",
-            auto_selectable=size >= 1024**2,
+            auto_selectable=True,
         )
         for index in range(count)
     )
@@ -95,7 +101,8 @@ def test_virtual_model_handles_10000_copies_without_checkbox_widgets(window):
 def test_keeper_checkbox_is_not_available_even_when_called_directly(application):
     state = ScanSession()
     state.accept_scan(report_with_copies())
-    model = DuplicateModel(state)
+    model = ReviewModel(state)
+    model.refresh()
     keeper = model.index(0, 0)
     assert model.data(keeper, Qt.ItemDataRole.CheckStateRole) is None
     assert not model.flags(keeper) & Qt.ItemFlag.ItemIsUserCheckable
@@ -118,10 +125,11 @@ def test_permanent_mode_clears_selection_and_cannot_include_folders(window):
     assert window.session.selected == set()
 
 
-def test_small_files_stay_unselected_until_explicit_select_all(window):
+def test_small_files_are_preselected_and_rescan_restores_selection(window):
     window._accept_scan(report_with_copies(3, size=20))
-    assert window.session.selected == set()
-    window._select_all()
+    assert len(window.session.selected) == 3
+    window._clear_selection()
+    window._accept_scan(report_with_copies(3, size=20))
     assert len(window.session.selected) == 3
 
 
@@ -211,7 +219,7 @@ def test_sidebar_collapses_to_icons_and_preserves_account_access(window):
     assert window.account_chip.text() == ""
     assert "未登入" in window.account_chip.toolTip()
     window._toggle_sidebar()
-    assert window.sidebar.width() == 220
+    assert window.sidebar.width() == 240
     assert window.nav_buttons["local"].text() == "本機清理"
     assert window.account_chip.text() == "未登入"
 
@@ -284,7 +292,8 @@ def test_close_while_busy_waits_for_safe_stop_and_worker_completion(window, appl
     assert window.cancel_event.is_set()
     deadline = time.monotonic() + 5
     while window.busy and time.monotonic() < deadline:
-        QTest.qWait(20)
+        application.processEvents()
+        time.sleep(0.01)
     assert not window.busy
     assert callbacks == ["stopped"]
     assert not window.isVisible()
@@ -329,5 +338,226 @@ def test_project_records_remain_hard_protected_even_if_selectable_is_tampered():
         replace(item, safety_context=SafetyContext(project=True)) for item in group.records
     )
     session.accept_scan(replace(report, groups=(replace(group, records=records),)))
+    assert session.selected == set()
     session.select_all()
     assert session.selected == set()
+
+
+def test_checkbox_double_click_never_opens_details(window, application):
+    window._accept_scan(report_with_copies())
+    application.processEvents()
+    index = window.model.index(1, 0)
+    box, text = hit_rects(window.table.visualRect(index), False)
+    QTest.mouseClick(window.table.viewport(), Qt.MouseButton.LeftButton, pos=box.center())
+    assert "copy-0" not in window.session.selected
+    assert not window.details_pane.isVisible()
+    QTest.mouseDClick(window.table.viewport(), Qt.MouseButton.LeftButton, pos=box.center())
+    assert not window.details_pane.isVisible()
+    QTest.mouseClick(
+        window.table.viewport(), Qt.MouseButton.LeftButton, pos=text.topLeft() + QPoint(16, 8)
+    )
+    application.processEvents()
+    assert window.details_pane.isVisible()
+    assert window.details_pane.record.key == "copy-0"
+    assert not QApplication.activeModalWidget()
+
+
+def test_filename_has_hand_cursor_and_checkbox_has_arrow(window, application):
+    from PySide6.QtCore import QPoint
+
+    window._accept_scan(report_with_copies())
+    application.processEvents()
+    index = window.model.index(1, 0)
+    box, text = hit_rects(window.table.visualRect(index), False)
+    QTest.mouseMove(window.table.viewport(), text.topLeft() + QPoint(16, 8))
+    assert window.table.viewport().cursor().shape() == Qt.CursorShape.PointingHandCursor
+    QTest.mouseMove(window.table.viewport(), box.center())
+    assert window.table.viewport().cursor().shape() == Qt.CursorShape.ArrowCursor
+
+
+def test_trash_click_launches_once_without_a_modal(window, monkeypatch):
+    window._accept_scan(report_with_copies(20, size=10))
+    launched = []
+    monkeypatch.setattr(window, "_launch", lambda *args, **kwargs: launched.append(args))
+    monkeypatch.setattr(
+        ConfirmationDialog, "exec", lambda *_: pytest.fail("Unexpected trash modal")
+    )
+    window.start_cleanup()
+    assert len(launched) == 1
+    assert window.session.mode == "trash"
+
+
+def test_folder_x_removes_exact_row_and_never_deletes_files(
+    window, tmp_path, application, monkeypatch
+):
+    use_fixture_paths(monkeypatch)
+    clean = tmp_path / "photos"
+    protected = clean / "originals"
+    other = tmp_path / "videos"
+    protected.mkdir(parents=True)
+    other.mkdir()
+    payload = clean / "photo.txt"
+    payload.write_text("fixture", encoding="utf-8")
+    window.session.set_roots(
+        (
+            ScanRoot(str(clean), "clean"),
+            ScanRoot(str(protected), "keep"),
+            ScanRoot(str(other), "clean"),
+        )
+    )
+    window._refresh_roots()
+    application.processEvents()
+    rectangle = window.root_picker.visualItemRect(window.root_picker.item(0))
+    QTest.mouseClick(
+        window.root_picker.viewport(),
+        Qt.MouseButton.LeftButton,
+        pos=folder_remove_rect(rectangle).center(),
+    )
+    assert window.session.roots == (ScanRoot(str(other.resolve()), "clean"),)
+    assert payload.read_text(encoding="utf-8") == "fixture"
+    assert protected.is_dir()
+
+
+def test_profile_default_name_rename_delete_and_load(window, tmp_path, monkeypatch):
+    use_fixture_paths(monkeypatch)
+    from PySide6.QtWidgets import QInputDialog
+
+    root = tmp_path / "旅行照片"
+    root.mkdir()
+    window.session.set_roots((ScanRoot(str(root), "clean"),))
+    defaults = []
+
+    def choose(*args, **kwargs):
+        defaults.append(kwargs.get("text"))
+        return "旅行照片", True
+
+    monkeypatch.setattr(QInputDialog, "getText", choose)
+    window._save_profile()
+    assert defaults == ["旅行照片"]
+    row = window.profiles.findChildren(ProfileRow)[-1]
+    assert "1 個資料夾" in row.main.preview
+    assert "旅行照片" in row.main.preview
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **kw: ("旅遊備份", True))
+    window._rename_profile("旅行照片")
+    assert "旅行照片" not in window.preferences["profiles"]
+    window._load_profile("旅遊備份")
+    assert window.session.roots[0].physical_path == str(root.resolve())
+    window._remove_profile("旅遊備份")
+    assert window.preferences["profiles"] == {}
+    assert root.is_dir()
+
+
+def test_rotating_scan_copy_is_the_large_title_and_leaves_real_path(window):
+    window._scan_rotating = True
+    window.progress_path.setText("D:/照片/旅行")
+    window._rotate_progress_tip()
+    assert window.progress_title.text() == window.progress_tips[1]
+    assert window.progress_path.text() == "D:/照片/旅行"
+    assert not hasattr(window, "progress_tip")
+
+
+def test_group_order_and_single_visible_keeper_preview(window, monkeypatch, application):
+    report = report_with_copies()
+    groups = []
+    for i, suffix in enumerate((".txt", ".jpg", ".mp4")):
+        records = tuple(
+            replace(r, key=f"{i}-{r.key}", name=f"file{suffix}") for r in report.groups[0].records
+        )
+        groups.append(replace(report.groups[0], records=records, keeper_key=records[0].key))
+    requested = []
+    monkeypatch.setattr(window.previews, "get", lambda r: requested.append(r.key))
+    window._accept_scan(replace(report, groups=tuple(groups)))
+    application.processEvents()
+    window.table.viewport().repaint()
+    assert window.model.rows[0][1].name.endswith(".mp4")
+    assert set(requested) <= {g.keeper_key for g in groups}
+
+
+@pytest.mark.parametrize("dimensions", [(1320, 860), (980, 580)])
+def test_details_panel_does_not_push_actions_outside_window(window, application, dimensions):
+    window.resize(*dimensions)
+    window._accept_scan(report_with_copies())
+    group = window.session.groups[0]
+    window._show_details(group, group.records[1])
+    application.processEvents()
+    assert window.table.width() >= 260
+    assert window.table.horizontalScrollBar().maximum() == 0
+    bottom = window.clean_button.mapTo(window, window.clean_button.rect().bottomRight())
+    assert bottom.x() < window.width() and bottom.y() < window.height()
+
+
+def test_preview_cache_has_bounded_decode_queue_and_cache(
+    window, tmp_path, application, monkeypatch
+):
+    from PySide6.QtGui import QColor, QImage
+
+    from dupespace.desktop.review import PreviewCache
+    from dupespace.windows_safety import WindowsSafetyPolicy
+
+    monkeypatch.setattr(
+        "dupespace.desktop.review.DEFAULT_WINDOWS_SAFETY_POLICY", WindowsSafetyPolicy([])
+    )
+
+    path = tmp_path / "fixture.png"
+    picture = QImage(640, 400, QImage.Format.Format_RGB32)
+    picture.fill(QColor("#0D9488"))
+    picture.save(str(path))
+    base = replace(
+        report_with_copies().groups[0].keeper,
+        location=str(path),
+        size=path.stat().st_size,
+        modified_at=path.stat().st_mtime,
+        name=path.name,
+    )
+    for number in range(5000):
+        window.previews.get(replace(base, key=str(number)))
+    assert len(window.previews.pending) <= PreviewCache.MAX_PENDING
+    deadline = time.monotonic() + 15
+    while window.previews.pending and time.monotonic() < deadline:
+        application.processEvents()
+        time.sleep(0.02)
+    assert not window.previews.pending
+    assert len(window.previews.cache) <= PreviewCache.LIMIT
+    assert any(p is not None for p in window.previews.cache.values())
+    assert all(
+        p is None or (p.width() <= 320 and p.height() <= 200)
+        for p in window.previews.cache.values()
+    )
+
+
+def use_fixture_paths(monkeypatch):
+    from dupespace.desktop import state
+    from dupespace.windows_safety import WindowsSafetyPolicy
+
+    real_validate = state.validate_roots
+    monkeypatch.setattr(
+        state, "validate_roots", lambda roots: real_validate(roots, WindowsSafetyPolicy([]))
+    )
+
+
+def test_profile_editor_saves_edits_without_changing_current_scan(window, tmp_path, monkeypatch):
+    from dupespace.desktop.profiles import ProfileEditor
+
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    window.preferences["profiles"] = {"test": [{"path": str(first), "role": "clean"}]}
+    current = window.session.roots
+
+    def edit(dialog):
+        dialog.entries = [{"path": str(second), "role": "clean"}]
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(ProfileEditor, "exec", edit)
+    window._edit_profile("test")
+    assert window.preferences["profiles"]["test"][0]["path"] == str(second)
+    assert window.session.roots == current
+    assert first.is_dir() and second.is_dir()
+
+
+def test_details_copy_uses_original_path_without_invisible_characters(window):
+    group = report_with_copies().groups[0]
+    record = group.records[1]
+    window._show_details(group, record)
+    assert window.details_pane.fields["完整路徑"].toPlainText() == record.location
+    assert window.details_pane.fields["內容校驗碼"].toPlainText() == record.checksum

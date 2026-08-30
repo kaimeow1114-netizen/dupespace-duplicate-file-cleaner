@@ -98,7 +98,7 @@ def _hash_file(
     return f"sha256:{digest.hexdigest()}"
 
 
-MINIMUM_AUTO_SELECT_BYTES = 1024 * 1024
+MINIMUM_AUTO_SELECT_BYTES = 1
 
 _APPLICATION_SUFFIXES = frozenset(
     {".exe", ".dll", ".sys", ".msi", ".msp", ".appx", ".msix", ".cab"}

@@ -98,6 +98,7 @@ def default_selection(
         and record.root_role != "keep"
         and record.selectable
         and record.auto_selectable
+        and not record.safety_context.is_hard_protected
         and record.can_trash
     }
 

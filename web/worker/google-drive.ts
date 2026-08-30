@@ -73,7 +73,7 @@ const FILE_FIELDS = [
   "modifiedTime", "ownedByMe", "version", "trashed", "capabilities(canTrash,canDelete)",
   "webViewLink", "thumbnailLink", "parents", "driveId", "shared",
 ].join(",");
-const MINIMUM_AUTO_SELECT_BYTES = 1024 * 1024;
+const MINIMUM_AUTO_SELECT_BYTES = 1;
 const MAX_MUTATION_ITEMS = 20;
 const PROJECT_MARKERS = new Set([
   ".git", ".svn", ".hg", ".idea", ".vscode", "pyproject.toml", "package.json",

@@ -34,7 +34,7 @@ from .token_store import (
     save_protected_token,
 )
 
-MINIMUM_AUTO_SELECT_BYTES = 1024 * 1024
+MINIMUM_AUTO_SELECT_BYTES = 1
 
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email"

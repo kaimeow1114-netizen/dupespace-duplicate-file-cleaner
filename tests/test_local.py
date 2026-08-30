@@ -292,7 +292,7 @@ def test_zero_byte_small_and_clean_only_groups_follow_safe_policy(tmp_path: Path
         {record.name for record in group.records} == {"only-one.bin", "only-two.bin"}
         for group in report.groups
     )
-    assert default_selection(report.groups) == set()
+    assert len(default_selection(report.groups)) == 2
     assert all(record.size > 0 for group in report.groups for record in group.records)
 
 

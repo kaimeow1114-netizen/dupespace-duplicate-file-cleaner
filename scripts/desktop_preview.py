@@ -43,17 +43,13 @@ def sample_report() -> ScanReport:
                 key=f"preview-{index}-{role}",
                 source="local",
                 name=name,
-                location=(
-                    f"D:/待整理下載/{'珍藏原檔/' if role == 'keep' else '匯入副本/'}{name}"
-                ),
+                location=(f"D:/待整理下載/{'珍藏原檔/' if role == 'keep' else '匯入副本/'}{name}"),
                 size=size,
                 checksum="f" * 64,
                 root_role=role,
-                source_root=(
-                    "D:/待整理下載/珍藏原檔" if role == "keep" else "D:/待整理下載"
-                ),
+                source_root=("D:/待整理下載/珍藏原檔" if role == "keep" else "D:/待整理下載"),
                 can_delete=True,
-                auto_selectable=role == "clean" and size >= 1024**2,
+                auto_selectable=role == "clean",
             )
             for role in ("keep", "clean")
         )
@@ -69,7 +65,7 @@ def sample_report() -> ScanReport:
 
 
 def main() -> None:
-    output = Path(__file__).resolve().parents[1] / "outputs" / "desktop-v1-preview"
+    output = Path(__file__).resolve().parents[1] / "outputs" / "desktop-v13-preview"
     output.mkdir(parents=True, exist_ok=True)
     application = QApplication([])
     # The offscreen platform has no Windows font database; load installed fonts for QA only.
@@ -92,6 +88,14 @@ def main() -> None:
             ScanRoot("D:/待整理下載/珍藏原檔", "keep"),
         )
         window._refresh_roots()
+        window.preferences["profiles"] = {
+            "旅行照片": [
+                {"path": "D:/旅行照片/2026夏天海邊旅行紀錄", "role": "clean"},
+                {"path": "E:/家族相簿", "role": "clean"},
+            ],
+            "工作文件與影片備份": [{"path": "D:/工作文件", "role": "clean"}],
+        }
+        window._refresh_profiles()
         application.processEvents()
         window.grab().save(str(output / "02-locations.png"))
         window._show_page("progress")
@@ -109,6 +113,14 @@ def main() -> None:
         window._accept_scan(report)
         application.processEvents()
         window.grab().save(str(output / "03-review.png"))
+        window._show_details(report.groups[1], report.groups[1].records[1])
+        application.processEvents()
+        window.grab().save(str(output / "03b-details.png"))
+        window._close_details()
+        window._toggle_sidebar()
+        application.processEvents()
+        window.grab().save(str(output / "03c-collapsed.png"))
+        window._toggle_sidebar()
         window.resize(1060, 660)
         application.processEvents()
         window.grab().save(str(output / "04-compact.png"))

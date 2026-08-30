@@ -25,17 +25,14 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QCloseEvent, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QApplication,
     QButtonGroup,
     QCheckBox,
-    QComboBox,
     QDialog,
     QFileDialog,
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
-    QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
@@ -45,8 +42,8 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QScrollArea,
     QSlider,
+    QSplitter,
     QStackedWidget,
-    QTableView,
     QVBoxLayout,
     QWidget,
 )
@@ -79,16 +76,17 @@ from ..updater import (
 )
 from .dialogs import ConfirmationDialog, DetailsDialog
 from .operations import CleanupResult, run_cleanup
+from .profiles import ProfileEditor
+from .review import DetailsPane, GroupView, PreviewCache, ReviewModel
 from .state import ScanSession, format_bytes, read_preferences, save_preferences
 from .widgets import (
     EMERALD,
     STYLES,
     TEAL,
     Card,
-    DuplicateModel,
-    FileDelegate,
     FolderDropList,
     Notice,
+    ProfileRow,
     ScanOrbit,
     button,
     icon,
@@ -196,11 +194,13 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         self.sidebar = QFrame()
         self.sidebar.setObjectName("sidebar")
-        self.sidebar.setFixedWidth(220)
+        self.sidebar.setFixedWidth(240)
         side = QVBoxLayout(self.sidebar)
         side.setContentsMargins(14, 18, 14, 16)
         side.setSpacing(6)
         brand_row = QHBoxLayout()
+        self.brand_row = brand_row
+        brand_row.setSpacing(6)
         logo = QLabel()
         self.brand_logo = logo
         pixmap = QPixmap(str(files("dupespace.assets").joinpath("dupespace-icon.png")))
@@ -216,6 +216,7 @@ class MainWindow(QMainWindow):
         self.brand_name = label("DUPESPACE", "brand")
         brand_row.addWidget(self.brand_name, 1)
         self.collapse_button = button("", kind="nav")
+        self.collapse_button.setObjectName("sidebarToggle")
         self.collapse_button.setIcon(icon("panel", "#78BDB7"))
         self.collapse_button.setFixedSize(32, 34)
         self.collapse_button.setToolTip("收合側邊欄")
@@ -309,6 +310,7 @@ class MainWindow(QMainWindow):
         self.root_picker = FolderDropList()
         self.root_picker.folder_requested.connect(self._add_cleanup_root)
         self.root_picker.folders_dropped.connect(self._add_dropped_roots)
+        self.root_picker.remove_requested.connect(self._remove_root)
         self.root_picker.currentItemChanged.connect(self._root_selection_changed)
         picker_card.box.addWidget(self.root_picker)
         self.current_root_feedback = label(
@@ -325,24 +327,25 @@ class MainWindow(QMainWindow):
         self.protect_root_button.clicked.connect(self._protect_subfolder)
         self.protect_root_button.setEnabled(False)
         picker_actions.addWidget(self.protect_root_button)
-        self.remove_root_button = button("移除所選位置", "close", "subtle")
-        self.remove_root_button.setToolTip("只移出掃描清單，不會刪除任何檔案")
-        self.remove_root_button.clicked.connect(self._remove_selected_root)
-        self.remove_root_button.setEnabled(False)
-        picker_actions.addWidget(self.remove_root_button)
         picker_actions.addStretch()
         picker_card.box.addLayout(picker_actions)
         box.addWidget(picker_card)
         utility_row = QHBoxLayout()
-        self.profiles = QComboBox()
-        self.profiles.setAccessibleName("載入常用位置設定檔")
-        self._refresh_profiles()
-        self.profiles.activated.connect(self._load_profile)
-        utility_row.addWidget(self.profiles, 1)
+        utility_row.addWidget(label("常用位置", "heading"), 1)
         save = button("儲存這組位置", "folder", "subtle")
         save.clicked.connect(self._save_profile)
         utility_row.addWidget(save)
         box.addLayout(utility_row)
+        self.profiles = QWidget()
+        self.profile_rows = QVBoxLayout(self.profiles)
+        self.profile_rows.setContentsMargins(0, 0, 0, 0)
+        self.profile_rows.setSpacing(6)
+        self.profile_scroll = QScrollArea()
+        self.profile_scroll.setWidgetResizable(True)
+        self.profile_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.profile_scroll.setWidget(self.profiles)
+        box.addWidget(self.profile_scroll)
+        self._refresh_profiles()
         actions = QHBoxLayout()
         self.ready_text = label("加入至少一個資料夾，就可以開始。", "muted", wrap=True)
         actions.addWidget(self.ready_text, 1)
@@ -444,16 +447,13 @@ class MainWindow(QMainWindow):
         card.box.addWidget(self.progress_path)
         box.addWidget(card)
         self.progress_tips = (
-            "精確比對內容，不靠檔名猜測。",
+            "正在精確比對，保護原檔。",
             "硬碟沒有變胖，只是副本太熱情。",
-            "重要檔案先留下，剩下的空間交給 DUPESPACE。",
-            "不追趕進度條；安全比快一秒重要。",
-            "資料夾正在排隊報到，重複的會被分到同一組。",
+            "留好重要的，整理多餘的。",
+            "安全比快一秒重要。",
+            "同名不一定相同，我們比對內容。",
         )
         self.progress_tip_index = 0
-        self.progress_tip = label(self.progress_tips[0], "muted", wrap=True)
-        self.progress_tip.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        box.addWidget(self.progress_tip)
         self.progress_tip_timer = QTimer(self)
         self.progress_tip_timer.setInterval(3200)
         self.progress_tip_timer.timeout.connect(self._rotate_progress_tip)
@@ -476,7 +476,7 @@ class MainWindow(QMainWindow):
         header = QHBoxLayout()
         headings = QVBoxLayout()
         headings.addWidget(label("REVIEW YOUR DUPLICATES", "eyebrow"))
-        self.review_title = label("原檔已保護，副本由你決定。", "title", wrap=True)
+        self.review_title = label("確認副本，開始整理。", "heading", wrap=True)
         headings.addWidget(self.review_title)
         header.addLayout(headings, 1)
         locations = button("調整位置", "folder", "subtle")
@@ -515,30 +515,24 @@ class MainWindow(QMainWindow):
         clear = button("取消選取", kind="subtle")
         clear.clicked.connect(self._clear_selection)
         toolbar.addWidget(clear)
-        details = button("檢查", "eye")
-        details.clicked.connect(self._details)
-        toolbar.addWidget(details)
         box.addLayout(toolbar)
-        self.model = DuplicateModel(self.session)
+        self.model = ReviewModel(self.session)
         self.model.selection_changed.connect(self._refresh_selection)
         self.search.textChanged.connect(self.model.refresh)
-        self.table = QTableView()
-        self.table.setAccessibleName("重複副本列表，保留檔案無法勾選")
-        self.table.setModel(self.model)
-        self.table.setItemDelegateForColumn(1, FileDelegate(self.table))
-        self.table.verticalHeader().hide()
-        self.table.verticalHeader().setDefaultSectionSize(65)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        for column, width in ((0, 42), (2, 104), (3, 112), (4, 58)):
-            self.table.setColumnWidth(column, width)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.table.setShowGrid(False)
-        self.table.setWordWrap(False)
-        self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-        self.table.doubleClicked.connect(lambda _index: self._details())
-        box.addWidget(self.table, 1)
+        self.previews = PreviewCache(self)
+        self.table = GroupView(self.model, self.previews)
+        self.details_pane = DetailsPane(self.previews)
+        self.table.details_requested.connect(self._show_details)
+        self.details_pane.closed.connect(self._close_details)
+        self.details_pane.tree_requested.connect(
+            lambda group, record: DetailsDialog(self, group, record).exec()
+        )
+        self.review_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.review_splitter.setChildrenCollapsible(False)
+        self.review_splitter.addWidget(self.table)
+        self.review_splitter.addWidget(self.details_pane)
+        self.review_splitter.setStretchFactor(0, 1)
+        box.addWidget(self.review_splitter, 1)
         self.unlock_button = button("檢查受保護的資料夾", "lock", "subtle")
         self.unlock_button.clicked.connect(self._unlock)
         box.addWidget(self.unlock_button, 0, Qt.AlignmentFlag.AlignLeft)
@@ -767,22 +761,30 @@ class MainWindow(QMainWindow):
 
     def _toggle_sidebar(self) -> None:
         self.sidebar_collapsed = not self.sidebar_collapsed
-        self.sidebar.setFixedWidth(72 if self.sidebar_collapsed else 220)
+        self.sidebar.setFixedWidth(72 if self.sidebar_collapsed else 240)
+        self.brand_row.setAlignment(
+            self.collapse_button,
+            Qt.AlignmentFlag.AlignCenter if self.sidebar_collapsed else Qt.AlignmentFlag.AlignRight,
+        )
         self.brand_logo.setVisible(not self.sidebar_collapsed)
         self.brand_name.setVisible(not self.sidebar_collapsed)
         self.brand_slogan.setVisible(not self.sidebar_collapsed)
         self.workspace_label.setVisible(not self.sidebar_collapsed)
         self.version_label.setVisible(not self.sidebar_collapsed)
-        self.collapse_button.setToolTip(
-            "展開側邊欄" if self.sidebar_collapsed else "收合側邊欄"
-        )
+        self.collapse_button.setToolTip("展開側邊欄" if self.sidebar_collapsed else "收合側邊欄")
         for key, nav in self.nav_buttons.items():
             title, _glyph = self.nav_specs[key]
             nav.setText("" if self.sidebar_collapsed else title)
             nav.setToolTip(title if self.sidebar_collapsed else "")
+            nav.setProperty("compact", self.sidebar_collapsed)
+            nav.style().unpolish(nav)
+            nav.style().polish(nav)
         for auxiliary, title in self.sidebar_aux_buttons:
             auxiliary.setText("" if self.sidebar_collapsed else title)
             auxiliary.setToolTip(title if self.sidebar_collapsed else "")
+            auxiliary.setProperty("compact", self.sidebar_collapsed)
+            auxiliary.style().unpolish(auxiliary)
+            auxiliary.style().polish(auxiliary)
         self._refresh_account_chip()
 
     def _refresh_account_chip(self) -> None:
@@ -794,8 +796,10 @@ class MainWindow(QMainWindow):
         )
 
     def _rotate_progress_tip(self) -> None:
+        if not getattr(self, "_scan_rotating", False):
+            return
         self.progress_tip_index = (self.progress_tip_index + 1) % len(self.progress_tips)
-        self.progress_tip.setText(self.progress_tips[self.progress_tip_index])
+        self.progress_title.setText(self.progress_tips[self.progress_tip_index])
 
     def _refresh_roots(self) -> None:
         selected = self.root_picker.currentItem()
@@ -861,7 +865,6 @@ class MainWindow(QMainWindow):
                 "點選已加入的位置後，可以保護其中的子資料夾或移除該位置。"
             )
             self.protect_root_button.setEnabled(False)
-            self.remove_root_button.setEnabled(False)
             return
         path, role = data
         self.current_root_feedback.setText(
@@ -874,7 +877,6 @@ class MainWindow(QMainWindow):
         )
         self.current_root_feedback.setToolTip(path)
         self.protect_root_button.setEnabled(role == "clean" and not self.busy)
-        self.remove_root_button.setEnabled(not self.busy)
 
     def _protect_subfolder(self) -> None:
         item = self.root_picker.currentItem()
@@ -902,6 +904,11 @@ class MainWindow(QMainWindow):
         data = item.data(Qt.ItemDataRole.UserRole) if item else None
         if not data:
             return
+        self._remove_root(data)
+
+    def _remove_root(self, data) -> None:
+        if self.busy:
+            return
         path, role = data
         removed = Path(path)
         roots = []
@@ -920,39 +927,92 @@ class MainWindow(QMainWindow):
         self._refresh_roots()
 
     def _refresh_profiles(self) -> None:
-        self.profiles.clear()
-        self.profiles.addItem("常用位置 · 選擇已儲存的設定檔", None)
+        while self.profile_rows.count():
+            item = self.profile_rows.takeAt(0)
+            item.widget().deleteLater()
         saved = self.preferences.get("profiles", {})
         if isinstance(saved, dict):
             for name in sorted(saved)[:30]:
-                self.profiles.addItem(str(name), name)
+                if not isinstance(saved[name], list):
+                    continue
+                row = ProfileRow(str(name), saved[name])
+                row.load.connect(self._load_profile)
+                row.rename.connect(self._rename_profile)
+                row.edit.connect(self._edit_profile)
+                row.remove.connect(self._remove_profile)
+                self.profile_rows.addWidget(row)
+        self.profiles.setVisible(self.profile_rows.count() > 0)
+        self.profile_scroll.setVisible(self.profile_rows.count() > 0)
+        self.profile_scroll.setFixedHeight(min(150, self.profile_rows.count() * 50))
+
+    def _store_profiles(self, profiles) -> bool:
+        try:
+            save_preferences({"profiles": profiles})
+            self.preferences["profiles"] = profiles
+            self._refresh_profiles()
+            return True
+        except OSError:
+            self.global_notice.setText("設定檔無法儲存；目前掃描位置不受影響。")
+            return False
 
     def _save_profile(self) -> None:
         if not self.session.ready:
             self.global_notice.setText("先加入至少一個整理位置，再儲存這組位置。")
             return
         name, accepted = QInputDialog.getText(
-            self, "儲存常用位置", "設定檔名稱（僅保存路徑，不保存選取或解鎖狀態）"
+            self,
+            "儲存常用位置",
+            "設定檔名稱",
+            text=next(
+                (
+                    Path(root.physical_path).name
+                    for root in self.session.roots
+                    if root.role == "clean"
+                ),
+                "常用位置",
+            ),
         )
         if accepted and name.strip():
-            profiles = self.preferences.get("profiles", {})
-            if not isinstance(profiles, dict):
-                profiles = {}
-            profiles[name.strip()[:60]] = [
+            name = name.strip()[:60]
+            profiles = dict(self.preferences.get("profiles", {}))
+            if name in profiles:
+                self.global_notice.setText(
+                    "此名稱已存在。請用另一個名稱，或按原設定檔右側的編輯按鈕。"
+                )
+                return
+            profiles[name] = [
                 {"path": root.physical_path, "role": root.role} for root in self.session.roots
             ]
-            try:
-                save_preferences({"profiles": profiles})
-                self.preferences["profiles"] = profiles
-                self._refresh_profiles()
+            if self._store_profiles(profiles):
                 self.global_notice.setText("這組位置已儲存在本機。下次使用仍會重新驗證所有路徑。")
-            except OSError:
-                self.global_notice.setText("設定檔無法儲存；目前掃描位置不受影響。")
 
-    def _load_profile(self, index: int) -> None:
-        name = self.profiles.itemData(index)
-        if name is None:
+    def _rename_profile(self, name: str) -> None:
+        renamed, accepted = QInputDialog.getText(self, "重新命名", "設定檔名稱", text=name)
+        renamed = renamed.strip()[:60]
+        if not accepted or not renamed or renamed == name:
             return
+        profiles = dict(self.preferences.get("profiles", {}))
+        if renamed in profiles:
+            self.global_notice.setText("此名稱已存在，請選擇另一個名稱。")
+            return
+        profiles[renamed] = profiles.pop(name)
+        self._store_profiles(profiles)
+
+    def _edit_profile(self, name: str) -> None:
+        profiles = dict(self.preferences.get("profiles", {}))
+        editor = ProfileEditor(self, name, profiles[name])
+        if editor.exec() == QDialog.DialogCode.Accepted:
+            profiles[name] = editor.entries
+            if self._store_profiles(profiles):
+                self.global_notice.setText("設定檔已更新。點選名稱即可載入新位置。")
+
+    def _remove_profile(self, name: str) -> None:
+        profiles = dict(self.preferences.get("profiles", {}))
+        profiles.pop(name, None)
+        if self._store_profiles(profiles):
+            self.global_notice.setText("設定檔已移除；沒有刪除任何資料夾或檔案。")
+
+    def _load_profile(self, name: str) -> None:
         try:
             entries = self.preferences["profiles"][name]
             self.session.set_roots(
@@ -1011,6 +1071,8 @@ class MainWindow(QMainWindow):
         self._show_page("local" if self.session.source == "local" else "drive")
 
     def _accept_scan(self, report: ScanReport) -> None:
+        self._close_details()
+        self.previews.clear()
         self.session.accept_scan(report)
         self.search.clear()
         self._show_review()
@@ -1037,9 +1099,7 @@ class MainWindow(QMainWindow):
                 f"{copies:,} 個副本 · 重複容量占已掃描 {percentage:.1f}%"
             )
         self.review_title.setText(
-            "每組最舊檔已保留，副本由你決定。"
-            if self.session.groups
-            else "這次沒有需要整理的副本。"
+            "確認副本，開始整理。" if self.session.groups else "這次沒有需要整理的副本。"
         )
         self.mode_trash.setChecked(self.session.mode == "trash")
         self.mode_permanent.setChecked(self.session.mode == "permanent")
@@ -1086,8 +1146,7 @@ class MainWindow(QMainWindow):
             self.review_notice.setText(
                 "高風險：選取已清空，請手動選擇。資料夾及保留檔案不能永久刪除。"
                 if permanent
-                else "原檔已鎖定。小於 1 MiB 的副本不會預選；"
-                "請先核對用途與完整路徑，再決定是否整理。"
+                else ""
             )
 
     def _select_all(self) -> None:
@@ -1101,11 +1160,16 @@ class MainWindow(QMainWindow):
         self.model.refresh()
         self._refresh_selection()
 
-    def _details(self) -> None:
-        index = self.table.currentIndex()
-        if index.isValid():
-            group, record, _ = self.model.rows[index.row()]
-            DetailsDialog(self, group, record).exec()
+    def _show_details(self, group, record) -> None:
+        self.details_pane.show_record(group, record)
+        available = self.review_splitter.width()
+        self.review_splitter.setSizes([max(280, available - 340), 340])
+
+    def _close_details(self) -> None:
+        self.details_pane.hide()
+        self.details_pane.record = None
+        self.table.detail_key = None
+        self.table.viewport().update()
 
     def _unlock(self) -> None:
         index = self.table.currentIndex()
@@ -1156,8 +1220,8 @@ class MainWindow(QMainWindow):
                 for root in self.session.roots
             )
         )
-        if not self.session.reminders.can_skip(snapshot):
-            self.sound.play("permanent_warning" if self.session.mode == "permanent" else "confirm")
+        if snapshot.operation_mode == "permanent":
+            self.sound.play("permanent_warning")
             first = ConfirmationDialog(self, snapshot, locations)
             if first.exec() != QDialog.DialogCode.Accepted:
                 return
@@ -1165,14 +1229,13 @@ class MainWindow(QMainWindow):
                 second = ConfirmationDialog(self, snapshot, locations, second=True)
                 if second.exec() != QDialog.DialogCode.Accepted:
                     return
-                if snapshot.operation_mode == "trash" and second.remember.isChecked():
-                    self.session.reminders.suppress(snapshot)
         try:
             items = self.session.plan(snapshot)
         except ValueError as error:
             self.global_notice.setText(str(error))
             return
         mode = self.session.mode
+        self._close_details()
         self._launch(
             lambda emit: run_cleanup(
                 items, mode, cancel_event=self.cancel_event, progress=emit, service=self.service
@@ -1260,8 +1323,11 @@ class MainWindow(QMainWindow):
             self.progress_count.setText("正在開始這次工作")
             self.progress_path.setText("")
             self.progress_tip_index = 0
-            self.progress_tip.setText(self.progress_tips[0])
-            self.progress_tip_timer.start()
+            self._scan_rotating = callback == self._accept_scan
+            if self._scan_rotating:
+                self.progress_tip_timer.start()
+            else:
+                self.progress_tip_timer.stop()
             self.progress_bar.setRange(0, 0)
             self.stop_button.setText("安全停止")
             self.stop_button.setEnabled(True)
@@ -1634,9 +1700,7 @@ class MainWindow(QMainWindow):
         progress.setObjectName("updateProgress")
         progress.setRange(0, 0)
         box.addWidget(progress)
-        box.addWidget(
-            label("下載過程不會掃描、上傳或變更你的檔案。", "small", wrap=True)
-        )
+        box.addWidget(label("下載過程不會掃描、上傳或變更你的檔案。", "small", wrap=True))
         self.update_dialog = dialog
         dialog.show()
 
@@ -1695,9 +1759,7 @@ class MainWindow(QMainWindow):
         try:
             path = verify_installer(installer)
         except UpdateError:
-            self.global_notice.setText(
-                "更新檔在下載後發生變化，操作已取消；沒有執行任何安裝程式。"
-            )
+            self.global_notice.setText("更新檔在下載後發生變化，操作已取消；沒有執行任何安裝程式。")
             self.sound.play("error")
             return
         started = QProcess.startDetached(str(path), [], str(path.parent))
@@ -1810,9 +1872,12 @@ class MainWindow(QMainWindow):
             self.close_requested = True
             if self.busy:
                 self.request_stop()
-            self.global_notice.setText(
-                "會在目前操作或更新檢查安全結束後關閉；不會強制終止執行緒。"
-            )
+            self.global_notice.setText("會在目前操作或更新檢查安全結束後關閉；不會強制終止執行緒。")
             event.ignore()
         else:
+            self.previews.clear()
+            if self.previews.pool.activeThreadCount():
+                QTimer.singleShot(30, self.close)
+                event.ignore()
+                return
             event.accept()

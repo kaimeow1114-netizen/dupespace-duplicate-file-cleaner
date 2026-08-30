@@ -309,13 +309,14 @@ def test_drive_threshold_zero_bytes_and_oldest_keeper_policy() -> None:
     assert report.skipped_files == 1
 
 
-def test_drive_files_smaller_than_one_mib_are_shown_but_not_preselected() -> None:
+def test_drive_files_smaller_than_one_mib_are_preselected() -> None:
     report = GoogleDriveScanner().scan(
         FakeService([{"files": [drive_item("old"), drive_item("new")]}])
     )
 
     assert len(report.groups) == 1
-    assert default_selection(report.groups) == set()
+    assert len(default_selection(report.groups)) == 1
+    assert report.groups[0].keeper_key not in default_selection(report.groups)
 
 
 def test_drive_identical_owned_folder_trees_are_trash_candidates() -> None:
