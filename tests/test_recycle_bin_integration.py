@@ -20,25 +20,27 @@ def test_real_recycle_bin_and_permanent_delete_use_only_generated_files(tmp_path
     keep = clean / "protected"
     keep.mkdir(parents=True)
     original = keep / "dupespace-qa-original.bin"
+    outside_original = clean / "dupespace-qa-outside-original.bin"
     reversible = clean / "dupespace-qa-trash-copy.bin"
     permanent = clean / "dupespace-qa-permanent-copy.bin"
-    for path in (original, reversible, permanent):
+    for path in (original, outside_original, reversible, permanent):
         path.write_bytes(b"DUPESPACE generated integration fixture, not user data")
     policy = WindowsSafetyPolicy([])
     scanner = LocalScanner(safety_policy=policy)
     roots = (ScanRoot(str(keep), "keep"), ScanRoot(str(clean), "clean"))
     scan = scanner.scan(roots)
-    target = next(
-        record
-        for group in scan.groups
-        for record in group.records
-        if record.location == str(reversible)
-    )
+    group = scan.groups[0]
+    outside_keeper = Path(group.keeper.location)
+    assert outside_keeper.parent == clean
+    targets = [r for r in group.records if r.root_role == "clean" and r.key != group.keeper_key]
+    assert len(targets) == 2
+    target = targets[0]
+    reversible, permanent = Path(target.location), Path(targets[1].location)
     action = LocalTrashExecutor(safety_policy=policy).trash(
         operation_items(scan.groups, {target.key})
     )
     assert len(action.trashed) == 1, action.outcomes
-    assert original.is_file() and not reversible.exists()
+    assert original.is_file() and outside_keeper.is_file() and not reversible.exists()
     scan = scanner.scan(roots)
     target = next(
         record
@@ -50,4 +52,4 @@ def test_real_recycle_bin_and_permanent_delete_use_only_generated_files(tmp_path
         operation_items(scan.groups, {target.key}, "permanent")
     )
     assert len(action.deleted) == 1, action.outcomes
-    assert original.is_file() and not permanent.exists()
+    assert original.is_file() and outside_keeper.is_file() and not permanent.exists()
