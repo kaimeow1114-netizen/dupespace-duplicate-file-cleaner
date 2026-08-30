@@ -15,7 +15,7 @@ export default function Home() {
       { "@type": "Question", name: "DUPESPACE 的用途是什麼？", acceptedAnswer: { "@type": "Answer", text: "DUPESPACE 用來找出、檢查並安全移除 Windows 與 Google Drive 中內容完全相同的重複檔案與重複資料夾。" } },
       { "@type": "Question", name: "DUPESPACE 會直接永久刪除檔案嗎？", acceptedAnswer: { "@type": "Answer", text: "不會。預設永遠是移至垃圾桶。永久刪除只適用一般檔案，必須主動選擇並再次確認；資料夾永遠不能永久刪除。" } },
       { "@type": "Question", name: "不同程式碼專案中的相同設定檔會被刪除嗎？", acceptedAnswer: { "@type": "Answer", text: "不會。程式碼專案、套件目錄與虛擬環境屬於硬性保護範圍，不會列為清理候選。" } },
-      { "@type": "Question", name: "Google Drive 檔案內容會上傳到 DUPESPACE 嗎？", acceptedAnswer: { "@type": "Answer", text: "不會。服務只使用 Google Drive API 提供的必要中繼資料與校驗碼，檔案內容不會上傳到 DUPESPACE 伺服器。" } },
+      { "@type": "Question", name: "Google Drive 檔案內容會上傳到 DUPESPACE 嗎？", acceptedAnswer: { "@type": "Answer", text: "不下載原始檔案。掃描使用 Google Drive 中繼資料與校驗碼；私人小縮圖僅按需驗證後轉送，不儲存、不用於廣告。" } },
     ] },
   ];
   return (
@@ -28,7 +28,7 @@ export default function Home() {
           <span className="eyebrow"><ShieldCheck size={15} aria-hidden="true" /> FREE • OPEN SOURCE • PRIVACY-FIRST</span>
           <h1><span className="headline-line">精確比對內容，</span><span className="headline-line gradient-text">主動守護您的儲存空間。</span></h1>
           <p className="hero-english" lang="en">Content-accurate duplicate detection for safer storage.</p>
-          <p className="purpose-statement"><strong>DUPESPACE 是一套免費、開源的重複檔案清理工具。</strong>協助你找出、檢查並安全移除 Windows 本機與 Google Drive 中內容相同的重複檔案與重複資料夾。預設只移至垃圾桶，每組至少保留一份；Google Drive 檔案內容不會上傳到 DUPESPACE 伺服器。</p>
+          <p className="purpose-statement"><strong>DUPESPACE 是一套免費、開源的重複檔案清理工具。</strong>協助你找出、檢查並安全移除 Windows 本機與 Google Drive 中內容相同的重複檔案與重複資料夾。預設只移至垃圾桶，每組至少保留一份；Google Drive 原始檔案不會下載到伺服器；小縮圖按需轉送、不保存。</p>
           <MotionHeroActions />
           <div className="trust-row"><span><CheckCircle2 size={14} aria-hidden="true" />免安裝開始</span><span><CheckCircle2 size={14} aria-hidden="true" />預設可復原</span><span><CheckCircle2 size={14} aria-hidden="true" />每組保留一份</span><a href="/privacy">隱私權政策</a></div>
           </div>
@@ -44,7 +44,7 @@ export default function Home() {
 
       <section className="section retention-band" id="insights"><div className="shell retention-section"><div className="section-heading"><span className="eyebrow"><TrendingUp size={15} aria-hidden="true" /> STORAGE INTELLIGENCE</span><h2><span className="heading-phrase">把一次整理，</span><wbr /><span className="heading-phrase">變成持續可見的成果。</span></h2><p>僅保存不含檔名、路徑或檔案 ID 的裝置端彙總數據；趨勢與費用均為整理參考，不代表硬碟健康診斷或實際帳單節省。</p></div><StorageIntelligenceMotion /></div></section>
 
-      <section className="section privacy-band"><div className="shell privacy-feature"><div><span className="eyebrow"><ShieldCheck size={15} aria-hidden="true" /> GOOGLE DRIVE PRIVACY</span><h2><span className="heading-phrase">檔案留在你的</span><wbr /><span className="heading-phrase" lang="en">Google Drive。</span></h2><p>DUPESPACE 不下載或代理你的檔案內容。線上掃描只透過 Google Drive API 取得必要的檔案 ID、路徑、版本、大小、權限與校驗碼。</p><div className="privacy-actions"><a className="button primary" href="/cleaner">開啟線上清理器</a><a className="text-link" href="/privacy">閱讀隱私權政策</a></div></div><PrivacyFlowMotion /></div></section>
+      <section className="section privacy-band"><div className="shell privacy-feature"><div><span className="eyebrow"><ShieldCheck size={15} aria-hidden="true" /> GOOGLE DRIVE PRIVACY</span><h2><span className="heading-phrase">檔案留在你的</span><wbr /><span className="heading-phrase" lang="en">Google Drive。</span></h2><p>DUPESPACE 不下載你的原始檔案。私人小縮圖經驗證後按需轉送、不保存、不提供給廣告系統。線上掃描只透過 Google Drive API 取得必要的檔案 ID、路徑、版本、大小、權限與校驗碼。</p><div className="privacy-actions"><a className="button primary" href="/cleaner">開啟線上清理器</a><a className="text-link" href="/privacy">閱讀隱私權政策</a></div></div><PrivacyFlowMotion /></div></section>
 
       <section className="section trust-section"><div className="shell"><div className="section-heading"><span className="eyebrow"><ShieldCheck size={15} aria-hidden="true" /> WHY TRUST DUPESPACE</span><h2><span className="heading-phrase">安全主張，</span><wbr /><span className="heading-phrase">可以用原始碼驗證。</span></h2></div><TrustMatrixMotion repository={repo} /></div></section>
 

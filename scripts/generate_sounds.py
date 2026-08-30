@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import random
 import struct
 import wave
 from pathlib import Path
@@ -41,23 +40,9 @@ def sequence(*tracks: list[float]) -> list[float]:
     return output
 
 
-def paper_slide() -> list[float]:
-    rng = random.Random(0xD0A5E)
-    length = int(RATE * 0.22)
-    slide = []
-    previous = 0.0
-    for index in range(length):
-        envelope = math.sin(math.pi * index / length) ** 1.6
-        noise = rng.uniform(-1, 1)
-        high_pass = noise - 0.82 * previous
-        previous = noise
-        slide.append(0.12 * envelope * high_pass)
-    return sequence(slide, tone(960, 0.11, 0.32, 5.5))
-
-
 SOUNDS = {
     "confirm": sequence(tone(620, 0.11, 0.32), silence(0.035), tone(820, 0.14, 0.3)),
-    "trash": paper_slide(),
+    "trash": sequence(tone(760, 0.10, 0.22), silence(0.025), tone(960, 0.14, 0.22)),
     "permanent_warning": sequence(
         mix(tone(180, 0.16, 0.35), tone(270, 0.16, 0.12)),
         silence(0.07),

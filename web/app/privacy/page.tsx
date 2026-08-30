@@ -13,12 +13,12 @@ export default function PrivacyPage() {
     <main>
       <SiteHeader />
       <article className="legal shell">
-        <span className="eyebrow"><CalendarDays size={15} aria-hidden="true" /> 最後更新：2026 年 8 月 21 日</span>
+        <span className="eyebrow"><CalendarDays size={15} aria-hidden="true" /> 最後更新：2026 年 8 月 31 日</span>
         <h1>隱私權政策</h1>
-        <p className="lead">DUPESPACE 的原則很簡單：只處理完成清理所需的資料，Google Drive 檔案內容不會傳送到我們的伺服器。</p>
+        <p className="lead">DUPESPACE 的原則很簡單：只處理完成清理所需的資料，不下載 Google Drive 原始檔案；顯示預覽時僅按需短暫轉送小縮圖。</p>
         <h2>Google Drive 資料</h2>
         <p>線上清理器透過 Google OAuth 取得使用者明確授權，讀取檔案與資料夾的 ID、名稱、父資料夾、大小、建立與修改時間、版本、所有權、權限、縮圖連結及校驗碼，以識別內容相同的二進位檔案與完整鏡像資料夾。使用者按下垃圾桶按鈕才會執行；永久刪除只適用一般檔案，資料夾永遠不能永久刪除。</p>
-        <p>圖片縮圖由 Google 直接傳送到你的瀏覽器，DUPESPACE 不代理、下載或儲存縮圖與檔案內容。一般檔案預覽會在 Google Drive 開啟。</p>
+        <p>為顯示私人圖片、影片及 PDF 的小縮圖，DUPESPACE 在驗證登入、掃描證明及檔案權限後，從 Google 取得小尺寸縮圖並短暫轉送到你的瀏覽器；每張最多 1 MiB，不儲存在伺服器或 CDN 快取，不記錄影像內容，不讀取原始檔案。頁面離開可視範圍後釋放瀏覽器中的縮圖。Google 未提供縮圖時顯示類型圖示，完整預覽仍在 Google Drive 開啟。縮圖及其他 Google 使用者資料絕不提供給廣告系統。</p>
         <h2>Google API Services User Data Policy 與 Limited Use</h2>
         <p>DUPESPACE 對從 Google APIs 取得資訊的使用及轉移，遵守 Google API Services User Data Policy，包括 Limited Use 要求。Google 使用者資料只用於提供使用者明確要求的登入、重複項目分析、檢查、垃圾桶、復原、中斷連線及稽核功能。</p>
         <p>Google 使用者資料不會出售、不會提供給 AdSense 或其他廣告系統、不會用於個人化廣告、廣告受眾建立、信用評估或任何與重複檔案清理無關的用途。除非為了安全調查、遵守法律、取得使用者明確同意或由使用者本人要求支援，DUPESPACE 人員不會讀取 Google 使用者資料。</p>

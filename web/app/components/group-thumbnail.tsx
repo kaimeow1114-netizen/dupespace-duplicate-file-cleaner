@@ -1,17 +1,15 @@
 "use client";
 
-import { FileImage, FileVideo, ImageOff } from "lucide-react";
+import { FileImage, FileText, FileVideo, ImageOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { thumbnailQueue, thumbnailSource } from "../../lib/thumbnails";
 
-export function GroupThumbnail({ url, name, video = false }: { url: string | null; name: string; video?: boolean }) {
+export function GroupThumbnail({ url, proof, id, name, video = false, document = false }: { url: string | null; proof?: string; id?: string; name: string; video?: boolean; document?: boolean }) {
   const holder = useRef<HTMLSpanElement>(null);
   const source = thumbnailSource(url);
   const [visible, setVisible] = useState(false);
-  const [permitted, setPermitted] = useState(false);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const release = useRef<(() => void) | null>(null);
-
   useEffect(() => {
     const element = holder.current;
     if (!element) return;
@@ -19,21 +17,37 @@ export function GroupThumbnail({ url, name, video = false }: { url: string | nul
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-
   useEffect(() => {
     if (!visible || !source || failed) return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let active = true;
+    let blobUrl: string | null = null;
+    const controller = new AbortController();
     const cancel = thumbnailQueue.enqueue((done) => {
-      release.current = () => { clearTimeout(timer); done(); release.current = null; };
-      setPermitted(true);
-      timer = setTimeout(() => { setFailed(true); release.current?.(); }, 10_000);
+      const timer = setTimeout(() => controller.abort(), 12_000);
+      void (async () => {
+        try {
+          if (!proof || !id) { setImageUrl(source); return; }
+          const response = await fetch("/api/google/thumbnail", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ id, proof }), cache: "no-store", signal: controller.signal,
+          });
+          if (!response.ok) throw new Error("Thumbnail unavailable");
+          const blob = await response.blob();
+          if (blob.size > 1_048_576 || !["image/jpeg", "image/png", "image/webp"].includes(blob.type)) throw new Error("Invalid thumbnail");
+          if (active) { blobUrl = URL.createObjectURL(blob); setImageUrl(blobUrl); }
+        } catch { if (active) setFailed(true); }
+        finally { clearTimeout(timer); done(); }
+      })();
     });
-    return () => { clearTimeout(timer); release.current = null; setPermitted(false); cancel(); };
-  }, [source, visible, failed]);
-
-  return <span ref={holder} className={`group-thumbnail ${video ? "is-video" : ""}`} title={failed || !source ? "此檔案目前沒有可顯示的縮圖" : `${name} 縮圖`}>
-    {visible && permitted && source && !failed ? <img src={source} alt={`${name} 小縮圖`} width={96} height={72} loading="lazy" decoding="async" referrerPolicy="no-referrer" onLoad={() => release.current?.()} onError={() => { setFailed(true); release.current?.(); }} /> /* eslint-disable-line @next/next/no-img-element */
-      : failed ? <ImageOff size={24} aria-hidden="true" /> : video ? <FileVideo size={25} aria-hidden="true" /> : <FileImage size={25} aria-hidden="true" />}
+    return () => {
+      active = false; controller.abort(); cancel();
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+      setImageUrl(null);
+    };
+  }, [source, visible, failed, proof, id]);
+  return <span ref={holder} className={`group-thumbnail ${video ? "is-video" : ""}`} title={failed || !source ? "Google 目前未提供可用縮圖；仍可開啟檔案查看" : `${name} 縮圖`}>
+    {visible && imageUrl && !failed ? <img src={imageUrl} alt={`${name} 縮圖`} width={240} height={180} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} /> /* eslint-disable-line @next/next/no-img-element */
+      : failed ? <ImageOff size={24} aria-hidden="true" /> : video ? <FileVideo size={25} aria-hidden="true" /> : document ? <FileText size={25} aria-hidden="true" /> : <FileImage size={25} aria-hidden="true" />}
     {video && <span className="thumbnail-video-mark"><FileVideo size={13} aria-hidden="true" /><span className="sr-only">影片縮圖，不自動播放</span></span>}
   </span>;
 }

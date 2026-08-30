@@ -14,7 +14,7 @@ from dupespace.windows_safety import WindowsSafetyPolicy
 
 def fake_items(count=3):
     keeper = FileRecord(
-        "k", "local", "original.bin", "D:/keep/original.bin", 20, "hash", root_role="keep"
+        "k", "local", "original.bin", "D:/keep/original.bin", 20, "hash", root_role="clean"
     )
     return tuple(
         OperationItem(
@@ -44,7 +44,7 @@ class RecordingExecutor:
 
 def test_durable_intent_exists_before_mutation_and_each_result_is_in_csv(tmp_path):
     def check_intent(items):
-        journal = next(tmp_path.glob("operation-*.csv"))
+        journal = next(tmp_path.glob("DUPESPACE-*.csv"))
         with journal.open(encoding="utf-8-sig", newline="") as handle:
             rows = list(csv.DictReader(handle))
         assert rows[-1]["status"] == "pending"
@@ -63,6 +63,8 @@ def test_durable_intent_exists_before_mutation_and_each_result_is_in_csv(tmp_pat
     assert len(rows) == 3
     assert all(row["status"] == "trashed" for row in rows)
     assert all(row["operation_mode"] == "trash" for row in rows)
+    assert result.csv_path == result.journal_path
+    assert list(tmp_path.glob("*.csv")) == [result.csv_path]
 
 
 def test_batch_stop_leaves_unstarted_items_and_reports_them(tmp_path):
@@ -104,6 +106,26 @@ def test_missing_audit_access_prevents_any_file_operation(tmp_path, monkeypatch)
     assert calls == []
 
 
+def test_failed_final_compaction_preserves_the_same_durable_csv(tmp_path, monkeypatch):
+    def failed_replace(*_args):
+        raise PermissionError("report busy")
+
+    monkeypatch.setattr("dupespace.reporting._write_outcomes", failed_replace)
+    result = run_cleanup(
+        fake_items(1),
+        "trash",
+        cancel_event=threading.Event(),
+        progress=lambda _: None,
+        directory=tmp_path,
+        local_executor=RecordingExecutor(lambda _: None),
+    )
+    assert result.csv_path == result.journal_path
+    assert list(tmp_path.glob("*.csv")) == [result.csv_path]
+    with result.csv_path.open(encoding="utf-8-sig", newline="") as handle:
+        assert [row["status"] for row in csv.DictReader(handle)] == ["pending", "trashed"]
+    assert result.warning
+
+
 def test_unknown_trash_failure_stops_without_permanent_fallback(tmp_path):
     class FailedExecutor:
         def trash(self, *_args, **_kwargs):
@@ -135,7 +157,7 @@ def test_keeper_changed_after_first_item_blocks_second_trash(tmp_path):
     clean = tmp_path / "clean"
     keep = clean / "protected"
     keep.mkdir(parents=True)
-    original = keep / "original.bin"
+    original = clean / "original.bin"
     original.write_bytes(b"same-content")
     for index in range(2):
         (clean / f"copy-{index}.bin").write_bytes(b"same-content")
@@ -147,7 +169,7 @@ def test_keeper_changed_after_first_item_blocks_second_trash(tmp_path):
     items = tuple(
         OperationItem(item, keeper)
         for item in report.groups[0].records
-        if item.root_role == "clean"
+        if item.key != keeper.key and item.root_role == "clean"
     )
     moved = []
 

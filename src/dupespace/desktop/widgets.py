@@ -6,12 +6,13 @@ import math
 from importlib.resources import files
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -127,6 +128,55 @@ class Notice(QFrame):
     def setText(self, text: str) -> None:
         self.message.setText(text)
         self.setVisible(bool(text))
+
+
+class ToastNotice(Notice):
+    """Transient feedback, separate from persistent safety and result notices."""
+
+    def __init__(self, *, reduced_motion: bool = False) -> None:
+        super().__init__()
+        self.reduced_motion = reduced_motion
+        self.effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self.effect)
+        self.fade = QPropertyAnimation(self.effect, b"opacity", self)
+        self.fade.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.fade.finished.connect(self._finish_fade)
+        self.dismiss_timer = QTimer(self)
+        self.dismiss_timer.setSingleShot(True)
+        self.dismiss_timer.timeout.connect(self.dismiss)
+        close = button("", "close", "icon")
+        close.setAccessibleName("關閉通知")
+        close.clicked.connect(self.dismiss)
+        self.layout().addWidget(close)
+
+    def setText(self, text: str) -> None:
+        self.dismiss_timer.stop()
+        self.fade.stop()
+        super().setText(text)
+        if not text:
+            return
+        self.effect.setOpacity(1 if self.reduced_motion else 0)
+        if not self.reduced_motion:
+            self.fade.setDuration(200)
+            self.fade.setStartValue(0.0)
+            self.fade.setEndValue(1.0)
+            self.fade.start()
+        self.dismiss_timer.start(5000)
+
+    def dismiss(self) -> None:
+        self.dismiss_timer.stop()
+        self.fade.stop()
+        if self.reduced_motion:
+            self.hide()
+            return
+        self.fade.setDuration(160)
+        self.fade.setStartValue(self.effect.opacity())
+        self.fade.setEndValue(0.0)
+        self.fade.start()
+
+    def _finish_fade(self) -> None:
+        if self.effect.opacity() == 0:
+            self.hide()
 
 
 class FolderDropList(QListWidget):

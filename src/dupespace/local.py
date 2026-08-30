@@ -172,8 +172,7 @@ def normalize_scan_roots(
             raise UnsafePathError("整理位置不可相同、巢狀或重疊")
     for index, path in enumerate(protected):
         if not any(
-            _path_key(path) != _path_key(root) and _contains_path(root, path)
-            for root in clean
+            _path_key(path) != _path_key(root) and _contains_path(root, path) for root in clean
         ):
             raise UnsafePathError("保護資料夾必須位於已加入的整理位置內")
         if any(
@@ -332,6 +331,8 @@ def _folder_snapshot(
                 if not entry.is_file(follow_symlinks=False):
                     raise UnsafePathError("資料夾含無法驗證的非一般檔案。")
                 stat_result = os.stat(candidate, follow_symlinks=False)
+                if stat_result.st_nlink > 1:
+                    raise UnsafePathError("含硬連結的資料夾不進行整包清理，請改用檔案比對。")
                 actual_count += 1
                 actual_bytes += stat_result.st_size
                 latest_mtime_ns = max(latest_mtime_ns, stat_result.st_mtime_ns)
@@ -413,7 +414,8 @@ def _folder_records(
                 ):
                     continue
                 safe_names.append(name)
-                candidates.append(candidate)
+                if not any(_contains_path(candidate, Path(path)) for path in protected_roots):
+                    candidates.append(candidate)
             directory_names[:] = safe_names
         for index, folder in enumerate(candidates, 1):
             if _is_cancelled(cancel_event):
@@ -455,6 +457,7 @@ def _folder_records(
                         mime_type="inode/directory",
                         source_root=scan_root.physical_path,
                         root_role=scan_root.role,
+                        protected_paths=tuple(r.physical_path for r in roots if r.role == "keep"),
                         selectable=not is_keep,
                         auto_selectable=(
                             not is_keep and snapshot.actual_bytes >= MINIMUM_AUTO_SELECT_BYTES
@@ -514,6 +517,7 @@ class LocalScanner:
 
         by_size: dict[int, list[tuple[Path, os.stat_result, ScanRoot]]] = defaultdict(list)
         seen_physical_files: set[tuple[int, int]] = set()
+        zero_records: list[FileRecord] = []
         warnings: list[str] = []
         examined = 0
         examined_bytes = 0
@@ -586,6 +590,19 @@ class LocalScanner:
                                     continue
                                 examined += 1
                                 if stat_result.st_size == 0:
+                                    zero_records.append(
+                                        FileRecord(
+                                            key=f"local:{candidate}",
+                                            source="local",
+                                            name=candidate.name,
+                                            location=str(candidate),
+                                            size=0,
+                                            checksum="empty",
+                                            created_at=_creation_time(stat_result),
+                                            modified_at=stat_result.st_mtime,
+                                            root_role=scan_root.role,
+                                        )
+                                    )
                                     skipped += 1
                                     continue
                                 identity = _identity(stat_result)
@@ -613,10 +630,7 @@ class LocalScanner:
                     warnings.append(f"無法讀取 {directory}：{error}")
 
         hash_candidates = [
-            item
-            for bucket in by_size.values()
-            if len(bucket) >= 2
-            for item in bucket
+            item for bucket in by_size.values() if len(bucket) >= 2 for item in bucket
         ]
         records: list[FileRecord] = []
         project_cache: dict[Path, tuple[str, bool]] = {}
@@ -659,6 +673,9 @@ class LocalScanner:
                         mime_type="application/octet-stream",
                         source_root=scan_root.physical_path,
                         root_role=scan_root.role,
+                        protected_paths=tuple(
+                            r.physical_path for r in normalized_roots if r.role == "keep"
+                        ),
                         selectable=selectable,
                         auto_selectable=(
                             selectable and expected_stat.st_size >= MINIMUM_AUTO_SELECT_BYTES
@@ -690,6 +707,21 @@ class LocalScanner:
                     cancel_event=cancel_event,
                     progress=progress,
                 )
+            )
+        )
+        # Folder timestamps cannot override the oldest-file retention rule.
+        reserved_files = tuple(
+            Path(group.keeper.location)
+            for group in (*file_groups, *build_local_duplicate_groups(zero_records))
+        )
+        folder_groups = tuple(
+            group
+            for group in folder_groups
+            if not any(
+                _contains_path(Path(record.location), keeper)
+                for record in group.records
+                if record.root_role == "clean" and record.key != group.keeper_key
+                for keeper in reserved_files
             )
         )
         clean_folder_targets = [
@@ -835,6 +867,7 @@ def _preflight_items(
     keeper_cache: dict[str, str | Exception] = {}
     for item in items:
         try:
+            _validate_operation_protection(item)
             if item.keeper.key not in keeper_cache:
                 _validate_local_snapshot(item.keeper, safety_policy, chunk_size)
                 keeper_cache[item.keeper.key] = item.keeper.checksum
@@ -849,6 +882,19 @@ def _preflight_items(
                 ActionOutcome(item.record, "skipped", str(error), operation_mode=operation_mode)
             )
     return valid, outcomes
+
+
+def _validate_operation_protection(item: OperationItem) -> None:
+    """Retain user protection context even when the executor receives one-item batches."""
+    if item.record.root_role != "clean" or item.keeper.root_role != "clean":
+        raise UnsafePathError("受保護副本不能取代外層必須保留的原檔。")
+    target = canonical_path(item.record.location)
+    for location in (*item.record.protected_paths, item.keeper.location):
+        reserved = canonical_path(location)
+        if _contains_path(reserved, target) or (
+            item.record.item_kind == "folder" and _contains_path(target, reserved)
+        ):
+            raise UnsafePathError("此項目包含保護資料夾或保留原檔，已安全跳過。")
 
 
 class LocalTrashExecutor:
@@ -894,10 +940,9 @@ class LocalTrashExecutor:
             try:
                 # Re-stat immediately before the reversible operation. Permanent deletion has
                 # its own executor and is never used as a fallback here.
+                _validate_operation_protection(item)
                 _validate_local_snapshot(item.keeper, self.safety_policy, self.chunk_size)
-                current_path = _validate_local_snapshot(
-                    record, self.safety_policy, self.chunk_size
-                )
+                current_path = _validate_local_snapshot(record, self.safety_policy, self.chunk_size)
                 if current_path != path:
                     raise UnsafePathError("檔案實體路徑已變更，已安全跳過。")
                 trash_func(str(current_path))
@@ -955,6 +1000,7 @@ class LocalPermanentDeleteExecutor:
             record = item.record
             try:
                 # Perform the full snapshot check again at the destructive boundary.
+                _validate_operation_protection(item)
                 _validate_local_snapshot(item.keeper, self.safety_policy, self.chunk_size)
                 current_path = _validate_local_snapshot(record, self.safety_policy, self.chunk_size)
                 if current_path != path:

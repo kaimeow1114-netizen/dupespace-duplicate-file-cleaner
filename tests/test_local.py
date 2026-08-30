@@ -26,8 +26,13 @@ TEST_POLICY = WindowsSafetyPolicy([])
 
 @pytest.mark.parametrize(
     ("platform", "birth_time", "expected"),
-    [("nt", None, 200), ("posix", None, None), ("nt", 100, 100),
-     ("posix", 100, 100), ("posix", 0, 0)],
+    [
+        ("nt", None, 200),
+        ("posix", None, None),
+        ("nt", 100, 100),
+        ("posix", 100, 100),
+        ("posix", 0, 0),
+    ],
 )
 def test_creation_time_never_uses_posix_metadata_change_time(
     platform, birth_time, expected, monkeypatch
@@ -43,9 +48,10 @@ def test_creation_time_never_uses_posix_metadata_change_time(
 
 def scan_roots(tmp_path: Path) -> tuple[Path, Path, list[ScanRoot]]:
     clean = tmp_path / "clean"
-    keep = clean / "protected"
+    keep = tmp_path / "a"
+    clean.mkdir()
     keep.mkdir(parents=True)
-    return keep, clean, [ScanRoot(str(keep), "keep"), ScanRoot(str(clean), "clean")]
+    return keep, clean, [ScanRoot(str(keep), "clean"), ScanRoot(str(clean), "clean")]
 
 
 def test_cleanup_root_is_sufficient_and_protection_must_be_nested(tmp_path: Path) -> None:
@@ -62,9 +68,7 @@ def test_cleanup_root_is_sufficient_and_protection_must_be_nested(tmp_path: Path
     )
     assert {root.role for root in nested} == {"clean", "keep"}
     with pytest.raises(ValueError, match="保護資料夾必須"):
-        validate_roots(
-            (ScanRoot(str(clean), "clean"), ScanRoot(str(outside), "keep")), TEST_POLICY
-        )
+        validate_roots((ScanRoot(str(clean), "clean"), ScanRoot(str(outside), "keep")), TEST_POLICY)
 
 
 def test_local_scan_hashes_content_not_just_name_or_size(tmp_path: Path) -> None:
@@ -112,7 +116,7 @@ def test_single_cleanup_root_keeps_oldest_copy_without_required_keep_zone(
     assert default_selection(report.groups) == {f"local:{newer}"}
 
 
-def test_nested_protected_folder_participates_as_keeper_and_is_not_scanned_twice(
+def test_protected_copy_and_only_outside_copy_are_both_retained(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "photos"
@@ -132,12 +136,11 @@ def test_nested_protected_folder_participates_as_keeper_and_is_not_scanned_twice
     )
 
     assert report.examined_files == 2
-    group = next(group for group in report.groups if group.records[0].item_kind == "file")
-    assert group.keeper.location == str(original)
-    assert default_selection(report.groups) == {f"local:{duplicate}"}
+    assert report.groups == ()
+    assert default_selection(report.groups) == set()
 
 
-def test_protected_folder_can_anchor_an_exact_duplicate_folder_group(tmp_path: Path) -> None:
+def test_protected_folder_cannot_replace_the_only_outside_folder(tmp_path: Path) -> None:
     root = tmp_path / "photos"
     protected = root / "original-album"
     duplicate = root / "album-copy"
@@ -151,9 +154,7 @@ def test_protected_folder_can_anchor_an_exact_duplicate_folder_group(tmp_path: P
         [ScanRoot(str(root), "clean"), ScanRoot(str(protected), "keep")]
     )
 
-    group = next(group for group in report.groups if group.records[0].item_kind == "folder")
-    assert group.keeper.location == str(protected)
-    assert default_selection((group,)) == {f"local:{duplicate}"}
+    assert report.groups == ()
 
 
 def test_over_5000_duplicates_can_be_selected_without_losing_keeper(
@@ -257,7 +258,11 @@ def test_local_permanent_delete_never_targets_keeper(tmp_path: Path) -> None:
     (keep / "keeper.bin").write_bytes(b"duplicate")
     (clean / "extra.bin").write_bytes(b"duplicate")
     report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
-    selected = {record.key for record in report.groups[0].records if record.root_role == "clean"}
+    selected = {
+        record.key
+        for record in report.groups[0].records
+        if record.key != report.groups[0].keeper_key
+    }
     items = operation_items(report.groups, selected, "permanent")
     removed: list[str] = []
 
@@ -276,7 +281,11 @@ def test_local_permanent_delete_skips_changed_checksum(tmp_path: Path) -> None:
     first.write_bytes(b"duplicate")
     second.write_bytes(b"duplicate")
     report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
-    selected = {record.key for record in report.groups[0].records if record.root_role == "clean"}
+    selected = {
+        record.key
+        for record in report.groups[0].records
+        if record.key != report.groups[0].keeper_key
+    }
     target = next(record for record in report.groups[0].records if record.key in selected)
     target_path = Path(target.location)
     original_mtime = target_path.stat().st_mtime_ns
@@ -365,7 +374,9 @@ def test_project_marker_added_after_scan_blocks_operation(tmp_path: Path) -> Non
     (keep / "keeper.bin").write_bytes(b"duplicate")
     (target_folder / "copy.bin").write_bytes(b"duplicate")
     report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
-    target = next(record for record in report.groups[0].records if record.root_role == "clean")
+    target = next(
+        record for record in report.groups[0].records if record.key != report.groups[0].keeper_key
+    )
     (target_folder / ".git").mkdir()
 
     moved: list[str] = []
@@ -397,7 +408,9 @@ def test_application_backup_and_sync_contexts_are_locked_by_default(
     target_path.write_bytes(content)
 
     report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
-    target = next(record for record in report.groups[0].records if record.root_role == "clean")
+    target = next(
+        record for record in report.groups[0].records if record.location == str(target_path)
+    )
 
     assert getattr(target.safety_context, risk_flag)
     assert target.safety_context.locked_folder == str(target_path.parent)
@@ -426,11 +439,15 @@ def test_cloud_placeholder_is_skipped_without_hashing(
 
 
 def test_all_keep_root_copies_are_unselectable(tmp_path: Path) -> None:
-    keep, clean, roots = scan_roots(tmp_path)
+    clean = tmp_path / "clean"
+    keep = clean / "protected"
+    keep.mkdir(parents=True)
+    roots = [ScanRoot(str(keep), "keep"), ScanRoot(str(clean), "clean")]
     content = b"k" * (1024 * 1024)
     (keep / "first.bin").write_bytes(content)
     (keep / "second.bin").write_bytes(content)
     (clean / "copy.bin").write_bytes(content)
+    (clean / "other-copy.bin").write_bytes(content)
     report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
     keep_record = next(
         record
@@ -453,7 +470,9 @@ def test_identical_folder_trees_are_recycle_bin_candidates(tmp_path: Path) -> No
 
     report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
     folder_group = next(group for group in report.groups if group.records[0].item_kind == "folder")
-    target = next(record for record in folder_group.records if record.root_role == "clean")
+    target = next(
+        record for record in folder_group.records if record.key != folder_group.keeper_key
+    )
 
     assert target.entry_count == 2
     assert target.can_trash
@@ -515,8 +534,8 @@ def test_folder_toctou_change_cancels_recycle_bin_move(tmp_path: Path) -> None:
     (duplicate / "photo.jpg").write_bytes(payload)
     report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
     group = next(group for group in report.groups if group.records[0].item_kind == "folder")
-    target = next(record for record in group.records if record.root_role == "clean")
-    (duplicate / "new.txt").write_text("changed after scan", encoding="utf-8")
+    target = next(record for record in group.records if record.key != group.keeper_key)
+    (Path(target.location) / "new.txt").write_text("changed after scan", encoding="utf-8")
     moved: list[str] = []
 
     action = LocalTrashExecutor(trash_func=moved.append, safety_policy=TEST_POLICY).trash(
@@ -529,20 +548,17 @@ def test_folder_toctou_change_cancels_recycle_bin_move(tmp_path: Path) -> None:
 
 
 def test_folder_toctou_same_size_edit_with_preserved_time_cancels(tmp_path: Path) -> None:
-    clean = tmp_path / "clean"
-    keep = clean / "protected"
-    keep.mkdir(parents=True)
+    keep, clean, roots = scan_roots(tmp_path)
     original, duplicate = keep / "Original", clean / "Copy"
     original.mkdir()
     duplicate.mkdir()
     (original / "data.bin").write_bytes(b"A" * (1024 * 1024))
     target_file = duplicate / "data.bin"
     target_file.write_bytes(b"A" * (1024 * 1024))
-    report = LocalScanner(safety_policy=WindowsSafetyPolicy(protected_roots=())).scan(
-        (ScanRoot(str(keep), "keep"), ScanRoot(str(clean), "clean"))
-    )
+    report = LocalScanner(safety_policy=WindowsSafetyPolicy(protected_roots=())).scan(roots)
     group = next(group for group in report.groups if group.records[0].item_kind == "folder")
-    target = next(record for record in group.records if record.root_role == "clean")
+    target = next(record for record in group.records if record.key != group.keeper_key)
+    target_file = Path(target.location) / "data.bin"
     before = target_file.stat()
     target_file.write_bytes(b"B" * before.st_size)
     os.utime(target_file, ns=(before.st_atime_ns, before.st_mtime_ns))
@@ -569,7 +585,7 @@ def test_folder_can_never_be_selected_for_permanent_delete(tmp_path: Path) -> No
     (duplicate / "photo.jpg").write_bytes(payload)
     report = LocalScanner(safety_policy=TEST_POLICY).scan(roots)
     group = next(group for group in report.groups if group.records[0].item_kind == "folder")
-    target = next(record for record in group.records if record.root_role == "clean")
+    target = next(record for record in group.records if record.key != group.keeper_key)
 
     with pytest.raises(ValueError):
         operation_items(report.groups, {target.key}, "permanent")

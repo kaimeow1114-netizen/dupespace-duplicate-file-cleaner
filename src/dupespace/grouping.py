@@ -48,7 +48,7 @@ def build_duplicate_groups(records: Iterable[FileRecord]) -> tuple[DuplicateGrou
 
 
 def build_local_duplicate_groups(records: Iterable[FileRecord]) -> tuple[DuplicateGroup, ...]:
-    """Build exact local groups, preferring optional protected-root keepers."""
+    """Keep every protected copy and independently keep the oldest outside copy."""
 
     buckets: dict[str, list[FileRecord]] = defaultdict(list)
     for record in records:
@@ -64,9 +64,9 @@ def build_local_duplicate_groups(records: Iterable[FileRecord]) -> tuple[Duplica
         clean = sorted(
             (record for record in bucket if record.root_role == "clean"), key=_keeper_rank
         )
-        if not clean or len(protected) + len(clean) < 2:
+        if len(clean) < 2:
             continue
-        keeper = protected[0] if protected else clean[0]
+        keeper = clean[0]
         ordered = tuple(protected + clean)
         groups.append(DuplicateGroup(fingerprint, ordered, keeper.key))
 
@@ -123,6 +123,19 @@ def validate_selection(
     if selected_keepers:
         raise ValueError("A protected keeper or protected-folder file cannot be removed")
 
+    # A folder operation must not hide a keeper from another group inside its subtree.
+    from .models import path_contains
+
+    reserved = [records[key].location for key in protected if records[key].source == "local"]
+    for key in selected:
+        target = records[key]
+        if (
+            target.source == "local"
+            and target.item_kind == "folder"
+            and any(path_contains(target.location, path) for path in reserved)
+        ):
+            raise ValueError("A folder containing a protected keeper cannot be removed")
+
     locked = [key for key in selected if not records[key].selectable]
     if locked:
         raise ValueError("Selection contains a protected or locked file")
@@ -159,8 +172,29 @@ def operation_items(
 
     materialized = tuple(groups)
     validate_selection(materialized, selected, operation_mode)
+    reserved = tuple(
+        {
+            path
+            for group in materialized
+            for record in group.records
+            if record.source == "local"
+            for path in (
+                *record.protected_paths,
+                *(
+                    (record.location,)
+                    if record.key == group.keeper_key or record.root_role == "keep"
+                    else ()
+                ),
+            )
+        }
+    )
     return tuple(
-        OperationItem(record=record, keeper=group.keeper)
+        OperationItem(
+            record=replace(record, protected_paths=reserved)
+            if record.source == "local" and record.item_kind == "folder"
+            else record,
+            keeper=group.keeper,
+        )
         for group in materialized
         for record in group.records
         if record.key in selected

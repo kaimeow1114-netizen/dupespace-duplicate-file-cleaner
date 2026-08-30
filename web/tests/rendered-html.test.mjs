@@ -55,7 +55,8 @@ test("renders independent trash and permanent-delete safety controls", async () 
   const clientSource = await readFile(new URL("../app/components/cleaner-client.tsx", import.meta.url), "utf8");
   assert.match(clientSource, /立即永久刪除/);
   assert.match(clientSource, /垃圾桶失敗絕不會自動改成永久刪除/);
-  assert.match(clientSource, /永久刪除 \$\{confirmation\.records\.length\} 個檔案/);
+  assert.match(clientSource, /我了解以上重複檔案會永久刪除/);
+  assert.match(clientSource, /disabled=\{!acknowledged \|\| countdown > 0\}/);
   assert.match(clientSource, /records\.length >= 500/);
   assert.match(clientSource, />= GIB/);
   assert.match(clientSource, /MUTATION_BATCH_SIZE = 10/);
@@ -78,7 +79,7 @@ test("renders independent trash and permanent-delete safety controls", async () 
   assert.match(workerSource, /driveProjectProtectedIds\(listed\)/);
   assert.match(workerSource, /projectProtected: protectedIds\.size/);
   assert.match(workerSource, /MAX_MUTATION_ITEMS = 20/);
-  assert.match(workerSource, /keeperCache/);
+  assert.doesNotMatch(workerSource, /keeperCache/);
   assert.match(workerSource, /result\.trashed !== true/);
   assert.match(workerSource, /path: paths\.get\(file\.id\)/);
   assert.match(workerSource, /folderManifests/);
@@ -133,7 +134,7 @@ test("keeps responsive layouts stable and batch sounds bounded", async () => {
     cleanerSource.indexOf("async function executeOperation"),
     cleanerSource.indexOf("async function undoTrash"),
   );
-  assert.equal((operationBody.match(/play\(/g) ?? []).length, 3);
+  assert.equal((operationBody.match(/play\(/g) ?? []).length, 2);
   assert.match(operationBody, /for \(const chunk of chunks\)/);
   assert.doesNotMatch(operationBody, /for \(const outcome of body\.outcomes\)[\s\S]{0,180}play\(/);
 });
@@ -182,9 +183,10 @@ test("ships health scoring, persistent session status and a real trash restore p
     readFile(new URL("../app/components/cleaner-client.tsx", import.meta.url), "utf8"),
     readFile(new URL("../worker/google-drive.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(healthSource, /if \(duplicateBytes === 0 && duplicateGroups === 0\) return 98/);
-  assert.match(healthSource, /if \(duplicateGB >= 10\) penalty \+= 65/);
-  assert.match(healthSource, /duplicateGroups >= 50/);
+  assert.match(healthSource, /const bands/);
+  assert.match(clientSource, /scan && <motion.div className="scan-insights"/);
+  assert.match(clientSource, /AnimatedNumber/);
+  assert.doesNotMatch(healthSource, /duplicateGroups >= 50/);
   assert.match(clientSource, /fetch\("\/api\/auth\/session"/);
   assert.match(clientSource, /expiresAt: Date\.now\(\) \+ 10_000/);
   assert.match(clientSource, /fetch\("\/api\/google\/restore"/);

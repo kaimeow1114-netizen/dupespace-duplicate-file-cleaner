@@ -31,6 +31,9 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { calculateHealthScore, getHealthState } from "../../lib/health-score";
 import { GroupThumbnail } from "./group-thumbnail";
+import { AnimatedNumber } from "./animated-number";
+import { capacityEquivalent, storageMetrics } from "../../lib/storage-metrics";
+import { canSelectCopy, hasCompleteOutcomes, readJsonWithTimeout } from "../../lib/operation-results";
 
 type OperationMode = "trash" | "permanent";
 type DriveRecord = {
@@ -65,6 +68,7 @@ type DriveGroup = {
 };
 type ScanResult = {
   examined: number;
+  examinedBytes: number;
   skipped: number;
   projectProtected: number;
   duplicateCopies: number;
@@ -201,9 +205,6 @@ function formatBytes(value: number): string {
   return `${amount.toFixed(index === 0 ? 0 : amount >= 10 ? 1 : 2)} ${units[index]}`;
 }
 
-function percent(value: number, total: number): number {
-  return total > 0 ? Math.min(100, value / total * 100) : 0;
-}
 
 function csvCell(value: unknown): string {
   const text = String(value ?? "");
@@ -238,7 +239,7 @@ function synthSound(kind: "confirm" | "trash" | "warning" | "deleted" | "success
   const now = context.currentTime;
   const tones: Record<typeof kind, Array<[number, number, number, OscillatorType]>> = {
     confirm: [[494, 0, .08, "sine"], [659, .11, .09, "sine"]],
-    trash: [[760, 0, .05, "triangle"], [980, .07, .07, "sine"]],
+    trash: [[760, 0, .10, "sine"], [960, .125, .14, "sine"]],
     warning: [[196, 0, .12, "sine"], [174, .17, .12, "sine"]],
     deleted: [[330, 0, .06, "triangle"], [247, .08, .08, "triangle"]],
     success: [[523, 0, .06, "sine"], [659, .07, .06, "sine"], [880, .14, .11, "sine"]],
@@ -277,7 +278,9 @@ export function CleanerClient() {
   const [audit, setAudit] = useState<AuditOutcome[]>([]);
   const [account, setAccount] = useState<ScanResult["user"]>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
-  const [confirmationText, setConfirmationText] = useState("");
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [needsRescan, setNeedsRescan] = useState(false);
+  const [lastOutcomes, setLastOutcomes] = useState<Record<string, AuditOutcome>>({});
   const [countdown, setCountdown] = useState(0);
   const [treeDrawer, setTreeDrawer] = useState<DriveGroup | null>(null);
   const [treeLimit, setTreeLimit] = useState(200);
@@ -286,9 +289,10 @@ export function CleanerClient() {
   const [healthHistory, setHealthHistory] = useState<HealthHistory[]>([]);
   const [profile, setProfile] = useState("project");
   const [planProvider, setPlanProvider] = useState("Google One");
-  const [planPrice, setPlanPrice] = useState(0);
+  const [planPrice, setPlanPrice] = useState(65);
   const [planCapacityGb, setPlanCapacityGb] = useState(100);
   const cancelRef = useRef(false);
+  const busyRef = useRef(false);
   const reducedMotion = useReducedMotion();
 
   useEffect(() => {
@@ -314,11 +318,11 @@ export function CleanerClient() {
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       try {
-        const savedHistory = JSON.parse(localStorage.getItem("dupespace-health-history") ?? "[]") as unknown;
+        const savedHistory = JSON.parse(localStorage.getItem("dupespace-health-history-v3") ?? "[]") as unknown;
         if (Array.isArray(savedHistory)) setHealthHistory(savedHistory.filter((item): item is HealthHistory => isObject(item) && typeof item.timestamp === "string" && typeof item.score === "number" && typeof item.reclaimedBytes === "number").slice(-12));
         const savedProfile = localStorage.getItem("dupespace-protected-profile");
         if (savedProfile && ["project", "media", "strict"].includes(savedProfile)) setProfile(savedProfile);
-        const savedPlan = JSON.parse(localStorage.getItem("dupespace-roi-plan") ?? "null") as unknown;
+        const savedPlan = JSON.parse(localStorage.getItem("dupespace-roi-plan-v2") ?? "null") as unknown;
         if (isObject(savedPlan)) {
           if (savedPlan.provider === "Google One" || savedPlan.provider === "iCloud+" || savedPlan.provider === "自訂方案") setPlanProvider(savedPlan.provider);
           if (typeof savedPlan.price === "number") setPlanPrice(savedPlan.price);
@@ -332,7 +336,7 @@ export function CleanerClient() {
   }, []);
 
   useEffect(() => {
-    if (!confirmation || confirmation.stage !== 2 || confirmation.mode !== "permanent" || countdown <= 0) return;
+    if (!confirmation || confirmation.mode !== "permanent" || countdown <= 0) return;
     const timer = window.setInterval(() => setCountdown((value) => {
       if (value <= 1) { window.clearInterval(timer); return 0; }
       return value - 1;
@@ -356,12 +360,13 @@ export function CleanerClient() {
   const selectedRecords = useMemo(() => records.filter((record) => selected.has(record.id)), [records, selected]);
   const selectedBytes = selectedRecords.reduce((total, record) => total + record.size, 0);
   const quotaLimit = Number(scan?.storageQuota?.limit ?? 0);
-  const reclaimPercent = percent(selectedBytes, scan?.reclaimableBytes ?? 0);
-  const quotaPercent = percent(selectedBytes, quotaLimit);
+  const metrics = useMemo(() => storageMetrics(scan?.groups ?? [], scan?.examinedBytes ?? 0, quotaLimit), [scan, quotaLimit]);
+  const reclaimPercent = metrics.duplicatePercent;
+  const quotaPercent = metrics.quotaPercent;
   const healthScore = scan ? calculateHealthScore(quotaLimit, scan.reclaimableBytes, scan.groups.length) : null;
   const healthState = healthScore === null ? { level: "unscanned", label: "等待第一次掃描", detail: "連線後開始分析" } as const : getHealthState(healthScore);
   const HealthIcon = healthState.level === "unscanned" ? ScanSearch : healthState.level === "critical" ? AlertTriangle : healthState.level === "moderate" ? AlertCircle : ShieldCheck;
-  const roiEstimate = planCapacityGb > 0 ? actualBytes / (planCapacityGb * GIB) * planPrice : 0;
+  const roiEstimate = capacityEquivalent(metrics.duplicateBytes + actualBytes, planPrice, planCapacityGb);
   const causes = useMemo(() => {
     const result = { download: 0, messaging: 0, copied: 0, other: 0 };
     for (const record of records.filter((item) => !item.keeper)) {
@@ -379,8 +384,6 @@ export function CleanerClient() {
     return counts;
   }, [scan]);
   const filteredGroups = useMemo(() => scan?.groups.filter((group) => category === "all" || groupCategory(group) === category) ?? [], [category, scan]);
-  const expectedPhrase = confirmation ? `永久刪除 ${confirmation.records.length} 個檔案` : "";
-  const needsSecond = confirmation ? confirmation.records.length > 5 : false;
   const largeRisk = confirmation ? confirmation.records.length >= 500 || confirmation.records.reduce((sum, item) => sum + item.size, 0) >= GIB || confirmation.records.length >= 5000 : false;
 
   function play(kind: Parameters<typeof synthSound>[0]): void {
@@ -392,7 +395,7 @@ export function CleanerClient() {
       const last = current.at(-1);
       if (last?.score === score && last.reclaimedBytes === reclaimedBytes) return current;
       const next = [...current, { timestamp: new Date().toISOString(), score, reclaimedBytes }].slice(-12);
-      localStorage.setItem("dupespace-health-history", JSON.stringify(next));
+      try { localStorage.setItem("dupespace-health-history-v3", JSON.stringify(next)); } catch { /* Optional local history must not interrupt cleanup. */ }
       return next;
     });
   }
@@ -402,6 +405,13 @@ export function CleanerClient() {
   }
 
   async function startScan(): Promise<void> {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setNeedsRescan(true);
+    setConfirmation(null);
+    setSelected(new Set());
+    setScan(null);
+    setActualBytes(0);
     play("confirm");
     setRunning(true); setProgress(2); setStatus("正在讀取 Google Drive 中的檔案與校驗碼…");
     const timer = animatedWait();
@@ -416,6 +426,10 @@ export function CleanerClient() {
       if (!isScanResult(body)) throw new Error("Google Drive 回傳了無效的掃描資料");
       const ordered = sortScanResult(body);
       setScan(ordered);
+      setNeedsRescan(false);
+      setLastOutcomes({});
+      setConfirmation(null);
+      setAcknowledged(false);
       setUndoBatch(null);
       setAccount(body.user);
       setMode("trash");
@@ -435,13 +449,12 @@ export function CleanerClient() {
     } catch (error) {
       setProgress(0); setStatus(error instanceof Error ? error.message : "掃描失敗"); play("error");
     } finally {
-      window.clearInterval(timer); setRunning(false);
+      window.clearInterval(timer); setRunning(false); busyRef.current = false;
     }
   }
 
   function selectable(record: DriveRecord, targetMode = mode): boolean {
-    if (record.keeper) return false;
-    return targetMode === "trash" ? record.canTrash : record.canDelete;
+    return canSelectCopy(record, targetMode);
   }
 
   function chooseMode(next: OperationMode): void {
@@ -464,35 +477,34 @@ export function CleanerClient() {
   }
 
   function requestOperation(): void {
-    if (!selectedRecords.length || running) return;
+    if (!selectedRecords.length || running || needsRescan || busyRef.current) return;
     if (mode === "trash") {
       play("confirm");
       void executeOperation("trash", selectedRecords);
       return;
     }
     setConfirmation({ mode, records: selectedRecords, stage: 1 });
-    setConfirmationText(""); setCountdown(0);
+    setAcknowledged(false);
+    setCountdown(selectedRecords.length >= 500 || selectedBytes >= GIB ? 8 : 0);
     play("warning");
   }
 
   function acceptConfirmation(): void {
-    if (!confirmation) return;
-    const requiresSecond = needsSecond || largeRisk;
-    if (confirmation.stage === 1 && requiresSecond) {
-      setCountdown(confirmation.mode === "permanent" && largeRisk ? 8 : 0);
-      setConfirmation({ ...confirmation, stage: 2 });
-      setConfirmationText("");
-      play("warning");
+    if (!confirmation || !acknowledged || countdown > 0 || running || needsRescan) return;
+    if (confirmation.mode !== mode || confirmation.records.length !== selectedRecords.length ||
+      !confirmation.records.every((record) => selected.has(record.id) && selectable(record))) {
+      setConfirmation(null);
+      setStatus("選取已變更，請重新確認這次操作");
       return;
     }
-    if (confirmation.mode === "permanent" && confirmation.stage === 2 && confirmationText !== expectedPhrase) return;
-    if (confirmation.mode === "permanent" && countdown > 0) return;
     const accepted = confirmation;
     setConfirmation(null);
     void executeOperation(accepted.mode, accepted.records);
   }
 
   async function executeOperation(targetMode: OperationMode, items: DriveRecord[]): Promise<void> {
+    if (busyRef.current || needsRescan) return;
+    busyRef.current = true;
     setRunning(true); setProgress(0); cancelRef.current = false;
     let completed = 0; let reclaimed = 0; let failures = 0;
     let remainingScan = scan;
@@ -503,33 +515,28 @@ export function CleanerClient() {
       for (const chunk of chunks) {
         if (cancelRef.current) break;
         setStatus(`${targetMode === "trash" ? "正在移至垃圾桶" : "正在永久刪除"}：${completed.toLocaleString()} / ${items.length.toLocaleString()}`);
-        const controller = new AbortController();
-        const timeout = window.setTimeout(() => controller.abort(), OPERATION_TIMEOUT_MS);
-        let response: Response;
-        try {
-          response = await fetch(`/api/google/${targetMode === "trash" ? "trash" : "delete"}`, {
+        const { response, body } = await readJsonWithTimeout(`/api/google/${targetMode === "trash" ? "trash" : "delete"}`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ items: chunk.map((record) => ({ id: record.id, proof: record.proof })) }),
-            signal: controller.signal,
-          });
-        } finally {
-          window.clearTimeout(timeout);
-        }
-        const body = await response.json();
+          }, OPERATION_TIMEOUT_MS);
         if (!response.ok) throw new Error(errorMessage(body, "批次清理失敗"));
         if (!isObject(body) || !Array.isArray(body.outcomes) || !body.outcomes.every(isAuditOutcome)) {
           throw new Error("Google Drive 回傳了無效的操作結果");
         }
         const outcomes = body.outcomes;
+        if (!hasCompleteOutcomes(chunk.map((item) => item.id), outcomes, targetMode)) {
+          throw new Error("Google Drive 未完整回報這批結果，請重新掃描確認最新狀態");
+        }
         setAudit((current) => [...current, ...outcomes]);
+        setLastOutcomes((current) => ({ ...current, ...Object.fromEntries(outcomes.map((item) => [item.id, item])) }));
         const successfulIds = new Set(outcomes.filter((outcome) => outcome.status === "trashed" || outcome.status === "deleted").map((outcome) => outcome.id));
         if (targetMode === "trash") restorable.push(...chunk.filter((record) => successfulIds.has(record.id)));
         for (const outcome of outcomes) {
           if (outcome.status === "trashed" || outcome.status === "deleted") {
             reclaimed += outcome.size;
             setSelected((current) => { const next = new Set(current); next.delete(outcome.id); return next; });
-          } else failures += 1;
+          } else { failures += 1; setNeedsRescan(true); }
         }
         if (successfulIds.size) {
           remainingScan = remainingScan ? removeSuccessfulRecords(remainingScan, successfulIds) : remainingScan;
@@ -541,17 +548,22 @@ export function CleanerClient() {
       }
       setStatus(cancelRef.current
         ? `已安全停止；本次已處理 ${formatBytes(reclaimed)}`
-        : `完成：Google Drive 已確認移除 ${formatBytes(reclaimed)}${failures ? `，${failures} 個檔案因安全檢查未處理` : ""}`);
+        : `完成：Google Drive 已確認移除 ${formatBytes(reclaimed)}${failures ? `；${failures} 項未處理，原因已標在副本旁。請重新掃描後再整理` : ""}`);
       play(failures ? "error" : targetMode === "trash" ? "trash" : "deleted");
       if (targetMode === "trash" && restorable.length) setUndoBatch({ items: restorable, expiresAt: Date.now() + 10_000 });
       if (remainingScan) rememberHealth(calculateHealthScore(Number(remainingScan.storageQuota?.limit ?? 0), remainingScan.reclaimableBytes, remainingScan.groups.length), actualBytes + reclaimed);
-      if (!failures && !cancelRef.current) window.setTimeout(() => play("success"), 380);
+      // A completed batch uses one sound; no per-file or delayed second sound.
     } catch (error) {
+      setNeedsRescan(true);
       setStatus(error instanceof DOMException && error.name === "AbortError"
         ? "伺服器回應逾時；為避免重複操作，請按「重新掃描」確認 Google Drive 最新狀態"
         : error instanceof Error ? error.message : "清理未完成");
       play("error");
-    } finally { setRunning(false); }
+    } finally {
+      if (targetMode === "trash" && restorable.length) setUndoBatch({ items: restorable, expiresAt: Date.now() + 10_000 });
+      busyRef.current = false;
+      setRunning(false);
+    }
   }
 
   async function undoTrash(): Promise<void> {
@@ -632,29 +644,32 @@ export function CleanerClient() {
           <div><b>{account?.displayName ?? (connected ? "Google Drive 已連線" : "尚未連線")}</b><small>{account?.emailAddress ?? "登入帳號顯示於此"}</small></div>
         </div>
       </section>
-      <section className={`health-panel ${healthState.level}`} aria-label="儲存空間健康評分">
+      {scan && <motion.div className="scan-insights" initial={reducedMotion ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .3 }}>
+      <section className={`health-panel ${healthState.level}`} aria-label="空間整理評分">
         <div className="health-score-ring">
-          <svg viewBox="0 0 108 108" aria-hidden="true"><circle cx="54" cy="54" r="47" /><motion.circle cx="54" cy="54" r="47" pathLength={100} strokeDasharray="100" animate={{ strokeDashoffset: 100 - (healthScore ?? 0) }} transition={{ duration: reducedMotion ? 0 : .8, ease: "easeOut" }} /></svg>
-          <div><motion.strong key={healthScore ?? "pending"} initial={reducedMotion ? false : { opacity: 0, y: 7 }} animate={{ opacity: 1, y: 0 }}>{healthScore ?? "—"}</motion.strong>{healthScore !== null && <small>/100</small>}</div>
+          <svg viewBox="0 0 108 108" aria-hidden="true"><circle cx="54" cy="54" r="47" /><motion.circle cx="54" cy="54" r="47" pathLength={100} strokeDasharray="100" initial={{ strokeDashoffset: 100 }} animate={{ strokeDashoffset: 100 - (healthScore ?? 0) }} transition={{ duration: reducedMotion ? 0 : .8, ease: "easeOut" }} /></svg>
+          <div><strong><AnimatedNumber value={healthScore ?? 0} /></strong>{healthScore !== null && <small>/100</small>}</div>
         </div>
-        <div className="health-copy"><span><HealthIcon size={18} aria-hidden="true" />{healthState.label}</span><h2>{healthScore === null ? "掃描後建立空間健康評分" : `空間健康評分：${healthScore}/100`}</h2><p>{healthState.detail}。{healthScore === null ? "尚未分析 Google Drive，不顯示推測分數。" : "此分數只依本次偵測到的重複容量與群組數計算，是整理指標，不是磁碟故障或效能診斷。"}</p></div>
-        <div className="health-summary"><span>目前重複容量</span><b>{scan ? formatBytes(scan.reclaimableBytes) : "尚未分析"}</b><small>{scan ? `${scan.groups.length.toLocaleString()} 個重複群組` : "完成掃描後顯示"}</small></div>
+        <div className="health-copy"><span><HealthIcon size={18} aria-hidden="true" />{healthState.label}</span><h2>{healthScore === null ? "掃描後建立空間整理評分" : "掃描結果，現在一目了然"}</h2><p>{healthState.detail}。{healthScore === null ? "尚未分析 Google Drive，不顯示推測分數。" : "依重複容量連續配分，1 MiB 內至少 95 分；2–4 GiB 平滑降至 20 分。這是整理參考，不是磁碟健康診斷，垃圾桶仍占用空間。"}</p></div>
+        <div className="health-summary"><span>目前重複容量</span><b><AnimatedNumber value={metrics.duplicateBytes} format={formatBytes} /></b><small>{scan ? `${scan.groups.length.toLocaleString()} 個重複群組` : "完成掃描後顯示"}</small></div>
       </section>
 
       <section className="metric-grid">
-        <article><span>預估節省容量</span><strong>{formatBytes(selectedBytes)}</strong><small>實際已釋放 {formatBytes(actualBytes)}</small></article>
-        <article><span>重複容量百分比</span><strong>{reclaimPercent.toFixed(1)}%</strong><small>{selected.size.toLocaleString()} 個已選副本</small></article>
-        <article><span>磁碟容量占比</span><strong>{quotaLimit ? `${quotaPercent.toFixed(3)}%` : "—"}</strong><small>{quotaLimit ? `雲端總容量 ${formatBytes(quotaLimit)}` : "Google 未提供容量上限"}</small></article>
+        <article><span>預估可整理容量</span><strong><AnimatedNumber value={metrics.duplicateBytes} format={formatBytes} /></strong><small>已確認移除副本 <AnimatedNumber value={actualBytes} format={formatBytes} /> · 垃圾桶仍占空間</small></article>
+        <article><span>重複容量百分比</span><strong>{reclaimPercent === null ? "—" : <AnimatedNumber value={reclaimPercent} format={(value) => `${value.toFixed(1)}%`} />}</strong><small>全體重複容量 ÷ 已比對容量 {formatBytes(scan.examinedBytes ?? 0)}</small></article>
+        <article><span>雲端容量占比</span><strong>{quotaPercent === null ? "—" : <AnimatedNumber value={quotaPercent} format={(value) => `${value.toFixed(3)}%`} />}</strong><small>{quotaLimit ? `雲端總容量 ${formatBytes(quotaLimit)}` : "Google 未提供容量上限"}</small></article>
       </section>
 
       <section className="insight-grid" aria-label="長期儲存整理工具">
         <article className="trend-card"><div className="insight-heading"><TrendingUp size={18} aria-hidden="true" /><span><b>儲存健康趨勢</b><small>僅儲存本機彙總分數</small></span></div><div className="trend-bars" aria-label="最近健康評分">
           {(healthHistory.length ? healthHistory : [{ timestamp: "", score: healthScore ?? 0, reclaimedBytes: actualBytes }]).map((item, index) => <i key={`${item.timestamp}-${index}`} style={{ height: `${Math.max(12, item.score)}%` }} title={healthScore === null && !healthHistory.length ? "尚未掃描" : `${item.score}/100`} />)}
         </div></article>
-        <article><div className="insight-heading"><Cloud size={18} aria-hidden="true" /><span><b>容量費用等值估算</b><small>自行輸入方案，不採用即時價格宣稱</small></span></div><div className="roi-fields"><label>方案<select value={planProvider} onChange={(event) => { setPlanProvider(event.target.value); localStorage.setItem("dupespace-roi-plan", JSON.stringify({ provider: event.target.value, price: planPrice, capacityGb: planCapacityGb })); }}><option>Google One</option><option>iCloud+</option><option>自訂方案</option></select></label><label>每月費用<input type="number" min="0" value={planPrice} onChange={(event) => { const value = Math.max(0, Number(event.target.value)); setPlanPrice(value); localStorage.setItem("dupespace-roi-plan", JSON.stringify({ provider: planProvider, price: value, capacityGb: planCapacityGb })); }} /></label><label>方案容量 GB<input type="number" min="1" value={planCapacityGb} onChange={(event) => { const value = Math.max(1, Number(event.target.value)); setPlanCapacityGb(value); localStorage.setItem("dupespace-roi-plan", JSON.stringify({ provider: planProvider, price: planPrice, capacityGb: value })); }} /></label></div><strong className="roi-value">{planProvider} 約 NT$ {roiEstimate.toFixed(2)} 容量等值</strong></article>
+        <article><div className="insight-heading"><Cloud size={18} aria-hidden="true" /><span><b>容量費用等值估算</b><small>參考：100 GB／NT$65 每月，可依帳單調整</small></span></div><details className="roi-plan-editor"><summary>調整參考方案</summary><div className="roi-fields"><label>方案<select value={planProvider} onChange={(event) => { setPlanProvider(event.target.value); localStorage.setItem("dupespace-roi-plan-v2", JSON.stringify({ provider: event.target.value, price: planPrice, capacityGb: planCapacityGb })); }}><option>Google One</option><option>iCloud+</option><option>自訂方案</option></select></label><label>每月費用<input type="number" min="0" value={planPrice} onChange={(event) => { const value = Math.max(0, Number(event.target.value)); setPlanPrice(value); localStorage.setItem("dupespace-roi-plan-v2", JSON.stringify({ provider: planProvider, price: value, capacityGb: planCapacityGb })); }} /></label><label>方案容量 GB<input type="number" min="1" value={planCapacityGb} onChange={(event) => { const value = Math.max(1, Number(event.target.value)); setPlanCapacityGb(value); localStorage.setItem("dupespace-roi-plan-v2", JSON.stringify({ provider: planProvider, price: planPrice, capacityGb: value })); }} /></label></div></details><strong className="roi-value">約 NT$ <AnimatedNumber value={roiEstimate} format={(value) => value > 0 && value < .01 ? "< 0.01" : value.toFixed(2)} />／月容量等值</strong><small className="profile-note">以本次已整理＋仍可整理容量按方案單價換算，不代表帳單折扣。垃圾桶清空前不會釋放配額。參考價來自<a href="https://www.cht.com.tw/home/campaign/googleone/index.html?zone=4" target="_blank" rel="noreferrer">台灣供應商</a>，實際價格依帳單。</small></article>
         <article><div className="insight-heading"><ShieldCheck size={18} aria-hidden="true" /><span><b>防護設定檔</b><small>偏好只保存在這個瀏覽器</small></span></div><label className="profile-select">整理情境<select value={profile} onChange={(event) => { setProfile(event.target.value); localStorage.setItem("dupespace-protected-profile", event.target.value); setScan(null); setSelected(new Set()); setStatus("防護設定檔已變更，請重新掃描"); }}><option value="project">軟體專案保護</option><option value="media">影音備份保護</option><option value="strict">嚴格保護</option></select></label><small className="profile-note">軟體專案模式預選符合門檻的檔案與鏡像資料夾；影音備份模式不預選資料夾；嚴格模式不自動預選。硬性排除永遠有效。</small></article>
         <article><div className="insight-heading"><FolderTree size={18} aria-hidden="true" /><span><b>重複成因分析</b><small>依檔案路徑線索推估</small></span></div><div className="cause-list">{[["下載項目", causes.download], ["通訊軟體", causes.messaging], ["跨資料夾複製", causes.copied], ["其他", causes.other]].map(([label, value]) => <div key={label}><span>{label}</span><i><b style={{ width: `${Math.max(4, Number(value) / Math.max(1, records.length) * 100)}%` }} /></i><strong>{value}</strong></div>)}</div></article>
       </section>
+
+      </motion.div>}
 
       <section className="animated-progress" aria-live="polite">
         <div><span>{status}</span><b>{Math.round(progress)}%</b></div>
@@ -672,7 +687,7 @@ export function CleanerClient() {
         </section>
         <div className="results-toolbar">
           <div><b>{scan.groups.length.toLocaleString()} 組 · {scan.duplicateCopies.toLocaleString()} 個重複副本</b><span>掃描 {scan.examined.toLocaleString()} 個項目，略過 {scan.skipped.toLocaleString()} 個不適用項目；其中 {scan.projectProtected.toLocaleString()} 個專案項目受到硬性保護</span></div>
-          <div><button className="text-button" onClick={() => setSelected(new Set(records.filter((record) => selectable(record)).map((record) => record.id)))} disabled={mode === "permanent"}>選取全部重複副本</button><button className="text-button" onClick={() => setSelected(new Set())}>清除選取</button></div>
+          <div><button className="text-button" onClick={() => setSelected(new Set(records.filter((record) => selectable(record)).map((record) => record.id)))} disabled={running || needsRescan}>選取全部重複副本</button><button className="text-button" onClick={() => setSelected(new Set())} disabled={running}>清除選取</button></div>
         </div>
         {!!scan.groups.length && <nav className="category-filter" aria-label="依檔案類型篩選重複群組">
           <button className={category === "all" ? "active" : ""} onClick={() => { setCategory("all"); setVisibleGroups(18); }}><Layers3 size={17} aria-hidden="true" /><span>全部</span><b>{scan.groups.length.toLocaleString()}</b></button>
@@ -689,7 +704,7 @@ export function CleanerClient() {
             const itemCategory = groupCategory(group);
             return <article className={`duplicate-group category-${itemCategory}`} key={key}>
               <button className="group-summary" type="button" aria-expanded={expanded} onClick={() => setExpandedGroups((current) => current.has(key) ? new Set() : new Set([key]))}>
-                {itemCategory === "image" || itemCategory === "video" ? <GroupThumbnail key={`${keeper.id}:${keeper.version}`} url={keeper.thumbnailLink} name={keeper.name} video={itemCategory === "video"} /> : <span className="category-badge"><CategoryIcon category={itemCategory} /><b>{CATEGORY_LABELS[itemCategory]}</b></span>}
+                {itemCategory === "image" || itemCategory === "video" || itemCategory === "pdf" ? <GroupThumbnail key={`${keeper.id}:${keeper.version}`} url={keeper.thumbnailLink} id={keeper.id} proof={keeper.proof} name={keeper.name} video={itemCategory === "video"} document={itemCategory === "pdf"} /> : <span className="category-badge"><CategoryIcon category={itemCategory} /><b>{CATEGORY_LABELS[itemCategory]}</b></span>}
                 <span className="group-title"><b>{keeper?.name ?? "未命名項目"}</b><small>{CATEGORY_LABELS[itemCategory]} · {copies.length.toLocaleString()} 個重複副本{group.itemKind === "folder" ? ` · ${group.tree.length.toLocaleString()} 個檔案 100% 鏡像` : ""}</small></span>
                 <span className="group-saving"><small>可整理</small><strong>{formatBytes(group.reclaimableBytes)}</strong></span>
                 <ChevronDown className="group-chevron" size={20} aria-hidden="true" />
@@ -699,7 +714,7 @@ export function CleanerClient() {
                 <div className="group-comparison">
                   <aside className="keeper-preview">
                     <div className="keeper-visual">
-                      {keeper?.thumbnailLink ? <img src={keeper.thumbnailLink} alt={`${keeper.name} 保留檔案預覽`} loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : <CategoryIcon category={itemCategory} size={46} />}{/* eslint-disable-line @next/next/no-img-element */}
+                      {keeper?.thumbnailLink ? <GroupThumbnail key={`${keeper.id}:${keeper.version}:large`} url={keeper.thumbnailLink} id={keeper.id} proof={keeper.proof} name={keeper.name} video={itemCategory === "video"} document={itemCategory === "pdf"} /> : <CategoryIcon category={itemCategory} size={46} />}{ }
                       <span><ShieldCheck size={15} aria-hidden="true" />受保護原始檔</span>
                     </div>
                     <b>{keeper?.name}</b>
@@ -715,6 +730,7 @@ export function CleanerClient() {
                         <span className="record-name"><b>{record.name}</b><small className="record-path">{record.path}</small><small>{record.itemKind === "folder" ? `${record.entryCount.toLocaleString()} 個可比對檔案${record.ignoredMetadataCount ? ` · 忽略 ${record.ignoredMetadataCount} 個暫存檔` : ""}` : record.modifiedTime ? new Date(record.modifiedTime).toLocaleString("zh-TW") : "日期不明"}{record.webViewLink ? <> · <a href={record.webViewLink} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}><Eye size={13} aria-hidden="true" />在 Drive 預覽</a></> : null}</small></span>
                         <span className="record-size">{formatBytes(record.size)}</span>
                         <span className={`record-state ${!selectable(record) ? "locked" : ""}`}>{mode === "permanent" && record.itemKind === "folder" ? "僅限垃圾桶" : !selectable(record) ? "無權限" : selected.has(record.id) ? (mode === "trash" ? "垃圾桶" : "永久刪除") : "略過"}</span>
+                        {lastOutcomes[record.id] && <span className="record-outcome"><AlertCircle size={15} aria-hidden="true" />未處理：{lastOutcomes[record.id].reason}</span>}
                       </label>)}
                       {copies.length > limit && <button className="load-more" onClick={() => setRecordLimits((current) => ({ ...current, [key]: limit + 80 }))}>再顯示 {Math.min(80, copies.length - limit)} 個副本</button>}
                     </div>
@@ -725,7 +741,7 @@ export function CleanerClient() {
           })}
         </div>
         {filteredGroups.length > visibleGroups && <button className="load-more" onClick={() => setVisibleGroups((value) => value + 18)}>載入更多重複群組</button>}
-        <div className={`trash-dock ${mode === "permanent" ? "permanent" : ""}`}><div><span>已選 {selected.size.toLocaleString()} 個副本 · {scan.groups.length.toLocaleString()} 個群組</span><strong>可節省 {formatBytes(selectedBytes)} · {reclaimPercent.toFixed(1)}%</strong></div><div className="dock-actions">{audit.length > 0 && <button className="button secondary" onClick={downloadCsv}><Download size={16} aria-hidden="true" />下載 CSV 稽核報告</button>}<button className={`button ${mode === "trash" ? "primary" : "danger"}`} onClick={requestOperation} disabled={!selected.size || running}>{mode === "trash" ? <><Trash2 size={17} aria-hidden="true" />移至 Google Drive 垃圾桶</> : <><AlertTriangle size={17} aria-hidden="true" />立即永久刪除（無法復原）</>}</button></div></div>
+        <div className={`trash-dock ${mode === "permanent" ? "permanent" : ""}`}><div><span>已選 {selected.size.toLocaleString()} 個副本 · {scan.groups.length.toLocaleString()} 個群組</span><strong>可整理 {formatBytes(selectedBytes)}</strong></div><div className="dock-actions">{audit.length > 0 && <button className="button secondary" onClick={downloadCsv}><Download size={16} aria-hidden="true" />下載 CSV 稽核報告</button>}{needsRescan ? <button className="button primary" onClick={startScan} disabled={running}><ScanSearch size={17} aria-hidden="true" />重新掃描未處理項目</button> : <button className={`button ${mode === "trash" ? "primary" : "danger"}`} onClick={requestOperation} disabled={!selected.size || running}>{mode === "trash" ? <><Trash2 size={17} aria-hidden="true" />移至 Google Drive 垃圾桶</> : <><AlertTriangle size={17} aria-hidden="true" />立即永久刪除（無法復原）</>}</button>}</div></div>
       </>}
 
       {treeDrawer && (() => {
@@ -754,9 +770,9 @@ export function CleanerClient() {
           <h2 id="confirm-title">{confirmation.mode === "trash" ? "移至 Google Drive 垃圾桶？" : "永久刪除，沒有復原功能"}</h2>
           <p>{confirmation.mode === "trash" ? "選取檔案會移至垃圾桶，仍可依 Google Drive 的保留政策復原。" : "這不是清空垃圾桶；選取檔案會立即從 Google Drive 永久消失。"}</p>
           <dl className="confirm-summary"><div><dt>選取數量</dt><dd>{confirmation.records.length.toLocaleString()} 個檔案</dd></div><div><dt>重複群組</dt><dd>{new Set(confirmation.records.map((record) => scan?.groups.findIndex((group) => group.records.some((item) => item.id === record.id)))).size.toLocaleString()} 組</dd></div><div><dt>預計釋放</dt><dd>{formatBytes(confirmation.records.reduce((sum, record) => sum + record.size, 0))}</dd></div><div><dt>掃描位置</dt><dd>我的 Google Drive</dd></div><div><dt>處理方式</dt><dd>{confirmation.mode === "trash" ? "移至垃圾桶（可復原）" : "永久刪除（無法復原）"}</dd></div></dl>
-          {confirmation.mode === "permanent" && confirmation.stage === 2 && <label className="typed-confirm"><span>請完整輸入：<b>{expectedPhrase}</b></span><input value={confirmationText} onChange={(event) => setConfirmationText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }} autoComplete="off" /></label>}
-          {largeRisk && confirmation.stage === 2 && <div className="countdown-warning"><b>大量永久刪除保護</b><span>完整摘要已顯示。{countdown > 0 ? `請等待 ${countdown} 秒` : "等待完成，請再次核對內容"}</span></div>}
-          <div className="modal-actions"><button className="button secondary" onClick={() => setConfirmation(null)}>取消，保留檔案</button><button className={`button ${confirmation.mode === "trash" ? "primary" : "danger"}`} onClick={acceptConfirmation} disabled={confirmation.mode === "permanent" && confirmation.stage === 2 && (confirmationText !== expectedPhrase || countdown > 0)}>{confirmation.stage === 1 && (confirmation.mode === "permanent" ? needsSecond || largeRisk : needsSecond) ? "繼續安全確認" : confirmation.mode === "trash" ? "確認移至垃圾桶" : "確認永久刪除（無法復原）"}</button></div>
+          <label className="risk-acknowledgement"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} /><span>我了解以上重複檔案會永久刪除，並自負檔案遺失責任。</span></label>
+          {largeRisk && <div className="countdown-warning"><b>大量永久刪除保護</b><span>完整摘要已顯示。{countdown > 0 ? `請等待 ${countdown} 秒` : "等待完成，請再次核對內容"}</span></div>}
+          <div className="modal-actions"><button className="button secondary" onClick={() => setConfirmation(null)}>取消，保留檔案</button><button className="button danger" onClick={acceptConfirmation} disabled={!acknowledged || countdown > 0}>確認永久刪除（無法復原）</button></div>
         </section>
       </div>}
       {undoBatch && <motion.aside className="undo-toast" role="status" aria-live="polite" initial={reducedMotion ? false : { opacity: 0, y: 24, scale: .97 }} animate={{ opacity: 1, y: 0, scale: 1 }}>

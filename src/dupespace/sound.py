@@ -83,7 +83,7 @@ class SoundPlayer:
         cache_root = _settings_path().parent / "sound-cache"
         cache_root.mkdir(parents=True, exist_ok=True)
         level = int(round(self.volume * 20))
-        destination = cache_root / f"{event}-{level}.wav"
+        destination = cache_root / f"{event}-tones-v2-{level}.wav"
         if destination.exists():
             return destination
         with wave.open(str(source), "rb") as input_wave:

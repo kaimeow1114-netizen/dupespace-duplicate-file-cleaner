@@ -8,7 +8,7 @@ from typing import Any
 from ..drive import GoogleDrivePermanentDeleteExecutor, GoogleDriveTrashExecutor
 from ..local import LocalPermanentDeleteExecutor, LocalTrashExecutor
 from ..models import ActionOutcome, ActionReport, OperationItem, OperationMode, ProgressUpdate
-from ..reporting import AuditJournal, write_action_report
+from ..reporting import AuditJournal
 
 
 @dataclass(frozen=True)
@@ -102,8 +102,10 @@ def run_cleanup(
             journal.close()
     final_report = ActionReport(source, tuple(outcomes), mode)
     try:
-        csv_path = write_action_report((final_report,), directory=directory)
+        csv_path = journal.finalize(final_report)
     except OSError:
-        csv_path = None
-        warning = "最終報告無法儲存。請先保存操作日誌；不要重複執行未確認的項目。"
+        csv_path = journal.path
+        warning = (
+            "報告整併未完成，原始操作紀錄已保留於同一份 CSV；pending 不代表刪除成功，請先核對結果。"
+        )
     return CleanupResult(final_report, csv_path, journal.path, warning)

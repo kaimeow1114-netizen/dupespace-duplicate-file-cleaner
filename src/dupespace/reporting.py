@@ -54,8 +54,8 @@ class AuditJournal:
     def __init__(self, directory: Path | None = None) -> None:
         folder = directory or default_report_dir()
         folder.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
-        self.path = folder / f"operation-{stamp}-{uuid4().hex[:8]}.csv"
+        stamp = datetime.now().astimezone().strftime("%Y-%m-%d_%H-%M-%S")
+        self.path = (folder / f"DUPESPACE-{stamp}-{uuid4().hex[:8]}.csv").absolute()
         self.handle = self.path.open("x", encoding="utf-8-sig", newline="")
         self.writer = csv.writer(self.handle)
         try:
@@ -97,6 +97,17 @@ class AuditJournal:
     def close(self) -> None:
         self.handle.close()
 
+    def finalize(self, report: ActionReport) -> Path:
+        """Atomically compact this batch's durable journal into its one final CSV.
+
+        If replacement fails, the intent/result journal remains at the same path.
+        A crash before finalization leaves pending rows distinguishable from results.
+        """
+        if not self.handle.closed:
+            raise ValueError("Close the audit journal before finalizing it")
+        _write_outcomes(self.path, report.outcomes)
+        return self.path
+
 
 def default_report_dir() -> Path:
     base = os.getenv("LOCALAPPDATA")
@@ -116,15 +127,18 @@ def write_action_report(
     report_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
     destination = report_dir / f"cleanup-{timestamp}-{uuid4().hex[:8]}.csv"
-    temporary = destination.with_suffix(".tmp")
+    _write_outcomes(destination, (outcome for report in reports for outcome in report.outcomes))
+    return destination.resolve()
 
-    with temporary.open("w", encoding="utf-8-sig", newline="") as handle:
+
+def _write_outcomes(destination: Path, outcomes: Iterable[ActionOutcome]) -> None:
+    temporary = destination.with_name(f"{destination.stem}-{uuid4().hex[:8]}.tmp")
+
+    with temporary.open("x", encoding="utf-8-sig", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(FIELDS)
-        for report in reports:
-            for outcome in report.outcomes:
-                writer.writerow(outcome_row(outcome))
+        for outcome in outcomes:
+            writer.writerow(outcome_row(outcome))
         handle.flush()
         os.fsync(handle.fileno())
     temporary.replace(destination)
-    return destination.resolve()

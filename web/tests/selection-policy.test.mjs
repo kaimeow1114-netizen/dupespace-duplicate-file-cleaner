@@ -67,4 +67,70 @@ test("small verified mirror folders are preselected for trash only", async (t) =
   assert.equal(records.find((r) => r.keeper).id, "old-album");
   assert.equal(records.find((r) => !r.keeper).autoSelectable, true);
   assert.ok(records.every((r) => !r.canDelete));
+  assert.equal(result.examinedBytes,16);
+});
+
+async function authenticatedRequest(path, body) {
+  const cookie = await api.encrypt({ accessToken:"synthetic-token", expiresAt:Date.now()+3600000 },env.SESSION_SECRET);
+  return new Request(`https://dupespace.app/api/google/${path}`, { method:"POST", headers:{ origin:"https://dupespace.app", "content-type":"application/json", cookie:`dupespace_session=${cookie}` },body:JSON.stringify(body) });
+}
+
+test("private thumbnail uses authenticated bounded forwarding, never original media", async(t)=>{
+  const files=[file("a",{mimeType:"video/mp4",thumbnailLink:"https://lh3.googleusercontent.com/drive-storage/test=s220"}),file("b")];
+  const result=await scan(files,t);
+  const record=result.groups[0].records.find(r=>r.id==="a");
+  t.mock.method(globalThis,"fetch",async(url,init)=>{
+    const u=new URL(url);
+    assert.equal(new Headers(init.headers).get("authorization"),"Bearer synthetic-token");
+    assert.notEqual(u.searchParams.get("alt"),"media");
+    if(u.hostname==="www.googleapis.com") return Response.json(files[0]);
+    assert.equal(u.hostname,"lh3.googleusercontent.com");
+    assert.equal(init.redirect,"manual");
+    assert.ok(u.pathname.endsWith("=s240"));
+    return new Response(new Uint8Array([255,216,255,217]),{headers:{"content-type":"image/jpeg"}});
+  });
+  const response=await api.handleGoogleDriveApi(await authenticatedRequest("thumbnail",record),env);
+  assert.equal(response.status,200);
+  assert.match(response.headers.get("cache-control"),/no-store/);
+  assert.equal((await response.arrayBuffer()).byteLength,4);
+});
+
+test("thumbnail refuses unauthenticated callers, oversized data and external redirects",async(t)=>{
+  const noAuth=await api.handleGoogleDriveApi(new Request("https://dupespace.app/api/google/thumbnail",{method:"POST",body:"{}"}),env);
+  assert.equal(noAuth.status,401);
+  const files=[file("a",{thumbnailLink:"https://lh3.googleusercontent.com/test=s220"}),file("b")];
+  const result=await scan(files,t);
+  const record=result.groups[0].records.find(r=>r.id==="a");
+  for(const variant of ["redirect","large","external","html"]) {
+    t.mock.method(globalThis,"fetch",async(url,init)=>{
+      const u=new URL(url);
+      if(u.hostname==="www.googleapis.com") return Response.json({...files[0],thumbnailLink:variant==="external"?"https://evil.example/thumbnail":files[0].thumbnailLink});
+      assert.equal(u.hostname,"lh3.googleusercontent.com");
+      assert.equal(init.redirect,"manual");
+      if(variant==="redirect") return new Response(null,{status:302,headers:{location:"https://evil.example"}});
+      if(variant==="html") return new Response("<html>",{headers:{"content-type":"text/html"}});
+      return new Response(new Uint8Array(1048577),{headers:{"content-type":"image/jpeg"}});
+    });
+    const response=await api.handleGoogleDriveApi(await authenticatedRequest("thumbnail",record),env);
+    assert.ok([400,404,413].includes(response.status));
+  }
+});
+
+test("trash and permanent paths return complete outcomes with fresh keeper validation",async(t)=>{
+  const files=[file("a"),file("b"),file("c")];
+  const result=await scan(files,t);
+  const copies=result.groups[0].records.filter(r=>!r.keeper);
+  const calls=[];
+  t.mock.method(globalThis,"fetch",async(url,init)=>{
+    const id=new URL(url).pathname.split("/").at(-1);
+    calls.push([init.method??"GET",id]);
+    if(init.method==="PATCH") return new Response(null,{status:403});
+    assert.notEqual(init.method,"DELETE","trash must never fall back to permanent delete");
+    return Response.json(files.find(f=>f.id===id));
+  });
+  const response=await api.handleGoogleDriveApi(await authenticatedRequest("trash",{items:copies}),env);
+  const body=await response.json();
+  assert.equal(body.outcomes.length,2);
+  assert.ok(body.outcomes.every(o=>o.status==="failed"));
+  assert.equal(calls.filter(([method,id])=>method==="GET"&&id==="a").length,2);
 });

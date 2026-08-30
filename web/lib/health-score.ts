@@ -11,31 +11,26 @@ export function calculateHealthScore(
   duplicateBytes: number,
   duplicateGroups: number,
 ): number {
+  // Continuous clutter bands; neither disk health nor permission to delete a copy.
   void totalBytes;
-  if (duplicateBytes === 0 && duplicateGroups === 0) return 98;
-
-  let penalty = 0;
-  const duplicateGB = duplicateBytes / (1024 * 1024 * 1024);
-
-  if (duplicateGB >= 10) penalty += 65;
-  else if (duplicateGB >= 5) penalty += 55;
-  else if (duplicateGB >= 1) penalty += 45;
-  else if (duplicateGB > 0) penalty += 35;
-
-  if (duplicateGroups >= 50) penalty += 20;
-  else if (duplicateGroups >= 10) penalty += 15;
-  else if (duplicateGroups > 0) penalty += 10;
-
-  const calculated = Math.max(18, Math.min(100, 100 - penalty));
-  return Math.round(calculated);
+  void duplicateGroups;
+  const bytes = Number.isFinite(duplicateBytes) ? Math.max(0, duplicateBytes) : 0;
+  const mib = 1024 ** 2;
+  const bands = [[0, 100], [mib, 95], [10 * mib, 85], [100 * mib, 70], [500 * mib, 50], [2048 * mib, 30], [4096 * mib, 20]];
+  for (let index = 1; index < bands.length; index++) {
+    const [end, low] = bands[index];
+    const [start, high] = bands[index - 1];
+    if (bytes <= end) return Math.round(high + (low - high) * (bytes - start) / (end - start));
+  }
+  return Math.round(Math.max(5, 20 * (4096 * mib) / bytes));
 }
 
 export function getHealthState(score: number): HealthState {
   if (score < 40) {
-    return { level: "critical", label: "空間嚴重擁擠", detail: "建議立即優化" };
+    return { level: "critical", label: "有較多重複容量可整理", detail: "可先檢查較大的副本" };
   }
   if (score < 80) {
-    return { level: "moderate", label: "空間存在冗餘", detail: "建議整理" };
+    return { level: "moderate", label: "有一些空間可整理", detail: "依實際用途決定是否保留" };
   }
-  return { level: "optimal", label: "儲存狀態極佳", detail: "安全防護中" };
+  return { level: "optimal", label: "空間整理狀態良好", detail: "少量副本不必急著刪除" };
 }

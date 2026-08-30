@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QScrollArea,
     QTreeWidget,
     QTreeWidgetItem,
@@ -23,7 +22,6 @@ from PySide6.QtWidgets import (
 from ..confirmations import (
     ConfirmationSnapshot,
     needs_large_operation_countdown,
-    permanent_confirmation_phrase,
 )
 from ..models import DuplicateGroup, FileRecord
 from ..windows_safety import DEFAULT_WINDOWS_SAFETY_POLICY
@@ -92,21 +90,15 @@ class ConfirmationDialog(QDialog):
         self.remember = QCheckBox("本次使用期間，相同來源與選取不再提醒移至垃圾桶")
         self.remember.setVisible(second and not self.permanent)
         layout.addWidget(self.remember)
-        self.phrase = QLineEdit()
-        self.phrase.setAccessibleName("輸入永久刪除確認文字")
-        self.required = permanent_confirmation_phrase(snapshot.selected_count)
-        self.typed_required = second and self.permanent
-        if self.typed_required:
-            layout.addWidget(label(f"請完整輸入：{self.required}", "danger"))
-            self.phrase.setPlaceholderText(self.required)
-            layout.addWidget(self.phrase)
-        else:
-            self.phrase.hide()
+        self.acknowledge = QCheckBox("我了解以上重複檔案會永久刪除，並自負檔案遺失責任")
+        self.acknowledge.setChecked(False)
+        self.acknowledge.setVisible(self.permanent)
+        self.acknowledge.setAccessibleName("我了解永久刪除無法復原")
+        layout.addWidget(self.acknowledge)
         wait_seconds = 0
         if (
             self.permanent
             and needs_large_operation_countdown(snapshot)
-            and (second or snapshot.selected_count <= 5)
         ):
             wait_seconds = 15 if snapshot.selected_count >= 5000 else 10
         self.deadline = time.monotonic() + wait_seconds
@@ -126,7 +118,7 @@ class ConfirmationDialog(QDialog):
         self.confirm_button.clicked.connect(self._confirm)
         buttons.addWidget(self.confirm_button)
         layout.addLayout(buttons)
-        self.phrase.textChanged.connect(self._refresh_gate)
+        self.acknowledge.toggled.connect(self._refresh_gate)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._refresh_gate)
         self.timer.start(200)
@@ -139,7 +131,7 @@ class ConfirmationDialog(QDialog):
         remaining = max(0, math.ceil(self.deadline - time.monotonic()))
         self.wait_label.setText(f"大量操作安全等待：{remaining} 秒" if remaining else "")
         self.confirm_button.setEnabled(
-            remaining == 0 and (not self.typed_required or self.phrase.text() == self.required)
+            remaining == 0 and (not self.permanent or self.acknowledge.isChecked())
         )
 
     def _confirm(self) -> None:

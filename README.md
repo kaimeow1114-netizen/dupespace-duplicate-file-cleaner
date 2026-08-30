@@ -20,15 +20,16 @@ Windows 本機整理不需登入；登入後的帳號與頭像固定顯示於側
 v1.4 在網頁群組收合時另顯示小縮圖，展開後的大預覽與完整路徑維持原樣。
 桌面群組採左右比對，副本分段展開；窄視窗的詳情以抽屜呈現，不壓縮比對區。
 本機影片使用 Windows 縮圖提供者，背景子程序逾時即停止；不播放影片。
-Google Drive 縮圖由使用者裝置直接向 Google 讀取，不經 DUPESPACE 伺服器，
-也不因縮圖而增加 OAuth scope。Google 未提供縮圖、格式不支援或載入失敗時顯示類型圖示。
+Google Drive 網頁縮圖經登入及掃描證明驗證後按需轉送，每張最多 1 MiB，
+不儲存於伺服器或 CDN，不下載原始檔案，也不增加 OAuth scope。Google 未提供縮圖、格式不支援或載入失敗時顯示類型圖示。
 常用位置預設以第一個整理資料夾命名，支援直接載入、改名、編輯位置與刪除設定檔。
 永久刪除切換後清空所有選取，資料夾只能移至垃圾桶；重新掃描會撤銷這次解鎖與確認。
 本機只會遞迴掃描使用者加入的整理位置。每個精確重複群組自動鎖定最舊檔案，
 不再強制要求獨立保留區；使用者仍可把整理位置內的子資料夾設成永遠不可選取的
-保護資料夾。常用位置可以儲存成設定檔，但不儲存解鎖、刪除選取或高風險確認。
+保護資料夾；這些副本全部保留，保護資料夾外再保留最舊一份，不能互相取代。常用位置可以儲存成設定檔，但不儲存解鎖、刪除選取或高風險確認。
 
-清理前先寫入操作日誌，每個結果都落盤。垃圾桶中的檔案仍占用儲存空間，
+每批清理只產生一個以日期時間命名的 CSV。清理前先寫入操作意圖，每個結果都落盤，
+完成後在同一路徑原子整併；中斷時 pending 紀錄不代表已刪除。垃圾桶中的檔案仍占用儲存空間，
 「已移至垃圾桶容量」不會被描述為「已實際釋放磁碟空間」。
 
 開發者可執行 `python scripts/desktop_preview.py` 產生原生介面預覽（全部為合成資料），
@@ -36,8 +37,9 @@ Google Drive 縮圖由使用者裝置直接向 Google 讀取，不經 DUPESPACE 
 
 DUPESPACE is a free, open-source, safety-first duplicate file and mirror-folder cleaner. Windows
 scans only user-added cleanup roots and recursively visits their ordinary subfolders. Every exact
-content group locks its oldest file as the keeper. An optional nested protected folder can override
-that keeper choice, and every file inside it remains unselectable. Google Drive keeps its separate
+content group locks its oldest outside file as the keeper. Optional nested protected folders never
+replace that outside keeper, and every file inside them remains unselectable. Folder trash must not
+contain protected subfolders or any file keeper; ambiguous hard-linked folder trees are excluded. Google Drive keeps its separate
 global oldest-file keeper policy. The desktop uses native virtual group cards, the web progressively
 renders large result sets, and both produce per-file CSV audits.
 
@@ -71,8 +73,8 @@ to Windows or Google retention rules.
 > folders are trash-only and never participate in permanent deletion.
 
 For permanent deletion, DUPESPACE revalidates the target and protected keeper immediately before
-the operation. Changed files are skipped. More than five files requires a second confirmation and
-the exact phrase `永久刪除 N 個檔案`. Operations involving 500+ files, 1 GB+, or 5,000+ files add
+the operation. Changed files are skipped. Every permanent operation requires an unchecked risk
+acknowledgment checkbox; Enter never confirms it. Operations involving 500+ files, 1 GB+, or 5,000+ files add
 a full summary and countdown.
 
 ## Highlights
@@ -83,7 +85,7 @@ a full summary and countdown.
   safe stop, and metrics for scan count, groups, copies, selected files, successful logical bytes, duplicate
   percentage, and disk/cloud capacity percentage.
 - Progressive result rendering and small Drive batches of 10 operations, with request timeouts,
-  shared keeper validation, and immediate removal of confirmed results from the web UI.
+  fresh per-item keeper validation, and immediate removal of confirmed results from the web UI.
 - A wide Google Drive workbench that sorts duplicate groups by video, image, PDF, important
   document, audio, folder, archive, and other types. Only one expanded group is rendered at a
   time, and it loads one protected-keeper preview; duplicate copies remain lightweight text/path
@@ -91,9 +93,9 @@ a full summary and countdown.
 - A two-click Google Drive trash flow with a non-blocking 10-second undo bar. Undo calls a real,
   same-origin restore API and requires the original signed scan proof; it is not a visual-only
   rollback. Permanent deletion keeps its separate high-risk confirmations.
-- A transparent 0–100 storage-health organization score based only on duplicate bytes and group
-  count, plus device-local aggregate history, path-based duplicate-cause estimates, protected
-  profiles, and a user-configured capacity-cost equivalent calculator. These are organization
+- A transparent 0–100 storage-health organization score based on continuous duplicate-capacity bands (not group
+  count), plus device-local aggregate history, path-based duplicate-cause estimates, protected
+  profiles, and a prefilled, editable capacity-cost equivalent calculator. These are organization
   aids, not disk-failure diagnostics or claims about actual billing savings.
 - Windows cleanup roots reject equal, nested, overlapping, short-path, junction, symlink,
   reparse-point, and path-normalization bypasses. Optional protected folders must be strictly nested

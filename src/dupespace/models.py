@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal
@@ -9,6 +10,16 @@ OperationMode = Literal["trash", "permanent"]
 OutcomeStatus = Literal["trashed", "deleted", "failed", "skipped", "cancelled"]
 RootRole = Literal["keep", "clean"]
 ItemKind = Literal["file", "folder"]
+
+
+def path_contains(parent: str, child: str) -> bool:
+    """Boundary-aware comparison of already canonical local snapshot paths."""
+    parent = os.path.normcase(os.path.abspath(parent))
+    child = os.path.normcase(os.path.abspath(child))
+    try:
+        return os.path.commonpath((parent, child)) == parent
+    except ValueError:
+        return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +84,7 @@ class FileRecord:
     auto_selectable: bool = True
     protection_reason: str | None = None
     safety_context: SafetyContext = field(default_factory=SafetyContext)
+    protected_paths: tuple[str, ...] = ()
 
     @property
     def fingerprint(self) -> str:
@@ -198,10 +210,15 @@ class OperationItem:
         if self.record.item_kind != self.keeper.item_kind:
             raise ValueError("Target and keeper must have the same item kind")
         if self.record.source == "local":
-            if self.keeper.root_role not in {"keep", "clean"} or self.record.root_role != "clean":
-                raise ValueError(
-                    "Local operations require a protected keeper and clean-root target"
-                )
+            if self.keeper.root_role != "clean" or self.record.root_role != "clean":
+                raise ValueError("Local operations require an outside clean-root keeper and target")
+            reserved = (*self.record.protected_paths, self.keeper.location)
+            if any(
+                path_contains(path, self.record.location)
+                or (self.record.item_kind == "folder" and path_contains(self.record.location, path))
+                for path in reserved
+            ):
+                raise ValueError("A protected path or keeper cannot be an operation target")
             if not self.record.selectable:
                 raise ValueError("A locked local file cannot be an operation target")
             if self.record.safety_context.is_hard_protected:

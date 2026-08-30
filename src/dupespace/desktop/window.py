@@ -51,7 +51,6 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__
-from ..confirmations import needs_second_confirmation
 from ..diagnostics import append_diagnostic_event, safe_error_message
 from ..drive import (
     DriveAuthenticationError,
@@ -91,6 +90,7 @@ from .widgets import (
     Notice,
     ProfileRow,
     ScanOrbit,
+    ToastNotice,
     button,
     icon,
     label,
@@ -286,7 +286,7 @@ class MainWindow(QMainWindow):
             self.pages[key] = page
             self.stack.addWidget(page)
         space.addWidget(self.stack, 1)
-        self.global_notice = Notice()
+        self.global_notice = ToastNotice(reduced_motion=self.reduced_motion)
         self.global_notice.setContentsMargins(18, 0, 18, 12)
         space.addWidget(self.global_notice)
         shell.addWidget(workspace, 1)
@@ -541,11 +541,33 @@ class MainWindow(QMainWindow):
         surface_layout = QVBoxLayout(self.review_surface)
         surface_layout.setContentsMargins(0, 0, 0, 0)
         surface_layout.addWidget(self.review_splitter)
+        self.empty_result = QWidget()
+        empty_box = QVBoxLayout(self.empty_result)
+        empty_box.setSpacing(16)
+        empty_box.addStretch()
+        self.empty_orbit = ScanOrbit()
+        empty_box.addWidget(self.empty_orbit, 0, Qt.AlignmentFlag.AlignCenter)
+        self.empty_title = label("整理得很好，這裡沒有重複副本。", "title", wrap=True)
+        self.empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_box.addWidget(self.empty_title)
+        self.empty_description = label("", "muted", wrap=True)
+        self.empty_description.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_box.addWidget(self.empty_description)
+        self.empty_next = button("整理其他資料夾", "folder", "primary")
+        self.empty_next.clicked.connect(self._start_fresh_cleanup)
+        empty_box.addWidget(self.empty_next, 0, Qt.AlignmentFlag.AlignCenter)
+        empty_box.addStretch()
+        surface_layout.addWidget(self.empty_result)
+        self.empty_result.hide()
+        self.celebration_timer = QTimer(self)
+        self.celebration_timer.setSingleShot(True)
+        self.celebration_timer.timeout.connect(lambda: self.empty_orbit.animate(False))
         box.addWidget(self.review_surface, 1)
         self.unlock_button = button("檢查受保護的資料夾", "lock", "subtle")
         self.unlock_button.clicked.connect(self._unlock)
         box.addWidget(self.unlock_button, 0, Qt.AlignmentFlag.AlignLeft)
         actionbar = Card()
+        self.review_actionbar = actionbar
         actionbar.box.setContentsMargins(18, 12, 18, 12)
         row = QHBoxLayout()
         summary = QVBoxLayout()
@@ -614,6 +636,11 @@ class MainWindow(QMainWindow):
     def _build_complete(self) -> QWidget:
         page, box = scroll_page()
         box.addWidget(label("EVERY RESULT, ACCOUNTED FOR", "eyebrow"))
+        self.complete_orbit = ScanOrbit(compact=True)
+        box.addWidget(self.complete_orbit)
+        self.complete_animation_timer = QTimer(self)
+        self.complete_animation_timer.setSingleShot(True)
+        self.complete_animation_timer.timeout.connect(lambda: self.complete_orbit.animate(False))
         self.complete_title = label("整理完成，空間更有秩序。", "title", wrap=True)
         box.addWidget(self.complete_title)
         self.complete_message = label("", "muted", wrap=True)
@@ -631,13 +658,17 @@ class MainWindow(QMainWindow):
         self.result_warning = Notice(kind="warning")
         box.addWidget(self.result_warning)
         actions = QHBoxLayout()
-        self.report_button = button("開啟 CSV 報告", "download", "primary")
+        self.complete_next = button("整理其他資料夾", "folder", "primary")
+        self.complete_next.clicked.connect(self._start_fresh_cleanup)
+        actions.addWidget(self.complete_next)
+        self.report_button = button("開啟 CSV 報告", "download")
         self.report_button.clicked.connect(self._open_last_report)
         actions.addWidget(self.report_button)
         retry = button("檢查未處理項目", "eye")
+        self.complete_retry = retry
         retry.clicked.connect(self._show_review)
         actions.addWidget(retry)
-        again = button("重新掃描", "search", "subtle")
+        again = button("複查這次位置", "search", "subtle")
         again.clicked.connect(self.rescan)
         actions.addWidget(again)
         actions.addStretch()
@@ -1130,6 +1161,23 @@ class MainWindow(QMainWindow):
         self.model.refresh()
         self._show_page("local" if self.session.source == "local" else "drive")
 
+    def _start_fresh_cleanup(self) -> None:
+        if self.busy:
+            return
+        self._close_details()
+        self.previews.clear()
+        self.celebration_timer.stop()
+        self.empty_orbit.animate(False)
+        self.session.clear_scan()
+        self.session.roots = ()
+        self.session.source = "local"
+        self.search.clear()
+        self.model.limits.clear()
+        self.model.refresh()
+        self._refresh_roots()
+        self.global_notice.setText("")
+        self._show_page("local")
+
     def _accept_scan(self, report: ScanReport) -> None:
         self._close_details()
         self.previews.clear()
@@ -1137,6 +1185,11 @@ class MainWindow(QMainWindow):
         self.session.accept_scan(report)
         self.search.clear()
         self._show_review()
+        if (not report.groups and report.examined_files > 0
+                and not report.warnings and not report.skipped_files):
+            self.sound.play("success")
+            self.empty_orbit.animate(True, self.reduced_motion)
+            self.celebration_timer.start(1600)
         if report.warnings:
             self.global_notice.setText("掃描提醒：" + "；".join(report.warnings[:3]))
 
@@ -1171,6 +1224,25 @@ class MainWindow(QMainWindow):
         self.review_title.setText(
             "確認副本，開始整理。" if self.session.groups else "這次沒有需要整理的副本。"
         )
+        empty = not self.session.groups
+        self.empty_result.setVisible(empty)
+        self.review_splitter.setVisible(not empty)
+        self.review_actionbar.setVisible(not empty)
+        for widget in (self.mode_trash, self.mode_permanent, self.search,
+                       self.review_select, self.review_clear):
+            widget.setVisible(not empty)
+        if empty:
+            examined = report.examined_files if report else 0
+            incomplete = bool(report and (report.warnings or report.skipped_files))
+            self.empty_title.setText(
+                "還沒有可比對的檔案。" if not examined else
+                "已檢查的內容沒有重複副本。" if incomplete else
+                "整理得很好，這裡沒有重複副本。"
+            )
+            self.empty_description.setText(
+                "選擇其他資料夾，繼續整理想保留的回憶與工作。" if not incomplete else
+                "部分項目已略過或無法檢查；這不代表所有內容都已完成比對。"
+            )
         self.mode_trash.setChecked(self.session.mode == "trash")
         self.mode_permanent.setChecked(self.session.mode == "permanent")
         self.unlock_button.setVisible(
@@ -1208,10 +1280,7 @@ class MainWindow(QMainWindow):
         self.clean_button.style().unpolish(self.clean_button)
         self.clean_button.style().polish(self.clean_button)
         if not self.session.groups:
-            self.review_notice.setText(
-                "沒有找到符合安全條件的重複副本。程式碼專案、保護資料夾與系統位置仍受到保護；"
-                "也可以重新選擇掃描位置。"
-            )
+            self.review_notice.setText("")
         else:
             self.review_notice.setText(
                 "高風險：選取已清空，請手動選擇。資料夾及保留檔案不能永久刪除。"
@@ -1296,10 +1365,6 @@ class MainWindow(QMainWindow):
             first = ConfirmationDialog(self, snapshot, locations)
             if first.exec() != QDialog.DialogCode.Accepted:
                 return
-            if needs_second_confirmation(snapshot):
-                second = ConfirmationDialog(self, snapshot, locations, second=True)
-                if second.exec() != QDialog.DialogCode.Accepted:
-                    return
         try:
             items = self.session.plan(snapshot)
         except ValueError as error:
@@ -1325,10 +1390,13 @@ class MainWindow(QMainWindow):
         stopped = bool(result.report.cancelled)
         issues = len(result.report.failed) + len(result.report.skipped)
         self.complete_title.setText(
-            "已安全停止，已完成的結果保留。" if stopped else "整理完成，請查看處理結果。"
+            "已安全停止，已完成的結果保留。" if stopped else
+            "還有一些項目需要你查看。" if issues or result.warning else
+            "整理完成，重要的留下了。"
         )
         self.complete_message.setText(
-            "沒有自動重試失敗項目，也沒有改用其他刪除方式。保留檔案仍受到保護。"
+            "未處理的原因與每一筆結果，都已留下紀錄。" if issues or stopped else
+            "這一輪完成了。選擇其他資料夾，讓下一處也更有秩序。"
         )
         self.complete_metric.setText(format_bytes(size))
         if not self.reduced_motion and size:
@@ -1358,10 +1426,14 @@ class MainWindow(QMainWindow):
         self.result_warning.setText(result.warning)
         self.report_button.setText("開啟 CSV 報告" if result.csv_path else "開啟操作日誌")
         self.restore_button.setVisible(not permanent)
+        self.complete_retry.setVisible(bool(self.session.groups))
         self.sound.play(
             "error" if issues or result.warning else "permanent_done" if permanent else "trash"
         )
         self._show_page("complete")
+        if successes and not issues and not stopped and not result.warning and not permanent:
+            self.complete_orbit.animate(True, self.reduced_motion)
+            self.complete_animation_timer.start(1600)
 
     def _launch(
         self,
@@ -1878,15 +1950,21 @@ class MainWindow(QMainWindow):
         self.history_list.clear()
         folder = default_report_dir()
         try:
-            reports = sorted(folder.glob("cleanup-*.csv"), reverse=True)[:100]
+            reports = sorted(
+                (*folder.glob("cleanup-*.csv"), *folder.glob("DUPESPACE-*.csv")),
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )[:100]
             for path in reports:
                 if path.is_symlink():
                     continue
                 with path.open(encoding="utf-8-sig", newline="") as handle:
                     rows = list(csv.DictReader(handle))
                 successes = sum(row.get("status") in {"trashed", "deleted"} for row in rows)
+                stamp = path.stem.rsplit("-", 1)[0]
+                stamp = stamp.removeprefix("DUPESPACE-").removeprefix("cleanup-")
                 item = QListWidgetItem(
-                    f"{path.name[8:23]}  ·  成功 {successes:,} / {len(rows):,} 項\n{path.name}"
+                    f"{stamp}  ·  成功 {successes:,} / {len(rows):,} 項\n{path.name}"
                 )
                 item.setData(Qt.ItemDataRole.UserRole, str(path))
                 self.history_list.addItem(item)

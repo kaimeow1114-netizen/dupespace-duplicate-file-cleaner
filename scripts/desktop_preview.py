@@ -46,7 +46,7 @@ def sample_report() -> ScanReport:
                 location=(f"D:/待整理下載/{'珍藏原檔/' if role == 'keep' else '匯入副本/'}{name}"),
                 size=size,
                 checksum="f" * 64,
-                root_role=role,
+                root_role="clean",
                 source_root=("D:/待整理下載/珍藏原檔" if role == "keep" else "D:/待整理下載"),
                 can_delete=True,
                 auto_selectable=role == "clean",
@@ -65,7 +65,7 @@ def sample_report() -> ScanReport:
 
 
 def main() -> None:
-    output = Path(__file__).resolve().parents[1] / "outputs" / "desktop-v14-preview"
+    output = Path(__file__).resolve().parents[1] / "outputs" / "desktop-v15-preview"
     output.mkdir(parents=True, exist_ok=True)
     application = QApplication([])
     # The offscreen platform has no Windows font database; load installed fonts for QA only.
@@ -140,6 +140,13 @@ def main() -> None:
         )
         application.processEvents()
         window.grab().save(str(output / "06-complete.png"))
+        window._accept_scan(ScanReport("local", (), 42, 42, examined_bytes=250_000_000))
+        application.processEvents()
+        window.grab().save(str(output / "06b-no-duplicates.png"))
+        window.empty_next.click()
+        window.global_notice.setText("已載入位置")
+        QTest.qWait(230)
+        window.grab().save(str(output / "06c-toast.png"))
         window._show_page("drive")
         application.processEvents()
         window.grab().save(str(output / "07-account.png"))

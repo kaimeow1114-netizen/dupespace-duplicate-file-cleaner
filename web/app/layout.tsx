@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   metadataBase: new URL("https://dupespace.app"),
   title: { default: "DUPESPACE｜開源的 Google Drive 與 Windows 重複檔案清理工具", template: "%s｜DUPESPACE" },
-  description: "免費搜尋、檢查並安全清理 Windows 與 Google Drive 重複檔案及鏡像資料夾。內容級精確比對，預設移至垃圾桶，檔案內容不上傳。",
+  description: "免費搜尋、檢查並安全清理 Windows 與 Google Drive 重複檔案及鏡像資料夾。內容級精確比對，預設移至垃圾桶，不下載原始檔案，小縮圖按需轉送、不保存。",
   alternates: {
     canonical: "https://dupespace.app/",
     languages: {
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "DUPESPACE｜把重複檔案掃乾淨",
-    description: "找出並安全清理 Windows 與 Google Drive 重複檔案及鏡像資料夾。預設移至垃圾桶，檔案內容不上傳。",
+    description: "找出並安全清理 Windows 與 Google Drive 重複檔案及鏡像資料夾。預設移至垃圾桶，不下載原始檔案，小縮圖按需轉送、不保存。",
     type: "website",
     locale: "zh_TW",
     url: "https://dupespace.app/",

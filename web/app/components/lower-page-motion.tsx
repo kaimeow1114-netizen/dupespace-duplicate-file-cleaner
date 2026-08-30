@@ -54,7 +54,7 @@ const questions = [
   { question: "DUPESPACE 的用途是什麼？", answer: "用來搜尋、檢查並安全清理 Windows 與 Google Drive 中內容完全相同的重複檔案與重複資料夾，協助回收儲存空間。" },
   { question: "重複資料夾會怎麼處理？", answer: "只有相對路徑、檔案大小與每個內容校驗碼都一致的完整鏡像才會列出。資料夾只能移至垃圾桶，不能永久刪除；操作前內容若有變更會立即取消。" },
   { question: "不同專案中的相同設定檔會被處理嗎？", answer: "不會。Git、SVN、常見建置專案、套件目錄與虛擬環境會被硬性排除，不列為候選。" },
-  { question: "Google Drive 檔案內容會上傳嗎？", answer: "不會。比對只使用 Google Drive API 提供的必要中繼資料與校驗碼，檔案內容不會進入 DUPESPACE 伺服器。" },
+  { question: "Google Drive 檔案內容會上傳嗎？", answer: "不下載原始檔案。比對使用 Google Drive 中繼資料與校驗碼；私人小縮圖經驗證後按需轉送、不保存、不用於廣告。" },
 ] as const;
 
 function CountUp({ from, to, suffix = "" }: { from: number; to: number; suffix?: string }) {
@@ -132,7 +132,7 @@ export function PrivacyFlowMotion() {
         <div className="flow-route"><span>ID · 大小 · 校驗碼</span><i /><motion.em animate={reducedMotion ? undefined : { left: ["8%", "88%"], opacity: [0, 1, 1, 0] }} transition={{ duration: 2.7, repeat: Infinity, repeatDelay: .7, ease: "easeInOut" }} /></div>
         <div className="flow-node safe"><ShieldCheck size={25} aria-hidden="true" /><b>DUPESPACE</b><small>僅執行使用者要求</small></div>
       </div>
-      <div className="content-stays"><FileCheck2 size={18} aria-hidden="true" /><span><b>檔案內容不傳輸</b><small>不出售、不用於廣告個人化，也不提供給 AdSense</small></span></div>
+      <div className="content-stays"><FileCheck2 size={18} aria-hidden="true" /><span><b>原始檔案留在雲端</b><small>小縮圖僅供私人預覽，不保存，也不提供給 AdSense</small></span></div>
       <div className="privacy-badges"><span><Lock size={13} aria-hidden="true" /> Secure Cookie</span><span><Database size={13} aria-hidden="true" /> 最少資料</span><span><ShieldCheck size={13} aria-hidden="true" /> Limited Use</span></div>
       <div className="limited-use-copy"><b>Google Limited Use 承諾</b><p>DUPESPACE 對 Google API 使用者資料的使用遵守 Google API Services User Data Policy 及 Limited Use 要求。資料不出售、不提供給 AdSense、不用於廣告個人化。加密的 Secure、HttpOnly Cookie 最多維持登入 30 天；登出時撤銷 Google 權杖並清除工作階段。</p></div>
     </motion.div>

@@ -69,7 +69,7 @@ def report_with_copies(count=2, *, size=1024**2) -> ScanReport:
         "D:/原檔/photo.jpg",
         size,
         "sha256:abc",
-        root_role="keep",
+        root_role="clean",
         source_root="D:/原檔",
         can_delete=True,
     )
@@ -139,7 +139,7 @@ def test_search_keeps_original_visible_with_matching_copy(window):
     window.search.setText("不同相簿-1")
     assert window.model.rowCount() == 1
     assert len(window.model.copies[0]) == 1
-    assert window.model.rows[0][1].root_role == "keep"
+    assert window.model.rows[0][1].key == window.session.groups[0].keeper_key
 
 
 def test_rescan_invalidates_previous_confirmation_and_unlocks():
@@ -173,7 +173,12 @@ def test_permanent_warning_cannot_be_suppressed_or_accepted_with_enter(applicati
     )
     dialog.show()
     assert not dialog.remember.isVisible()
-    assert dialog.confirm_button.isEnabled() is (count == 1)
+    assert not dialog.confirm_button.isEnabled()
+    assert not dialog.acknowledge.isChecked()
+    dialog.acknowledge.setChecked(True)
+    dialog.deadline = time.monotonic() - 1
+    dialog._refresh_gate()
+    assert dialog.confirm_button.isEnabled()
     dialog.confirm_button.setFocus()
     QTest.keyClick(dialog.confirm_button, Qt.Key.Key_Return)
     assert dialog.result() == QDialog.DialogCode.Rejected
@@ -182,21 +187,58 @@ def test_permanent_warning_cannot_be_suppressed_or_accepted_with_enter(applicati
     assert not dialog.isVisible()
 
 
-def test_large_permanent_confirmation_requires_exact_count_and_wait(application):
+def test_large_permanent_confirmation_requires_acknowledgement_and_wait(application):
     dialog = ConfirmationDialog(
         None,
         ConfirmationSnapshot(5000, 3, 2 * 1024**3, "permanent", "test"),
         "D:/test",
         second=True,
     )
-    dialog.phrase.setText("永久刪除 5000 個檔案")
+    dialog.acknowledge.setChecked(True)
     assert not dialog.confirm_button.isEnabled()
     dialog.deadline = time.monotonic() - 1
-    dialog.phrase.setText("永久刪除 4999 個檔案")
+    dialog.acknowledge.setChecked(False)
     assert not dialog.confirm_button.isEnabled()
-    dialog.phrase.setText("永久刪除 5000 個檔案")
+    dialog.acknowledge.setChecked(True)
     assert dialog.confirm_button.isEnabled()
     dialog.reject()
+
+
+def test_empty_scan_offers_fresh_folder_picker_without_changing_saved_profiles(window, tmp_path):
+    root = tmp_path / "photos"
+    root.mkdir()
+    window.session.roots = (ScanRoot(str(root), "clean"),)
+    window._refresh_roots()
+    window._accept_scan(ScanReport("local", (), 3, 3, examined_bytes=42))
+    assert window.empty_result.isVisible()
+    assert window.review_actionbar.isHidden()
+    assert not window.session.selected
+    window._change_locations()
+    assert window.session.roots == (ScanRoot(str(root), "clean"),)
+    window._accept_scan(ScanReport("local", (), 3, 3, examined_bytes=42))
+    window.empty_next.click()
+    assert window.current_page == "local"
+    assert window.session.roots == ()
+    assert window.session.report is None
+    assert root.exists()
+
+
+def test_incomplete_scan_does_not_claim_all_files_are_healthy(window):
+    window._accept_scan(ScanReport("local", (), 3, 1, skipped_files=2, warnings=("讀取失敗",)))
+    assert "已檢查" in window.empty_title.text()
+    assert "部分項目" in window.empty_description.text()
+    assert not window.empty_orbit.active
+
+
+def test_global_toast_expires_but_safety_notices_remain(window):
+    window.global_notice.reduced_motion = True
+    window.global_notice.setText("已載入位置")
+    assert window.global_notice.dismiss_timer.interval() == 5000
+    assert window.global_notice.isVisible()
+    window.global_notice.dismiss_timer.timeout.emit()
+    assert window.global_notice.isHidden()
+    window.review_notice.setText("永久刪除沒有復原功能")
+    assert not window.review_notice.isHidden()
 
 
 def test_pending_drive_status_and_every_navigation_page(window):
@@ -624,3 +666,20 @@ def test_details_copy_uses_original_path_without_invisible_characters(window):
     window._show_details(group, record)
     assert window.details_pane.fields["完整路徑"].toPlainText() == record.location
     assert window.details_pane.fields["內容校驗碼"].toPlainText() == record.checksum
+
+
+def test_history_displays_single_new_report_and_legacy_summary(window, tmp_path):
+    folder = tmp_path / "DupeSpace" / "reports"
+    folder.mkdir(parents=True)
+    for name in (
+        "DUPESPACE-2026-08-31_12-30-00-12345678.csv",
+        "cleanup-20260830-120000-12345678.csv",
+        "operation-20260830-120000-12345678.csv",
+    ):
+        (folder / name).write_text("status\ntrashed\n", encoding="utf-8")
+    window._refresh_history()
+    assert window.history_list.count() == 2
+    assert any(
+        "2026-08-31_12-30-00  ·  成功 1 / 1" in window.history_list.item(i).text()
+        for i in range(2)
+    )

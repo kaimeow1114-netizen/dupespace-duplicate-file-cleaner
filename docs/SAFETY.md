@@ -5,6 +5,10 @@ disposable. Windows scans require one or more user-selected cleanup roots. Roots
 physical long paths and may not be equal, nested, or overlapping. Each size + full SHA-256 group
 locks its oldest exact copy as the deterministic keeper. Users may optionally protect a strict
 subfolder of a cleanup root; those records participate in comparison but can never be selected.
+Protected copies never replace the oldest outside copy: at least two outside copies are required
+before any outside copy is eligible. Whole-folder trash cannot include a protected subfolder or
+any reserved file keeper, including an empty-file keeper. Folders containing hard links are not
+whole-folder candidates; ambiguous aliases cannot hide a protected original.
 Changing roots or rescanning resets every selection, temporary unlock, and confirmation.
 
 Zero-byte files are ignored. Safe trash-eligible copies of any positive size are preselected after
@@ -37,9 +41,9 @@ Recycle Bin API and Google Drive files are updated with `trashed=true`. A failur
 failure; it never falls back to permanent deletion.
 
 > **Permanent deletion cannot be undone.** It is an independent advanced mode that the user must
-> actively select. Its warning cannot be disabled. More than five files requires a second red
-> confirmation and the exact phrase `永久刪除 N 個檔案`; 500+ files, 1 GB+, or 5,000+ files also
-> triggers a full summary and countdown.
+> actively select. Its warning cannot be disabled. Users must check an initially unchecked
+> irreversible-deletion acknowledgement; 500+ files or 1 GiB+ require a 10-second countdown,
+> and 5,000+ files require 15 seconds. Enter never submits a permanent-delete dialog.
 
 Before either operation, DUPESPACE revalidates the target and its keeper. Local checks cover the
 physical path, file type, identity, byte size, modification time, and SHA-256. Drive checks cover
@@ -63,9 +67,11 @@ non-owner folders, shared-drive items, and items without the necessary capabilit
 The web cleaner uses encrypted Secure/HttpOnly/SameSite OAuth sessions with a sliding 30-day
 maximum age, 30-minute HMAC-signed scan proofs, batches
 of 10 items, and distinct `/trash` and `/delete` server paths. Every trash response must explicitly
-confirm `trashed=true`; confirmed items disappear from the result list immediately. File contents
-never pass through the DUPESPACE server. Google-hosted thumbnails load directly in the user's
-browser and are never proxied through DUPESPACE.
+confirm `trashed=true`; confirmed items disappear from the result list immediately. Original
+file contents never pass through the DUPESPACE server. On demand, authenticated image, video or
+PDF thumbnails supplied by Google are forwarded privately, with a 1 MiB response limit, strict
+host/MIME/redirect checks, no-store headers, deadlines and a three-request browser queue.
+They are not stored or shared with advertisers, and unavailable previews use a type icon.
 
 Drive uses its separately defined global policy: the oldest file is the keeper and zero-byte files
 are ignored. A web scan selects all trash-eligible non-keeper duplicates for a one-click,
@@ -86,7 +92,9 @@ Google retention policies. Permanent deletion has no recovery path.
 
 The native desktop writes a durable per-operation intent before changing files and flushes
 each result to an operation journal. If audit storage fails, later operations stop. A `pending`
-entry without a result is uncertain, not proof of deletion. The final CSV has one row per
+entry without a result is uncertain, not proof of deletion. At completion this same dated CSV is
+atomically compacted; there is no second report. Failed compaction preserves the durable journal.
+The final CSV has one row per
 selected item, including those cancelled before execution. Spreadsheet formula prefixes in
 untrusted names and paths are escaped with a leading apostrophe.
 
