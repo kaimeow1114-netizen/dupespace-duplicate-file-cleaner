@@ -230,17 +230,27 @@ See `src/dupespace/assets/third-party-notices.txt` for source/rebuild and librar
   target and keeper revalidation; restored folders must be rescanned before another cleanup.
   Clearing the scan cache or disconnecting invalidates in-flight results in other open tabs.
 - Real English pages are available under `/en/`, with matching canonical and language alternate
-  links. Chinese URLs remain unchanged; Japanese pages are not published yet.
+  links, translated cleanup controls, safety/error explanations, guides, legal pages and 404.
+  Chinese URLs remain unchanged; Japanese pages are not published yet.
+- Scan progress streams the current phase and actual read count. No invented percentage is
+  shown while the total is unknown. Interrupted streams cannot create a partial cleanup plan.
+- Cleanup sends every selected item in successive batches of ten, with up to three concurrent
+  workers inside each batch. There is no 30-item operation limit. Transient trash failures can
+  be revalidated and retried up to three total attempts; successful items are not sent again.
+  Permanent deletion, changed items and permission failures are never automatically retried.
+  Read-only reconciliation may confirm an item already in trash after an uncertain response;
+  that result does not offer automatic undo because this request cannot prove who moved it.
 
 - Google Workspace-native files do not expose a stable binary checksum and are skipped. Shortcuts,
   non-owner folders, shared drives, project/package trees, and unverifiable folder descendants are
   excluded from whole-folder cleanup.
-- DUPESPACE compares duplicates within each source. A local group keeps its oldest exact copy or a
-  copy inside an optional protected subfolder; Drive follows its separate oldest-keeper policy.
+- DUPESPACE compares duplicates within each source. Protected local subfolder copies and an
+  outside keeper are retained independently; Drive follows its separate keeper policy.
 - DUPESPACE does not guess at temporary or junk files. Use Windows Storage Sense or Cleanup
   recommendations for operating-system cleanup.
-- Google may rate-limit very large operations. Failed items remain unchanged and are recorded;
-  rescan before retrying.
+- Google may rate-limit very large operations. An unconfirmed response is never counted as a
+  successful deletion. Remaining failed/skipped items include reasons in the audit report;
+  rescan before manually retrying. A network failure alone cannot prove that no write occurred.
 - Google brand and publishing status do not replace restricted-scope review. Do not claim unrestricted
   public authorization until the requested scope description and demonstration-video review are complete.
 

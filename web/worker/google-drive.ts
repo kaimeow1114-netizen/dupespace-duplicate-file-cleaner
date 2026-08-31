@@ -171,14 +171,14 @@ async function decrypt<T>(value: string | undefined, secret: string): Promise<T 
   }
 }
 
-async function hmac(value: string, secret: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
+async function hmac(value: string, secret: string | CryptoKey): Promise<string> {
+  const key = typeof secret === "string" ? await crypto.subtle.importKey(
     "raw",
     textEncoder.encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
-  );
+  ) : secret;
   return encodeBase64Url(new Uint8Array(await crypto.subtle.sign("HMAC", key, textEncoder.encode(value))));
 }
 
@@ -193,7 +193,7 @@ function constantTimeEqual(left: string, right: string): boolean {
   return difference === 0;
 }
 
-async function proof(payload: ProofPayload, secret: string): Promise<string> {
+async function proof(payload: ProofPayload, secret: string | CryptoKey): Promise<string> {
   const encoded = encodeBase64Url(textEncoder.encode(JSON.stringify(payload)));
   return `${encoded}.${await hmac(encoded, secret)}`;
 }
@@ -564,7 +564,7 @@ async function changedIndex(session: OAuthSession, index: DriveIndex): Promise<D
   return null;
 }
 
-async function listDrive(session: OAuthSession): Promise<{
+async function listDrive(session: OAuthSession, onPage?: (count: number) => void): Promise<{
   files: DriveFile[];
   listed: DriveFile[];
   paths: Map<string, string>;
@@ -593,6 +593,7 @@ async function listDrive(session: OAuthSession): Promise<{
       examined += 1;
       listed.push(file);
     }
+    onPage?.(examined);
     pageToken = page.nextPageToken ?? "";
   } while (pageToken);
   return materializeDrive(listed, examined);
@@ -625,6 +626,11 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
   requireSameOrigin(request);
   const { session, setCookie } = await authorizedSession(request, env);
   const requestBody = await boundedScanInput(request);
+  const controller = new AbortController();
+  session.requestSignal = AbortSignal.any([request.signal, controller.signal]);
+  type ScanProgress = { phase: "listing" | "syncing" | "comparing"; examined: number };
+  async function performScan(notify: (progress: ScanProgress) => void) {
+  notify({ phase: requestBody.snapshot ? "syncing" : "listing", examined: 0 });
   const ignoreSystemMetadata = requestBody.ignoreSystemMetadata === true;
   const protectedProfile = ["project", "media", "strict"].includes(requestBody.protectedProfile ?? "")
     ? requestBody.protectedProfile as "project" | "media" | "strict"
@@ -655,12 +661,13 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
   else {
     // Capture before listing so changes made during the baseline cannot be missed later.
     const cursor = accountKey ? await changeCursor(session) : null;
-    drive = await listDrive(session);
+    drive = await listDrive(session, (examined) => notify({ phase: "listing", examined }));
     if (accountKey && cursor) index = { kind: "drive-index-v1", accountKey, cursor, expiresAt: Date.now() + INDEX_TTL_MS, files: drive.listed };
   }
   let snapshot: string | null = null;
   if (index && textEncoder.encode(JSON.stringify(index)).byteLength <= INDEX_MAX_BYTES) snapshot = await encrypt(index, indexSecret);
   const { files, listed, paths, examined, skipped, projectProtected, protectedIds } = drive;
+  notify({ phase: "comparing", examined });
   const filesById = new Map(listed.map((file) => [file.id, file]));
   const fileBuckets = new Map<string, DriveFile[]>();
   for (const file of files) {
@@ -679,6 +686,9 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
     folderBuckets.set(manifest.checksum, bucket);
   }
   const expiresAt = Date.now() + 30 * 60_000;
+  // Request-local key reuse avoids thousands of identical imports during a large scan.
+  const signingKey = await crypto.subtle.importKey("raw", textEncoder.encode(env.SESSION_SECRET),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const fileKeepers = [...fileBuckets.values()].filter((records) => records.length > 1)
     .map((records) => orderKeepers(records, paths)[0]);
   const folderCandidates = [...folderBuckets.entries()]
@@ -752,7 +762,7 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
         keeperEntryCount: 1,
         keeperIgnoredMetadataCount: 0,
         expiresAt,
-      }, env.SESSION_SECRET),
+      }, signingKey),
     })));
     return {
       itemKind: "file" as const,
@@ -810,7 +820,7 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
           keeperEntryCount: keeperManifest.entries.length,
           keeperIgnoredMetadataCount: keeperManifest.ignoredMetadataCount,
           expiresAt,
-        }, env.SESSION_SECRET),
+        }, signingKey),
       };
     }));
     return {
@@ -825,7 +835,7 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
   }));
   const groups = [...folderGroups, ...fileGroups];
   groups.sort((a, b) => b.reclaimableBytes - a.reclaimableBytes);
-  return json({
+  return {
     scanMode,
     cache: snapshot && index ? { accountKey, snapshot, expiresAt: index.expiresAt } : null,
     examined,
@@ -839,7 +849,27 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
     user: about.user ?? null,
     ignoreSystemMetadata,
     proofExpiresAt: expiresAt,
-  }, 200, setCookie ? { "set-cookie": setCookie } : undefined);
+  };
+  }
+  if (!request.headers.get("accept")?.includes("application/x-ndjson")) {
+    return json(await performScan(() => {}), 200, setCookie ? { "set-cookie": setCookie } : undefined);
+  }
+  let closed = false;
+  const stream = new ReadableStream<Uint8Array>({
+    async start(output) {
+      const emit = (event: unknown) => { if (!closed) output.enqueue(textEncoder.encode(JSON.stringify(event) + "\n")); };
+      try {
+        const result = await performScan((progress) => emit({ type: "progress", ...progress }));
+        emit({ type: "result", result });
+      } catch (error) {
+        emit({ type: "error", error: error instanceof Error ? error.message : "掃描失敗" });
+      } finally { if (!closed) { closed = true; output.close(); } }
+    },
+    cancel() { closed = true; controller.abort(); },
+  });
+  const responseHeaders = new Headers({ "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "private, no-store", "x-content-type-options": "nosniff" });
+  if (setCookie) responseHeaders.set("set-cookie", setCookie);
+  return new Response(stream, { headers: responseHeaders });
 }
 
 async function mapConcurrent<T, R>(items: T[], limit: number, mapper: (item: T, index: number) => Promise<R>): Promise<R[]> {
@@ -860,7 +890,7 @@ async function getFile(session: OAuthSession, id: string): Promise<DriveFile> {
     session,
     `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?fields=${encodeURIComponent(FILE_FIELDS)}&supportsAllDrives=false`,
   );
-  if (!response.ok) throw new Error(`無法重新驗證檔案（${response.status}）`);
+  if (!response.ok) throw await driveOperationError(response);
   return response.json() as Promise<DriveFile>;
 }
 
@@ -922,12 +952,26 @@ function validateFolderSnapshot(
   return null;
 }
 
+class TransientDriveError extends Error {}
+
+async function driveOperationError(response: Response): Promise<Error> {
+  const message = `Google Drive API 回覆 ${response.status}`;
+  let transient = response.status === 408 || response.status === 429 || response.status >= 500;
+  if (response.status === 403) {
+    const body = await response.json().catch(() => null) as { error?: { errors?: Array<{ reason?: string }> } } | null;
+    transient = Boolean(body?.error?.errors?.some((error) =>
+      error.reason === "rateLimitExceeded" || error.reason === "userRateLimitExceeded"));
+  }
+  return transient ? new TransientDriveError(message) : new Error(message);
+}
+
 function auditOutcome(
   payload: ProofPayload,
   file: DriveFile | null,
   mode: OperationMode,
   status: "trashed" | "deleted" | "failed" | "skipped",
   reason: string,
+  retryable = false,
 ) {
   return {
     timestamp: new Date().toISOString(),
@@ -940,6 +984,7 @@ function auditOutcome(
     itemKind: payload.itemKind,
     status,
     reason,
+    retryable: mode === "trash" && status === "failed" && retryable,
   };
 }
 
@@ -948,7 +993,7 @@ async function mutate(request: Request, env: Required<GoogleDriveEnv>, mode: Ope
   const { session, setCookie } = await authorizedSession(request, env);
   session.requestSignal = request.signal;
   session.requestSignal = AbortSignal.any([request.signal, AbortSignal.timeout(35_000)]);
-  const body = await request.json() as { items?: Array<{ id?: string; proof?: string }> };
+  const body = await request.json() as { items?: Array<{ id?: string; proof?: string }>; reconcile?: boolean };
   if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > MAX_MUTATION_ITEMS) {
     return json({ error: `每批必須包含 1 至 ${MAX_MUTATION_ITEMS} 個檔案` }, 400);
   }
@@ -978,6 +1023,20 @@ async function mutate(request: Request, env: Required<GoogleDriveEnv>, mode: Ope
         getFile(session, payload.keeperId),
       ]);
       current = target;
+      // A previous PATCH may have succeeded even when its response was lost.
+      // Reconciliation is read-only and never creates an undo claim for that write.
+      if (mode === "trash" && body.reconcile === true && payload.itemKind === "file" && target.trashed) {
+        const keeperFailure = validateKeeper(keeper, payload);
+        const sameContent = target.id === payload.id && target.ownedByMe &&
+          target.mimeType === payload.mimeType && !unsupportedType(target) &&
+          target.size === payload.size && checksum(target) === payload.checksum &&
+          JSON.stringify([...(target.parents ?? [])].sort()) === JSON.stringify(payload.parents);
+        if (!keeperFailure && sameContent) return {
+          ...auditOutcome(payload, target, mode, "trashed", "已重新確認檔案位於垃圾桶；未重複執行移除"),
+          restorable: false,
+        };
+        return auditOutcome(payload, target, mode, "skipped", keeperFailure ?? "檔案狀態已變更");
+      }
       if (payload.itemKind === "folder") {
         const currentTarget = target;
         const currentKeeper = keeper;
@@ -1012,11 +1071,11 @@ async function mutate(request: Request, env: Required<GoogleDriveEnv>, mode: Ope
           body: JSON.stringify({ trashed: true }),
         })
         : await googleFetch(session, endpoint, { method: "DELETE" });
-      if (!response.ok) return auditOutcome(payload, target, mode, "failed", `Google Drive API 回覆 ${response.status}`);
+      if (!response.ok) throw await driveOperationError(response);
       if (mode === "trash") {
         const result = await response.json() as { id?: string; trashed?: boolean };
         if (result.id !== payload.id || result.trashed !== true) {
-          return auditOutcome(payload, target, mode, "failed", "Google Drive 未確認檔案已進入垃圾桶");
+          return auditOutcome(payload, target, mode, "failed", "Google Drive 未確認檔案已進入垃圾桶", true);
         }
       }
       return auditOutcome(
@@ -1027,7 +1086,9 @@ async function mutate(request: Request, env: Required<GoogleDriveEnv>, mode: Ope
         mode === "trash" ? "已移至 Google Drive 垃圾桶" : "已永久刪除，無法復原",
       );
     } catch (error) {
-      return auditOutcome(payload, current, mode, "failed", error instanceof Error ? error.message : "未知錯誤");
+      const transient = error instanceof TransientDriveError || error instanceof TypeError ||
+        (error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name));
+      return auditOutcome(payload, current, mode, "failed", error instanceof Error ? error.message : "未知錯誤", transient);
     }
   });
   return json({ operationMode: mode, outcomes }, 200, setCookie ? { "set-cookie": setCookie } : undefined);

@@ -13,6 +13,15 @@ async function render(path = "/") {
   );
 }
 
+test("English missing pages remain English and are not indexable", async () => {
+  const response = await render("/en/this-page-does-not-exist/");
+  assert.equal(response.status, 404);
+  const html = await response.text();
+  assert.match(html, /This page could not be found/);
+  assert.match(html, /noindex/);
+  assert.doesNotMatch(html, /這裡沒有重複檔案/);
+});
+
 test("renders the DUPESPACE product landing page with canonical SEO metadata", async () => {
   const response = await render();
   assert.equal(response.status, 200);

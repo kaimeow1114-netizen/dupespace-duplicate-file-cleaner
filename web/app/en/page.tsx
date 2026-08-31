@@ -1,6 +1,6 @@
 import { englishMetadata } from "../../lib/seo";
 import { AdPanel } from "../components/ad-panel";
-import { ArrowRight, HardDriveDownload, ShieldCheck } from "lucide-react";
+import { ArrowRight, HardDriveDownload, ShieldCheck, TrendingUp, FolderLock, ChartNoAxesCombined, Code2, CheckCircle2, LockKeyhole } from "lucide-react";
 import { HeroDashboard } from "../components/hero-dashboard";
 import { SiteFooter, SiteHeader } from "../components/site-shell";
 
@@ -28,7 +28,7 @@ export default function EnglishHome() {
           <div className="hero-copy">
           <span className="eyebrow"><ShieldCheck size={15} aria-hidden="true" /> FREE • OPEN SOURCE • PRIVACY-FIRST</span>
           <h1><span>Find duplicate files.</span><br /><span className="gradient-text">Make room for what matters.</span></h1>
-          <p className="purpose-statement"><strong>DUPESPACE is an open-source duplicate file cleaner for Google Drive and Windows.</strong>It finds exact duplicate files and strictly mirrored folders, protects one original in every group, and moves selected copies to trash by default. Original files remain in your Google Drive. Small image, video and PDF thumbnails may be forwarded privately to your browser, without storage or sharing with advertisers.</p>
+          <p className="purpose-statement"><strong>DUPESPACE is an open-source duplicate file cleaner for Google Drive and Windows.</strong>{" "}It finds exact duplicate files and strictly mirrored folders, protects one original in every group, and moves selected copies to trash by default. Original files remain in your Google Drive. Small image, video and PDF thumbnails may be forwarded privately to your browser, without storage or sharing with advertisers.</p>
           <div className="hero-actions"><a className="button primary" href="/en/cleaner/"><span>Open Google Drive cleaner</span><ArrowRight size={18} aria-hidden="true" /></a><a className="button secondary" href="/en/download/"><HardDriveDownload size={18} aria-hidden="true" /><span>Download for Windows</span></a></div>
           <p><a href="/en/privacy/">Read our privacy policy</a> · Independent of Google · Free and open source</p>
           </div>
@@ -41,6 +41,16 @@ export default function EnglishHome() {
         <article><ShieldCheck aria-hidden="true" /><h3>Validate again</h3><p>Before cleanup, we check the target and keeper against their scanned versions, sizes, checksums, locations and permissions. Changed items are skipped.</p></article>
       </div></div></section>
       <section className="section alternate"><div className="shell"><h2>Google Drive duplicate file cleaner: how it works</h2><ol><li>Connect your Google account and start a metadata scan.</li><li>Review duplicate groups and their protected keepers.</li><li>Move selected copies to trash and review the confirmed results.</li></ol><p>Windows uses full SHA-256 hashing. Google Drive uses checksums provided by its API. No original cloud file contents need to pass through DUPESPACE.</p><a className="button mint" href="/en/support/">Read the safety guide</a></div></section>
+      <section className="section"><div className="shell"><div className="section-heading"><span className="eyebrow">STORAGE INTELLIGENCE</span><h2>Make your next cleanup easier.</h2><p>Useful context after each completed scan. No invented savings or urgency.</p></div><div className="download-safety-grid">
+        <article><TrendingUp aria-hidden="true" /><h3>Organization trends</h3><p>Review previous organization scores stored in this browser. The score reflects duplicate capacity, not your drive’s physical health.</p></article>
+        <article><FolderLock aria-hidden="true" /><h3>Protection profiles</h3><p>Choose project, media or strict protection. System exclusions and keeper protection stay active in every profile.</p></article>
+        <article><ChartNoAxesCombined aria-hidden="true" /><h3>Understand duplicate patterns</h3><p>See possible download, messaging and cross-folder copying patterns inferred from paths. These clues do not prove a copy is unnecessary.</p></article>
+      </div></div></section>
+      <section className="section alternate"><div className="shell"><div className="section-heading"><span className="eyebrow">WHY TRUST DUPESPACE</span><h2>Read the code. Verify the claims.</h2><p>We explain our safeguards instead of making unsupported claims about other cleaners.</p></div><div className="download-safety-grid">
+        <article><CheckCircle2 aria-hidden="true" /><h3>Content, not just filenames</h3><p>Windows uses full SHA-256 comparisons. Google Drive uses API-provided checksums, with exact relative-path matching for folders.</p></article>
+        <article><LockKeyhole aria-hidden="true" /><h3>Explicit actions, visible results</h3><p>Every group protects a keeper. Review individual outcomes and download a CSV audit. Permanent deletion is never a fallback.</p></article>
+        <article><Code2 aria-hidden="true" /><h3>Free and open source</h3><p>Inspect the implementation, report a problem, or run your own copy under the MIT License.</p><a href="https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner">Explore DUPESPACE on GitHub</a></article>
+      </div></div></section>
       <section className="section faq-band" id="faq"><div className="shell"><h2>Google Drive cleaner FAQ</h2>{faq.map(([question, answer]) => <details key={question}><summary>{question}</summary><p>{answer}</p></details>)}</div></section>
       <section className="section privacy-band"><div className="shell"><h2>Your Drive data is not advertising data.</h2><p>DUPESPACE uses Google API data only to provide requested sign-in, scanning, review, cleanup, restore and audit features. Our use and transfer of this information follows the Google API Services User Data Policy, including Limited Use requirements. It is not sold or used for targeted advertising.</p><a href="/en/privacy/">Access, storage, retention and privacy details</a></div></section>
       <AdPanel />

@@ -3,8 +3,10 @@
 import { FileImage, FileText, FileVideo, ImageOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { thumbnailQueue, thumbnailSource } from "../../lib/thumbnails";
+import { cleanerTranslator, type CleanerLocale } from "../../lib/cleaner-i18n";
 
-export function GroupThumbnail({ url, proof, id, name, video = false, document = false }: { url: string | null; proof?: string; id?: string; name: string; video?: boolean; document?: boolean }) {
+export function GroupThumbnail({ url, proof, id, name, video = false, document = false, locale = "zh-TW" }: { url: string | null; proof?: string; id?: string; name: string; video?: boolean; document?: boolean; locale?: CleanerLocale }) {
+  const t = cleanerTranslator(locale);
   const holder = useRef<HTMLSpanElement>(null);
   const source = thumbnailSource(url);
   const [visible, setVisible] = useState(false);
@@ -45,9 +47,9 @@ export function GroupThumbnail({ url, proof, id, name, video = false, document =
       setImageUrl(null);
     };
   }, [source, visible, failed, proof, id]);
-  return <span ref={holder} className={`group-thumbnail ${video ? "is-video" : ""}`} title={failed || !source ? "Google 目前未提供可用縮圖；仍可開啟檔案查看" : `${name} 縮圖`}>
-    {visible && imageUrl && !failed ? <img src={imageUrl} alt={`${name} 縮圖`} width={240} height={180} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} /> /* eslint-disable-line @next/next/no-img-element */
+  return <span ref={holder} className={`group-thumbnail ${video ? "is-video" : ""}`} title={failed || !source ? t("Google 目前未提供可用縮圖；仍可開啟檔案查看") : `${name} ${t("縮圖")}`}>
+    {visible && imageUrl && !failed ? <img src={imageUrl} alt={`${name} ${t("縮圖")}`} width={240} height={180} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} /> /* eslint-disable-line @next/next/no-img-element */
       : failed ? <ImageOff size={24} aria-hidden="true" /> : video ? <FileVideo size={25} aria-hidden="true" /> : document ? <FileText size={25} aria-hidden="true" /> : <FileImage size={25} aria-hidden="true" />}
-    {video && <span className="thumbnail-video-mark"><FileVideo size={13} aria-hidden="true" /><span className="sr-only">影片縮圖，不自動播放</span></span>}
+    {video && <span className="thumbnail-video-mark"><FileVideo size={13} aria-hidden="true" /><span className="sr-only">{t("影片縮圖，不自動播放")}</span></span>}
   </span>;
 }

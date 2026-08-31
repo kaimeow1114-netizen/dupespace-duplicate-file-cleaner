@@ -34,6 +34,8 @@ import { GroupThumbnail } from "./group-thumbnail";
 import { AnimatedNumber } from "./animated-number";
 import { capacityEquivalent, storageMetrics } from "../../lib/storage-metrics";
 import { canSelectCopy, hasCompleteOutcomes, readJsonWithTimeout } from "../../lib/operation-results";
+import { retryCleanup } from "../../lib/retry-cleanup";
+import { readScanStream } from "../../lib/scan-stream";
 import { cacheEpoch, clearDriveIndex, INDEX_CLEARED_EVENT, isIndexEpochEvent, isSessionDisconnectEvent, readDriveIndex, validDriveIndex, writeDriveIndex, type CachedDriveIndex } from "../../lib/drive-index";
 import { cleanerTranslator, type CleanerLocale } from "../../lib/cleaner-i18n";
 
@@ -83,6 +85,8 @@ type ScanResult = {
   ignoreSystemMetadata: boolean;
 };
 type AuditOutcome = {
+  retryable?: boolean;
+  restorable?: boolean;
   refreshedProof?: string;
   refreshedVersion?: string;
   timestamp: string;
@@ -277,6 +281,7 @@ export function CleanerClient({ locale = "zh-TW" }: { locale?: CleanerLocale }) 
   const [status, setStatus] = useState(t("連接 Google Drive 後即可開始安全掃描"));
   const [progress, setProgress] = useState(0);
   const [running, setRunning] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [actualBytes, setActualBytes] = useState(0);
   const [visibleGroups, setVisibleGroups] = useState(24);
   const [recordLimits, setRecordLimits] = useState<Record<string, number>>({});
@@ -431,10 +436,6 @@ export function CleanerClient({ locale = "zh-TW" }: { locale?: CleanerLocale }) 
     });
   }
 
-  function animatedWait(target = 88): number {
-    return window.setInterval(() => setProgress((current) => Math.min(target, current + Math.max(.4, (target - current) * .06))), 180);
-  }
-
   async function startScan(): Promise<void> {
     if (busyRef.current) return;
     busyRef.current = true;
@@ -445,7 +446,7 @@ export function CleanerClient({ locale = "zh-TW" }: { locale?: CleanerLocale }) 
     setActualBytes(0);
     play("confirm");
     setRunning(true); setProgress(2); setStatus(t("正在讀取 Google Drive 中的檔案與校驗碼…"));
-    const timer = animatedWait();
+    setScanning(true);
     const epoch = cacheEpoch();
     const generation = operationGeneration.current;
     const controller = new AbortController();
@@ -456,10 +457,14 @@ export function CleanerClient({ locale = "zh-TW" }: { locale?: CleanerLocale }) 
       const response = await fetch("/api/google/scan", {
         signal: controller.signal,
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", accept: "application/x-ndjson" },
         body: JSON.stringify({ ignoreSystemMetadata: false, protectedProfile: profile, snapshot: cached?.snapshot }),
       });
-      const body = await response.json();
+      const body = await readScanStream(response, ({ phase, examined }) => {
+        if (generation !== operationGeneration.current) return;
+        const label = phase === "comparing" ? t("正在比對內容與保護規則") : phase === "syncing" ? t("正在同步檔案變更") : t("正在讀取檔案清單");
+        setStatus(`${label}${examined ? ` · ${examined.toLocaleString()} ${t("個項目")}` : ""}`);
+      });
       if (!response.ok) throw new Error(errorMessage(body, t("掃描失敗")));
       if (!isScanResult(body)) throw new Error(t("Google Drive 回傳了無效的掃描資料"));
       if (cacheEpoch() !== epoch) throw new Error(t("登入或快取狀態已變更，請重新掃描"));
@@ -492,11 +497,11 @@ export function CleanerClient({ locale = "zh-TW" }: { locale?: CleanerLocale }) 
       play(body.duplicateCopies ? "confirm" : "success");
     } catch (error) {
       if (generation !== operationGeneration.current) return;
-      setProgress(0); setStatus(controller.signal.aborted ? t("掃描已停止，沒有執行清理") : error instanceof Error ? error.message : t("掃描失敗"));
+      setProgress(0); setStatus(controller.signal.aborted ? t("掃描已停止，沒有執行清理") : error instanceof Error ? t(error.message) : t("掃描失敗"));
       if (!controller.signal.aborted) play("error");
     } finally {
       scanController.current = null;
-      window.clearInterval(timer); setRunning(false); busyRef.current = false;
+      setScanning(false); setRunning(false); busyRef.current = false;
     }
   }
 
@@ -564,24 +569,25 @@ export function CleanerClient({ locale = "zh-TW" }: { locale?: CleanerLocale }) 
         if (generation !== operationGeneration.current) return;
         if (cancelRef.current) break;
         setStatus(`${targetMode === "trash" ? t("正在移至垃圾桶") : t("正在永久刪除")}：${completed.toLocaleString()} / ${items.length.toLocaleString()}`);
+        const outcomes = await retryCleanup(chunk, targetMode, async (pending, reconcile) => {
+        if (reconcile) setStatus(t("正在重新查證暫時失敗的項目…"));
         const { response, body } = await readJsonWithTimeout(`/api/google/${targetMode === "trash" ? "trash" : "delete"}`, {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ items: chunk.map((record) => ({ id: record.id, proof: record.proof })) }),
+            body: JSON.stringify({ reconcile, items: pending.map((record) => ({ id: record.id, proof: record.proof })) }),
           }, OPERATION_TIMEOUT_MS);
-        if (generation !== operationGeneration.current) return;
+        if (generation !== operationGeneration.current) throw new DOMException("Session changed", "AbortError");
         if (!response.ok) throw new Error(errorMessage(body, t("批次清理失敗")));
         if (!isObject(body) || !Array.isArray(body.outcomes) || !body.outcomes.every(isAuditOutcome)) {
           throw new Error(t("Google Drive 回傳了無效的操作結果"));
         }
-        const outcomes = body.outcomes;
-        if (!hasCompleteOutcomes(chunk.map((item) => item.id), outcomes, targetMode)) {
-          throw new Error(t("Google Drive 未完整回報這批結果，請重新掃描確認最新狀態"));
-        }
+        return body.outcomes;
+        }, () => cancelRef.current || generation !== operationGeneration.current);
+        if (generation !== operationGeneration.current) return;
         setAudit((current) => [...current, ...outcomes]);
         setLastOutcomes((current) => ({ ...current, ...Object.fromEntries(outcomes.map((item) => [item.id, item])) }));
         const successfulIds = new Set(outcomes.filter((outcome) => outcome.status === "trashed" || outcome.status === "deleted").map((outcome) => outcome.id));
-        if (targetMode === "trash") restorable.push(...chunk.filter((record) => successfulIds.has(record.id)));
+        if (targetMode === "trash") restorable.push(...chunk.filter((record) => successfulIds.has(record.id) && outcomes.find((outcome) => outcome.id === record.id)?.restorable !== false));
         for (const outcome of outcomes) {
           if (outcome.status === "trashed" || outcome.status === "deleted") {
             reclaimed += outcome.size;
@@ -608,7 +614,7 @@ export function CleanerClient({ locale = "zh-TW" }: { locale?: CleanerLocale }) 
       setNeedsRescan(true);
       setStatus(error instanceof DOMException && error.name === "AbortError"
         ? t("伺服器回應逾時；為避免重複操作，請按「重新掃描」確認 Google Drive 最新狀態")
-        : error instanceof Error ? error.message : t("清理未完成"));
+        : error instanceof Error ? t(error.message) : t("清理未完成"));
       play("error");
     } finally {
       if (generation === operationGeneration.current && targetMode === "trash" && restorable.length) setUndoBatch({ items: restorable, groups: scan?.groups ?? [], expiresAt: Date.now() + 10_000 });
@@ -657,7 +663,7 @@ export function CleanerClient({ locale = "zh-TW" }: { locale?: CleanerLocale }) 
       setRunning(false);
     } catch (error) {
       if (generation !== operationGeneration.current) return;
-      setStatus(error instanceof Error ? error.message : t("快速復原失敗；請至 Google Drive 垃圾桶手動復原"));
+      setStatus(error instanceof Error ? t(error.message) : t("快速復原失敗；請至 Google Drive 垃圾桶手動復原"));
       play("error");
       setRunning(false);
     } finally {
@@ -690,7 +696,7 @@ export function CleanerClient({ locale = "zh-TW" }: { locale?: CleanerLocale }) 
     const columns = ["timestamp", "source", "operation_mode", "status", "item_kind", "name", "path", "file_id", "size", "checksum", "reason"];
     const lines = [columns.map(csvCell).join(","), ...audit.map((item) => [
       item.timestamp, "google_drive", item.operationMode, item.status, item.itemKind, item.name, item.path, item.id,
-      item.size, item.checksum, item.reason,
+      item.size, item.checksum, t(item.reason),
     ].map(csvCell).join(","))];
     const blob = new Blob(["\ufeff", lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -753,8 +759,8 @@ export function CleanerClient({ locale = "zh-TW" }: { locale?: CleanerLocale }) 
       </motion.div>}
 
       <section className="animated-progress" aria-live="polite">
-        <div><span>{status}</span><b>{Math.round(progress)}%</b></div>
-        <div className={`progress-track ${running ? "running" : ""}`}><i style={{ width: `${progress}%` }} /></div>
+        <div><span>{status}</span>{!scanning && <b>{Math.round(progress)}%</b>}</div>
+        <div className={`progress-track ${running ? "running" : ""} ${scanning ? "scan-indeterminate" : ""}`}><i style={{ width: scanning ? "35%" : `${progress}%` }} /></div>
         {running && <button className="text-button" onClick={() => { cancelRef.current = true; scanController.current?.abort(); setStatus(t("將在目前批次完成後安全停止")); }}><Square size={13} aria-hidden="true" />{t("安全停止")}</button>}
       </section>
 
@@ -785,7 +791,7 @@ export function CleanerClient({ locale = "zh-TW" }: { locale?: CleanerLocale }) 
             const itemCategory = groupCategory(group);
             return <article className={`duplicate-group category-${itemCategory}`} key={key}>
               <button className="group-summary" type="button" aria-expanded={expanded} onClick={() => setExpandedGroups((current) => current.has(key) ? new Set() : new Set([key]))}>
-                {itemCategory === "image" || itemCategory === "video" || itemCategory === "pdf" ? <GroupThumbnail key={`${keeper.id}:${keeper.version}`} url={keeper.thumbnailLink} id={keeper.id} proof={keeper.proof} name={keeper.name} video={itemCategory === "video"} document={itemCategory === "pdf"} /> : <span className="category-badge"><CategoryIcon category={itemCategory} /><b>{t(CATEGORY_LABELS[itemCategory])}</b></span>}
+                {itemCategory === "image" || itemCategory === "video" || itemCategory === "pdf" ? <GroupThumbnail locale={locale} key={`${keeper.id}:${keeper.version}`} url={keeper.thumbnailLink} id={keeper.id} proof={keeper.proof} name={keeper.name} video={itemCategory === "video"} document={itemCategory === "pdf"} /> : <span className="category-badge"><CategoryIcon category={itemCategory} /><b>{t(CATEGORY_LABELS[itemCategory])}</b></span>}
                 <span className="group-title"><b>{keeper?.name ?? t("未命名項目")}</b><small>{t(CATEGORY_LABELS[itemCategory])} · {copies.length.toLocaleString()} {t("個重複副本")}{group.itemKind === "folder" ? (" · " + (group.tree.length.toLocaleString()) + t(" 個檔案 100% 鏡像")) : ""}</small></span>
                 <span className="group-saving"><small>{t("可整理")}</small><strong>{formatBytes(group.reclaimableBytes)}</strong></span>
                 <ChevronDown className="group-chevron" size={20} aria-hidden="true" />
@@ -795,7 +801,7 @@ export function CleanerClient({ locale = "zh-TW" }: { locale?: CleanerLocale }) 
                 <div className="group-comparison">
                   <aside className="keeper-preview">
                     <div className="keeper-visual">
-                      {keeper?.thumbnailLink ? <GroupThumbnail key={`${keeper.id}:${keeper.version}:large`} url={keeper.thumbnailLink} id={keeper.id} proof={keeper.proof} name={keeper.name} video={itemCategory === "video"} document={itemCategory === "pdf"} /> : <CategoryIcon category={itemCategory} size={46} />}{ }
+                      {keeper?.thumbnailLink ? <GroupThumbnail locale={locale} key={`${keeper.id}:${keeper.version}:large`} url={keeper.thumbnailLink} id={keeper.id} proof={keeper.proof} name={keeper.name} video={itemCategory === "video"} document={itemCategory === "pdf"} /> : <CategoryIcon category={itemCategory} size={46} />}{ }
                       <span><ShieldCheck size={15} aria-hidden="true" />{t("受保護原始檔")}</span>
                     </div>
                     <b>{keeper?.name}</b>
@@ -811,7 +817,7 @@ export function CleanerClient({ locale = "zh-TW" }: { locale?: CleanerLocale }) 
                         <span className="record-name"><b>{record.name}</b><small className="record-path">{record.path}</small><small>{record.itemKind === "folder" ? ("" + (record.entryCount.toLocaleString()) + t(" 個可比對檔案") + (record.ignoredMetadataCount ? (t(" · 忽略 ") + (record.ignoredMetadataCount) + t(" 個暫存檔")) : "") + "") : record.modifiedTime ? new Date(record.modifiedTime).toLocaleString(locale) : t("日期不明")}{record.webViewLink ? <> · <a href={record.webViewLink} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}><Eye size={13} aria-hidden="true" />{t("在 Drive 預覽")}</a></> : null}</small></span>
                         <span className="record-size">{formatBytes(record.size)}</span>
                         <span className={`record-state ${!selectable(record) ? "locked" : ""}`}>{mode === "permanent" && record.itemKind === "folder" ? t("僅限垃圾桶") : !selectable(record) ? t("無權限") : selected.has(record.id) ? (mode === "trash" ? t("垃圾桶") : t("永久刪除")) : t("略過")}</span>
-                        {lastOutcomes[record.id] && <span className="record-outcome"><AlertCircle size={15} aria-hidden="true" />{t("未處理：")}{lastOutcomes[record.id].reason}</span>}
+                        {lastOutcomes[record.id] && <span className="record-outcome"><AlertCircle size={15} aria-hidden="true" />{t("未處理：")}{t(lastOutcomes[record.id].reason)}</span>}
                       </label>)}
                       {copies.length > limit && <button className="load-more" onClick={() => setRecordLimits((current) => ({ ...current, [key]: limit + 80 }))}>{t("再顯示")}{Math.min(80, copies.length - limit)} {t("個副本")}</button>}
                     </div>

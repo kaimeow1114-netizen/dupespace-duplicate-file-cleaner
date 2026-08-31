@@ -38,6 +38,7 @@ async function setup(t) {
       const item = state.files.find((item) => url.pathname.endsWith(`/${item.id}`));
       assert.ok(item);
       if (request.method === "PATCH") {
+        if (state.patchFailure) return new Response(null, { status: state.patchFailure });
         state.writes++;
         const body = await request.json();
         item.trashed = body.trashed;
@@ -47,11 +48,11 @@ async function setup(t) {
     },
   });
   t.after(() => mf.dispose());
-  const post = async (path, body = {}, account = "account-a") => {
+  const post = async (path, body = {}, account = "account-a", stream = false) => {
     const response = await mf.dispatchFetch(`https://dupespace.test/api/google/${path}`, {
-      method: "POST", headers: { "content-type": "application/json", "x-test-account": account }, body: JSON.stringify(body),
+      method: "POST", headers: { "content-type": "application/json", "x-test-account": account, accept: stream ? "application/x-ndjson" : "application/json" }, body: JSON.stringify(body),
     });
-    return { status: response.status, body: await response.json() };
+    return { status: response.status, body: stream ? (await response.text()).trim().split("\n").map((line) => JSON.parse(line)) : await response.json() };
   };
   return { state, post };
 }
@@ -69,6 +70,15 @@ test("encrypted per-account index reads only changes on the next scan", async (t
   assert.equal(second.body.duplicateCopies, 2);
   assert.equal(state.reads, 1);
   assert.equal(state.writes, 0);
+});
+
+test("stream reports real examined counts before returning a complete result", async (t) => {
+  const { post } = await setup(t);
+  const { body } = await post("scan", {}, "account-a", true);
+  assert.deepEqual(body[0], { type: "progress", phase: "listing", examined: 0 });
+  assert.ok(body.some((event) => event.type === "progress" && event.examined === 2));
+  assert.equal(body.at(-1).type, "result");
+  assert.equal(body.at(-1).result.duplicateCopies, 1);
 });
 
 test("tampering and cross-account replay cannot supply a cleaning plan", async (t) => {
@@ -128,6 +138,35 @@ test("restore returns a fresh proof without listing the whole Drive", async (t) 
   assert.notEqual(restored.body.outcomes[0].refreshedProof, copy.proof);
   assert.equal(state.reads, 1);
   assert.equal(state.writes, 2);
+});
+
+test("trash marks transient errors retryable but denies permission errors", async (t) => {
+  const { state, post } = await setup(t);
+  const first = await post("scan");
+  const copy = first.body.groups[0].records.find((item) => !item.keeper);
+  const items = [{ id: copy.id, proof: copy.proof }];
+  state.patchFailure = 503;
+  assert.equal((await post("trash", { items })).body.outcomes[0].retryable, true);
+  state.patchFailure = 403;
+  assert.equal((await post("trash", { items })).body.outcomes[0].retryable, false);
+  state.patchFailure = 0;
+  assert.equal((await post("trash", { items, reconcile: true })).body.outcomes[0].status, "trashed");
+  assert.equal(state.writes, 1);
+});
+
+test("retry reconciles an already trashed target without a second write or undo claim", async (t) => {
+  const { state, post } = await setup(t);
+  const first = await post("scan");
+  const copy = first.body.groups[0].records.find((item) => !item.keeper);
+  const items = [{ id: copy.id, proof: copy.proof }];
+  await post("trash", { items });
+  const reconciled = (await post("trash", { items, reconcile: true })).body.outcomes[0];
+  assert.equal(reconciled.status, "trashed");
+  assert.equal(reconciled.restorable, false);
+  assert.equal(state.writes, 1);
+  state.files.find((item) => item.id === "original").version = "2";
+  assert.equal((await post("trash", { items, reconcile: true })).body.outcomes[0].status, "skipped");
+  assert.equal(state.writes, 1);
 });
 
 test("creation time then full path is deterministic, never modified time", async (t) => {

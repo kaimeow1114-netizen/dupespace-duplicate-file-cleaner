@@ -1,5 +1,60 @@
 export type CleanerLocale = "zh-TW" | "en";
 export const cleanerEnglish: Record<string, string> = {
+  "來源驗證失敗，未執行操作": "Request origin verification failed. No operation was performed.",
+  "Google OAuth 尚未完成正式環境設定": "Google sign-in has not been configured for this environment.",
+  "SESSION_SECRET 必須至少 32 個字元": "The server session security configuration is incomplete.",
+  "Google 登入已過期，請重新連線": "Your Google session expired. Please reconnect.",
+  "Google 登入憑證更新失敗，請重新連線": "Your Google session could not be refreshed. Please reconnect.",
+  "請先登入 Google Drive": "Please sign in to Google Drive first.",
+  "Google API 回傳非預期轉址，已停止請求；請稍後重試": "Google returned an unexpected redirect. The request was stopped; try again later.",
+  "掃描索引過大，請清除快取後重新掃描": "The scan index is too large. Clear the scan cache and scan again.",
+  "Google Drive 變更分頁重複，請重新掃描": "Google Drive repeated a change page. Please scan again.",
+  "Google Drive 變更資料不完整，未建立清理計畫": "Google Drive returned incomplete changes. No cleanup plan was created.",
+  "Google Drive 未提供完整變更游標，未建立清理計畫": "Google Drive did not return a complete change cursor. No cleanup plan was created.",
+  "掃描證明的資料夾類型不一致": "The folder type does not match the scan proof.",
+  "資料夾只能移至 Google Drive 垃圾桶，不能永久刪除": "Folders can only be moved to Google Drive Trash, not permanently deleted.",
+  "資料夾已移動、刪除、位於共用雲端硬碟或不再由你擁有": "The folder was moved, removed, belongs to a shared drive, or is no longer owned by you.",
+  "項目已不再是資料夾": "This item is no longer a folder.",
+  "資料夾已移至不同的 Google Drive 位置": "The folder moved to a different Google Drive location.",
+  "復原證明無效或已過期，請至 Google Drive 垃圾桶手動復原": "The restore proof is invalid or expired. Restore the item manually in Google Drive Trash.",
+  "項目已不在 Google Drive 垃圾桶": "The item is no longer in Google Drive Trash.",
+  "只有本人擁有且非共用雲端硬碟的項目可以快速復原": "Quick restore is available only for items you own outside shared drives.",
+  "項目類型已變更，請至 Google Drive 垃圾桶手動復原": "The item type changed. Restore it manually in Google Drive Trash.",
+  "Google Drive 未確認項目已復原": "Google Drive has not confirmed the item was restored.",
+  "已復原並重新驗證檔案與保留副本": "Restored and revalidated against the protected keeper.",
+  "已復原；請重新掃描後再整理此項目": "Restored. Scan again before cleaning this item.",
+  "未知錯誤": "An unexpected error occurred.",
+  "伺服器處理失敗": "The server could not complete the request.",
+  "Google Drive 回應逾時，這次掃描未完成；請稍後重新掃描，尚未執行清理。": "Google Drive timed out. This scan did not complete; scan again later. No cleanup was performed.",
+  "正在重新查證暫時失敗的項目…": "Rechecking temporarily failed items…",
+  "正在比對內容與保護規則": "Comparing content and applying protection rules",
+  "正在同步檔案變更": "Synchronizing file changes",
+  "正在讀取檔案清單": "Reading the file list",
+  "Google 目前未提供可用縮圖；仍可開啟檔案查看": "Google has not provided a usable thumbnail. You can still open the file to preview it.",
+  "影片縮圖，不自動播放": "Video thumbnail; no autoplay",
+  "縮圖": "thumbnail",
+  "檔案已移動、刪除或不再由你擁有": "The file was moved, removed, or is no longer owned by you.",
+  "掃描證明的項目類型不一致": "The item type does not match the scan proof.",
+  "資料夾、捷徑或檔案類型變更，已跳過": "Skipped: the file type changed or the item is a folder or shortcut.",
+  "檔案版本或修改時間已變更": "The file version or modification time changed.",
+  "檔案已移至不同的 Google Drive 資料夾": "The file moved to a different Google Drive folder.",
+  "檔案大小或校驗碼已變更": "The file size or checksum changed.",
+  "沒有移至垃圾桶權限": "You do not have permission to move this item to trash.",
+  "沒有永久刪除權限": "You do not have permission to permanently delete this item.",
+  "保留檔案已移動、刪除或不再由你擁有": "The keeper was moved, removed, or is no longer owned by you.",
+  "保留項目不是可驗證的一般檔案": "The keeper is not a verifiable regular file.",
+  "保留檔案版本已變更": "The keeper version changed.",
+  "保留檔案已移至不同的 Google Drive 資料夾": "The keeper moved to a different Google Drive folder.",
+  "保留項目的掃描證明類型不一致": "The keeper type does not match the scan proof.",
+  "保留檔案內容已變更": "The keeper contents changed.",
+  "資料夾內容已變更，操作已取消": "Folder contents changed. The operation was cancelled.",
+  "資料夾版本已變更": "The folder version changed.",
+  "檔案狀態已變更": "The file state changed.",
+  "已重新確認檔案位於垃圾桶；未重複執行移除": "Confirmed in trash. No additional removal was performed.",
+  "Google Drive 未確認檔案已進入垃圾桶": "Google Drive has not confirmed that the file is in trash.",
+  "已永久刪除，無法復原": "Permanently deleted. Cannot be undone.",
+  "掃描證明無效或已過期，請重新掃描": "The scan proof is invalid or expired. Please scan again.",
+  "Google Drive 尚未提供完整清單，請稍後重新掃描；未建立清理計畫": "Google Drive returned an incomplete list. Scan again later; no cleanup plan was created.",
   "掃描已停止，沒有執行清理": "Scan stopped. No cleanup was performed",
   "有較多重複容量可整理": "More duplicate capacity to review", "可先檢查較大的副本": "Consider reviewing the larger copies first",
   "有一些空間可整理": "Some duplicate capacity to review", "依實際用途決定是否保留": "Keep copies that still serve a purpose",
@@ -50,5 +105,11 @@ export const cleanerEnglish: Record<string, string> = {
 };
 
 export function cleanerTranslator(locale: CleanerLocale): (text: string) => string {
-  return (text) => locale === "en" ? (cleanerEnglish[text.trim()] ?? text) : text;
+  return (text) => {
+    if (locale !== "en") return text;
+    if (cleanerEnglish[text.trim()]) return cleanerEnglish[text.trim()];
+    const api = text.match(/^(?:Google Drive API 回覆 |Google Drive 掃描失敗（|Google Drive 變更同步失敗（|無法重新驗證檔案（)(\d{3})/);
+    if (api) return `Google Drive returned HTTP ${api[1]}.`;
+    return text;
+  };
 }

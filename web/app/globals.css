@@ -827,3 +827,12 @@ button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible {
   .insight-grid article { min-height:160px; }
   .undo-toast { right:16px; bottom:16px; }
 }
+@keyframes scan-indeterminate-travel {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(290%); }
+}
+.progress-track.scan-indeterminate { overflow: hidden; }
+.progress-track.scan-indeterminate > i { animation: scan-indeterminate-travel 1.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .progress-track.scan-indeterminate > i { animation: none; transform: none; }
+}
