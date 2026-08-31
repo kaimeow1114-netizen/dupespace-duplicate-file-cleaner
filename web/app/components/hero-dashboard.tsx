@@ -17,7 +17,14 @@ const particles = [
   [77, 38, 1.2, 2.8], [87, 66, 1.7, 3.15], [94, 22, 1, 3.5],
 ] as const;
 
-export function HeroDashboard() {
+export function HeroDashboard({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" }) {
+  const en = locale === "en";
+  const demoFiles = en ? [
+    { name: "Beach.jpg", path: "Photos / Travel / Beach.jpg", keeper: true },
+    { name: "Beach.jpg", path: "Downloads / Beach.jpg", keeper: false },
+    { name: "Report.pdf", path: "Documents / Report.pdf", keeper: true },
+    { name: "Report (1).pdf", path: "Downloads / Report (1).pdf", keeper: false },
+  ] : files;
   const reducedMotion = useReducedMotion();
   const [score, setScore] = useState(reducedMotion ? 28 : 0);
   const [cleaned, setCleaned] = useState(false);
@@ -47,7 +54,7 @@ export function HeroDashboard() {
       initial={reducedMotion ? false : { opacity: 0, scale: 0.9, y: 28 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       transition={reducedMotion ? { duration: 0 } : { type: "spring", stiffness: 145, damping: 18, mass: 0.85 }}
-      aria-label="DUPESPACE 儲存空間健康與重複檔案掃描儀表板示意"
+      aria-label={en ? "DUPESPACE illustrative duplicate scan dashboard, not your files" : "DUPESPACE 儲存空間健康與重複檔案掃描儀表板示意"}
     >
       <svg className="hash-particles" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
         <path d="M3 79 C26 48 35 64 52 35 S80 25 98 9" />
@@ -56,7 +63,7 @@ export function HeroDashboard() {
           <motion.circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={radius} initial={{ opacity: .15 }} animate={reducedMotion ? { opacity: .28 } : { opacity: [.12, .72, .16], x: [0, index % 2 ? -5 : 7, 0], y: [0, index % 3 ? -8 : 6, 0] }} transition={{ duration: 4.2 + (index % 4) * .7, delay, repeat: reducedMotion ? 0 : Infinity, ease: "easeInOut" }} />
         ))}
       </svg>
-      <div className="dashboard-titlebar"><b>DUPESPACE · STORAGE INTELLIGENCE</b><em><ShieldCheck size={12} aria-hidden="true" /> 安全模式</em></div>
+      <div className="dashboard-titlebar"><b>DUPESPACE · STORAGE INTELLIGENCE</b><em><ShieldCheck size={12} aria-hidden="true" /> {en ? "Safe mode" : "安全模式"}</em></div>
       <div className="dashboard-body">
         <div className="health-demo-grid">
           <div className={`health-ring ${urgent ? "critical" : "optimal"}`}>
@@ -64,19 +71,19 @@ export function HeroDashboard() {
             <div><strong>{score}</strong><small>/100</small></div>
           </div>
           <div className="health-demo-copy">
-            <small>空間健康指數 · 整理指標</small>
-            <b>{urgent ? "發現實質重複項目" : "重複項目已完成整理"}</b>
-            <span>{urgent ? <AlertTriangle size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}{urgent ? "建議檢查並安全清理" : "儲存狀態極佳"}</span>
+            <small>{en ? "Organization score · Example" : "空間健康指數 · 整理指標"}</small>
+            <b>{en ? (urgent ? "Duplicate candidates found" : "Duplicates organized") : (urgent ? "發現實質重複項目" : "重複項目已完成整理")}</b>
+            <span>{urgent ? <AlertTriangle size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}{en ? (urgent ? "Review before removing" : "Review complete") : (urgent ? "建議檢查並安全清理" : "儲存狀態極佳")}</span>
           </div>
         </div>
-        <div className="scan-heading"><div><small>SHA-256 CONTENT SCAN</small><b>{cleaned ? "安全清理完成" : "正在精確比對內容"}</b></div><strong>{cleaned ? "100%" : "82%"}</strong></div>
+        <div className="scan-heading"><div><small>CONTENT CHECKSUM SCAN</small><b>{en ? (cleaned ? "Cleanup complete" : "Matching file contents") : (cleaned ? "安全清理完成" : "正在精確比對內容")}</b></div><strong>{cleaned ? "100%" : "82%"}</strong></div>
         <div className="scan-progress"><motion.i initial={{ width: 0 }} animate={{ width: cleaned ? "100%" : "82%" }} transition={{ duration: reducedMotion ? 0 : 1.1 }} /></div>
         <div className="hash-stream" aria-hidden="true"><span>SHA-256</span><i>8f14e45fceea...</i><i>c9f0f895fb98...</i><i>45c48cce2e2d...</i></div>
-        <div className="dashboard-columns"><span>最舊原檔 · PROTECTED</span><span>待清理副本 · DUPLICATE</span></div>
+        <div className="dashboard-columns"><span>{en ? "KEEPER · PROTECTED" : "最舊原檔 · PROTECTED"}</span><span>{en ? "COPY · DUPLICATE" : "待清理副本 · DUPLICATE"}</span></div>
         <div className="dashboard-files">
-          {files.map((file, index) => <motion.div key={file.path} className={`demo-file ${file.keeper ? "safe" : "duplicate"} ${cleaned && !file.keeper ? "cleaned" : ""}`} initial={reducedMotion ? false : { opacity: 0, x: index % 2 ? 14 : -14 }} animate={{ opacity: cleaned && !file.keeper ? .5 : 1, x: 0 }} transition={{ delay: reducedMotion ? 0 : .45 + index * .09 }}><i>{file.keeper ? <ShieldCheck size={15} aria-hidden="true" /> : cleaned ? <CheckCircle2 size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}</i><span><b>{file.name}</b><small>{file.path}</small></span><em>{file.keeper ? "保留" : cleaned ? "已回收" : "待清"}</em></motion.div>)}
+          {demoFiles.map((file, index) => <motion.div key={file.path} className={`demo-file ${file.keeper ? "safe" : "duplicate"} ${cleaned && !file.keeper ? "cleaned" : ""}`} initial={reducedMotion ? false : { opacity: 0, x: index % 2 ? 14 : -14 }} animate={{ opacity: cleaned && !file.keeper ? .5 : 1, x: 0 }} transition={{ delay: reducedMotion ? 0 : .45 + index * .09 }}><i>{file.keeper ? <ShieldCheck size={15} aria-hidden="true" /> : cleaned ? <CheckCircle2 size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}</i><span><b>{file.name}</b><small>{file.path}</small></span><em>{en ? (file.keeper ? "Keep" : cleaned ? "Trashed" : "Review") : (file.keeper ? "保留" : cleaned ? "已回收" : "待清")}</em></motion.div>)}
         </div>
-        <div className="dashboard-savings"><div><small>儀表板示意 · 可安全釋放</small><strong>{savings.toFixed(1)} GB</strong></div><span>{cleaned ? <Sparkles size={18} aria-hidden="true" /> : <Trash2 size={18} aria-hidden="true" />}<small>{cleaned ? "已移至垃圾桶" : "每組保留一份"}</small></span></div>
+        <div className="dashboard-savings"><div><small>{en ? "Demo · Duplicate capacity" : "儀表板示意 · 可安全釋放"}</small><strong>{savings.toFixed(1)} GB</strong></div><span>{cleaned ? <Sparkles size={18} aria-hidden="true" /> : <Trash2 size={18} aria-hidden="true" />}<small>{en ? (cleaned ? "Moved to trash" : "Keep one per group") : (cleaned ? "已移至垃圾桶" : "每組保留一份")}</small></span></div>
       </div>
     </motion.div>
   );

@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
+import { localizedAlternates } from "../../lib/seo";
 import { CalendarDays } from "lucide-react";
 import { SiteFooter, SiteHeader } from "../components/site-shell";
 
 export const metadata: Metadata = {
   title: "服務條款",
   description: "DUPESPACE 垃圾桶、快速復原與永久刪除功能的使用條款、安全責任與限制。",
-  alternates: { canonical: "/terms" },
+  alternates: localizedAlternates("terms"),
 };
 
 export default function TermsPage() {

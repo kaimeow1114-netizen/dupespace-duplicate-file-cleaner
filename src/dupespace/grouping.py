@@ -3,18 +3,24 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable, Set
 from dataclasses import replace
+from math import isfinite
 from pathlib import Path
 
 from .models import DuplicateGroup, FileRecord, OperationItem, OperationMode
 
 
-def _keeper_rank(record: FileRecord) -> tuple[float, int, str, str]:
-    timestamp = record.created_at
-    if timestamp is None:
-        timestamp = record.modified_at
-    if timestamp is None:
-        timestamp = float("inf")
-    return (timestamp, len(record.location), record.location.casefold(), record.key)
+def order_keepers(records: Iterable[FileRecord]) -> list[FileRecord]:
+    """Use creation time only when the entire candidate bucket is comparable.
+
+    A group-wide fallback avoids a non-transitive pairwise comparator when one
+    timestamp is missing. Modification time is never evidence of creation.
+    """
+    candidates = list(records)
+    comparable = all(r.created_at is not None and isfinite(r.created_at) for r in candidates)
+    return sorted(candidates, key=lambda r: (
+        r.created_at if comparable else 0,
+        len(r.location), r.location.casefold(), r.key,
+    ))
 
 
 def build_duplicate_groups(records: Iterable[FileRecord]) -> tuple[DuplicateGroup, ...]:
@@ -26,7 +32,7 @@ def build_duplicate_groups(records: Iterable[FileRecord]) -> tuple[DuplicateGrou
     for fingerprint, bucket in buckets.items():
         if len(bucket) < 2:
             continue
-        ordered = tuple(sorted(bucket, key=_keeper_rank))
+        ordered = tuple(order_keepers(bucket))
         groups.append(
             DuplicateGroup(
                 fingerprint=fingerprint,
@@ -58,12 +64,8 @@ def build_local_duplicate_groups(records: Iterable[FileRecord]) -> tuple[Duplica
 
     groups: list[DuplicateGroup] = []
     for fingerprint, bucket in buckets.items():
-        protected = sorted(
-            (record for record in bucket if record.root_role == "keep"), key=_keeper_rank
-        )
-        clean = sorted(
-            (record for record in bucket if record.root_role == "clean"), key=_keeper_rank
-        )
+        protected = order_keepers(record for record in bucket if record.root_role == "keep")
+        clean = order_keepers(record for record in bucket if record.root_role == "clean")
         if len(clean) < 2:
             continue
         keeper = clean[0]

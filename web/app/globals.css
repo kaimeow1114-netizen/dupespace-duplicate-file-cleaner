@@ -28,6 +28,8 @@ button, a { -webkit-tap-highlight-color:transparent; }
 .nav nav a { white-space:nowrap; }
 .nav nav a:hover { color:var(--mint); }
 .nav-actions { display:flex; align-items:center; gap:9px; flex:none; }
+.nav-actions>.text-button { color:#cbd5e1; white-space:nowrap; }
+.nav-actions>.text-button:hover { color:#5eead4; }
 .github-stars { display:flex; align-items:center; gap:6px; padding:9px 11px; color:#405e6a; background:white; border:1px solid var(--line); border-radius:10px; font-size:11px; white-space:nowrap; }
 .github-stars span { color:var(--gold); font-size:16px; }
 .github-stars em { padding-left:6px; color:#71838b; border-left:1px solid var(--line); font-style:normal; }
@@ -596,6 +598,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible {
 .retention-band { background:white; }
 .privacy-band { background:linear-gradient(135deg,#ecfdf5 0%,#f8fafc 54%,#f0fdfa 100%); }
 .faq-band { background:#f8fafc; }
+.faq-band details { padding:20px 0; border-bottom:1px solid #dbe7e5; }
+.faq-band summary { cursor:pointer; color:#0c4a45; font-weight:700; font-size:18px; line-height:1.5; }
+.faq-band details p { max-width:75ch; margin-top:12px; color:#526a75; line-height:1.8; }
 .download-band { background:linear-gradient(180deg,#f8fafc,#e6f6f2); }
 .health-demo-grid { display:grid; grid-template-columns:92px 1fr; align-items:center; gap:16px; margin-bottom:19px; padding:14px; background:rgba(2,6,23,.45); border:1px solid rgba(45,212,191,.13); border-radius:16px; }
 .health-ring,.health-score-ring { position:relative; display:grid; place-items:center; }

@@ -32,6 +32,7 @@ interface DriveFile {
 }
 
 interface DriveUser {
+  permissionId?: string;
   displayName?: string;
   emailAddress?: string;
   photoLink?: string;
@@ -482,15 +483,85 @@ function hasAncestor(
   return false;
 }
 
-function keeperRank(file: DriveFile): [number, string, string] {
-  const timestamp = Date.parse(file.createdTime ?? file.modifiedTime ?? "9999-12-31T23:59:59Z");
-  return [Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER, file.name.toLocaleLowerCase(), file.id];
+function orderKeepers(files: DriveFile[], paths: Map<string, string>): DriveFile[] {
+  // Choose the fallback once per bucket, never per pair (which breaks transitivity).
+  const comparable = files.every((file) => Number.isFinite(Date.parse(file.createdTime ?? "")));
+  return [...files].sort((a, b) => {
+    const left = paths.get(a.id) ?? a.name;
+    const right = paths.get(b.id) ?? b.name;
+    return (comparable ? Date.parse(a.createdTime!) - Date.parse(b.createdTime!) : 0) ||
+      [...left].length - [...right].length || left.toLowerCase().localeCompare(right.toLowerCase()) || a.id.localeCompare(b.id);
+  });
 }
 
-function compareRank(left: DriveFile, right: DriveFile): number {
-  const a = keeperRank(left);
-  const b = keeperRank(right);
-  return a[0] - b[0] || a[1].localeCompare(b[1]) || a[2].localeCompare(b[2]);
+const INDEX_TTL_MS = 7 * 86400_000;
+const INDEX_MAX_BYTES = 4 * 1024 * 1024;
+type DriveIndex = { kind: "drive-index-v1"; accountKey: string; cursor: string; expiresAt: number; files: DriveFile[] };
+
+async function boundedScanInput(request: Request): Promise<{ snapshot?: string; ignoreSystemMetadata?: boolean; protectedProfile?: string }> {
+  if (!request.body) return {};
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const part = await reader.read();
+    if (part.done) break;
+    size += part.value.byteLength;
+    if (size > INDEX_MAX_BYTES * 2) { await reader.cancel(); throw new Error("掃描索引過大，請清除快取後重新掃描"); }
+    chunks.push(part.value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  const value: unknown = JSON.parse(textDecoder.decode(bytes) || "{}");
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const input = value as Record<string, unknown>;
+  return {
+    snapshot: typeof input.snapshot === "string" ? input.snapshot : undefined,
+    ignoreSystemMetadata: input.ignoreSystemMetadata === true,
+    protectedProfile: typeof input.protectedProfile === "string" ? input.protectedProfile : undefined,
+  };
+}
+
+async function indexAccount(user: DriveUser | undefined, secret: string): Promise<string | null> {
+  return user?.permissionId ? hmac(`drive-index-account-v1:${user.permissionId}`, secret) : null;
+}
+
+async function changeCursor(session: OAuthSession): Promise<string | null> {
+  const response = await googleFetch(session, "https://www.googleapis.com/drive/v3/changes/startPageToken?fields=startPageToken");
+  if (!response.ok) { await response.body?.cancel(); return null; }
+  const body = await response.json() as { startPageToken?: string };
+  return typeof body.startPageToken === "string" ? body.startPageToken : null;
+}
+
+async function changedIndex(session: OAuthSession, index: DriveIndex): Promise<DriveIndex | null> {
+  const files = new Map(index.files.map((file) => [file.id, file]));
+  const seen = new Set<string>();
+  let cursor = index.cursor;
+  while (cursor) {
+    if (seen.has(cursor)) throw new Error("Google Drive 變更分頁重複，請重新掃描");
+    seen.add(cursor);
+    const query = new URLSearchParams({ pageToken: cursor, pageSize: "1000", spaces: "drive", includeRemoved: "true", fields: `nextPageToken,newStartPageToken,changes(fileId,removed,file(${FILE_FIELDS}))` });
+    const response = await googleFetch(session, `https://www.googleapis.com/drive/v3/changes?${query}`);
+    if (response.status === 410 || response.status === 404) { await response.body?.cancel(); return null; }
+    if (!response.ok) throw new Error(`Google Drive 變更同步失敗（${response.status}），未建立清理計畫`);
+    const page = await response.json() as { nextPageToken?: string; newStartPageToken?: string; changes?: { fileId: string; removed?: boolean; file?: DriveFile }[] };
+    for (const change of page.changes ?? []) {
+      const previous = files.get(change.fileId);
+      // Folder sharing/moves/restores can affect descendants not present in this feed.
+      // Rebuild the baseline rather than reuse an incomplete subtree or stale protections.
+      if (previous?.mimeType === "application/vnd.google-apps.folder" || change.file?.mimeType === "application/vnd.google-apps.folder") return null;
+      if (change.removed || change.file?.trashed) files.delete(change.fileId);
+      else if (change.file?.id === change.fileId) files.set(change.fileId, change.file);
+      else throw new Error("Google Drive 變更資料不完整，未建立清理計畫");
+    }
+    if (!page.nextPageToken) {
+      if (!page.newStartPageToken) throw new Error("Google Drive 未提供完整變更游標，未建立清理計畫");
+      return { ...index, cursor: page.newStartPageToken, files: [...files.values()] };
+    }
+    cursor = page.nextPageToken;
+  }
+  return null;
 }
 
 async function listDrive(session: OAuthSession): Promise<{
@@ -524,6 +595,10 @@ async function listDrive(session: OAuthSession): Promise<{
     }
     pageToken = page.nextPageToken ?? "";
   } while (pageToken);
+  return materializeDrive(listed, examined);
+}
+
+function materializeDrive(listed: DriveFile[], examined = listed.length) {
   const protectedIds = driveProjectProtectedIds(listed);
   const filesById = new Map(listed.map((file) => [file.id, file]));
   const paths = new Map(listed.map((file) => [file.id, drivePath(file, filesById)]));
@@ -549,29 +624,42 @@ async function listDrive(session: OAuthSession): Promise<{
 async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Response> {
   requireSameOrigin(request);
   const { session, setCookie } = await authorizedSession(request, env);
-  const requestBody = await request.json().catch(() => ({})) as {
-    ignoreSystemMetadata?: boolean;
-    protectedProfile?: "project" | "media" | "strict";
-  };
+  const requestBody = await boundedScanInput(request);
   const ignoreSystemMetadata = requestBody.ignoreSystemMetadata === true;
   const protectedProfile = ["project", "media", "strict"].includes(requestBody.protectedProfile ?? "")
     ? requestBody.protectedProfile as "project" | "media" | "strict"
     : "project";
-  const [drive, about] = await Promise.all([
-    listDrive(session),
-    (async (): Promise<{
+  const about = await (async (): Promise<{
       storageQuota?: { limit?: string; usage?: string };
       user?: DriveUser;
     }> => {
-      const response = await googleFetch(session, "https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress,photoLink),storageQuota");
+      const response = await googleFetch(session, "https://www.googleapis.com/drive/v3/about?fields=user(permissionId,displayName,emailAddress,photoLink),storageQuota");
       if (!response.ok) {
         await response.body?.cancel();
         return {};
       }
       // Consume this body within its own deadline, before waiting for all file pages.
       return await response.json();
-    })(),
-  ]);
+    })();
+  const accountKey = await indexAccount(about.user, env.SESSION_SECRET);
+  // Separate encryption purpose from OAuth cookies. This blob grants no API access.
+  const indexSecret = await hmac("drive-index-encryption-v1", env.SESSION_SECRET);
+  const candidate = accountKey && requestBody.snapshot
+    ? await decrypt<DriveIndex>(requestBody.snapshot, indexSecret) : null;
+  const validIndex = candidate?.kind === "drive-index-v1" && candidate.accountKey === accountKey &&
+    candidate.expiresAt > Date.now() && Array.isArray(candidate.files) && typeof candidate.cursor === "string";
+  let index = validIndex ? await changedIndex(session, candidate) : null;
+  const scanMode = index ? "incremental" : "full";
+  let drive;
+  if (index) drive = materializeDrive(index.files);
+  else {
+    // Capture before listing so changes made during the baseline cannot be missed later.
+    const cursor = accountKey ? await changeCursor(session) : null;
+    drive = await listDrive(session);
+    if (accountKey && cursor) index = { kind: "drive-index-v1", accountKey, cursor, expiresAt: Date.now() + INDEX_TTL_MS, files: drive.listed };
+  }
+  let snapshot: string | null = null;
+  if (index && textEncoder.encode(JSON.stringify(index)).byteLength <= INDEX_MAX_BYTES) snapshot = await encrypt(index, indexSecret);
   const { files, listed, paths, examined, skipped, projectProtected, protectedIds } = drive;
   const filesById = new Map(listed.map((file) => [file.id, file]));
   const fileBuckets = new Map<string, DriveFile[]>();
@@ -591,11 +679,13 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
     folderBuckets.set(manifest.checksum, bucket);
   }
   const expiresAt = Date.now() + 30 * 60_000;
+  const fileKeepers = [...fileBuckets.values()].filter((records) => records.length > 1)
+    .map((records) => orderKeepers(records, paths)[0]);
   const folderCandidates = [...folderBuckets.entries()]
     .filter(([, records]) => records.length > 1)
     .map(([fingerprint, records]) => ({
       fingerprint,
-      records: [...records].sort(compareRank),
+      records: orderKeepers(records, paths),
     }))
     .sort((left, right) => {
       const leftDepth = Math.min(...left.records.map((record) => (paths.get(record.id) ?? "").split(" / ").length));
@@ -605,6 +695,9 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
   const coveredFolderIds = new Set<string>();
   const selectedFolderCandidates = folderCandidates.filter((group) => {
     if (group.records.some((record) => hasAncestor(record, coveredFolderIds, filesById))) return false;
+    // Whole-folder cleanup must not override a file's independently chosen keeper.
+    const targets = new Set(group.records.slice(1).map((record) => record.id));
+    if (fileKeepers.some((file) => hasAncestor(file, targets, filesById))) return false;
     for (const record of group.records) coveredFolderIds.add(record.id);
     return true;
   });
@@ -614,7 +707,7 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
       hasAncestor(record, coveredFolderIds, filesById)));
 
   const fileGroups = await Promise.all(selectedFileBuckets.map(async ([fingerprint, input]) => {
-    const records = [...input].sort(compareRank);
+    const records = orderKeepers(input, paths);
     const keeper = records[0];
     const keeperDigest = checksum(keeper) ?? "";
     const output = await Promise.all(records.map(async (file) => ({
@@ -733,6 +826,8 @@ async function scan(request: Request, env: Required<GoogleDriveEnv>): Promise<Re
   const groups = [...folderGroups, ...fileGroups];
   groups.sort((a, b) => b.reclaimableBytes - a.reclaimableBytes);
   return json({
+    scanMode,
+    cache: snapshot && index ? { accountKey, snapshot, expiresAt: index.expiresAt } : null,
     examined,
     examinedBytes: files.reduce((total, file) => total + Number(file.size ?? 0), 0),
     skipped,
@@ -851,6 +946,7 @@ function auditOutcome(
 async function mutate(request: Request, env: Required<GoogleDriveEnv>, mode: OperationMode): Promise<Response> {
   requireSameOrigin(request);
   const { session, setCookie } = await authorizedSession(request, env);
+  session.requestSignal = request.signal;
   session.requestSignal = AbortSignal.any([request.signal, AbortSignal.timeout(35_000)]);
   const body = await request.json() as { items?: Array<{ id?: string; proof?: string }> };
   if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > MAX_MUTATION_ITEMS) {
@@ -978,7 +1074,17 @@ async function restore(request: Request, env: Required<GoogleDriveEnv>): Promise
       if (!response.ok) return outcome("failed", `Google Drive API 回覆 ${response.status}`);
       const result = await response.json() as { id?: string; trashed?: boolean };
       if (result.id !== payload.id || result.trashed !== false) return outcome("failed", "Google Drive 未確認項目已復原");
-      return outcome("restored", "已從 Google Drive 垃圾桶復原");
+      if (payload.itemKind === "file") {
+        try {
+          const [fresh, keeper] = await Promise.all([getFile(session, payload.id), getFile(session, payload.keeperId)]);
+          const renewed = { ...payload, version: fresh.version ?? "" };
+          if (!validateSnapshot(fresh, renewed, "trash") && !validateKeeper(keeper, renewed)) {
+            return { ...outcome("restored", "已復原並重新驗證檔案與保留副本"), refreshedVersion: fresh.version,
+              refreshedProof: await proof(renewed, env.SESSION_SECRET) };
+          }
+        } catch { /* Restoration succeeded; a verification failure must not undo that result. */ }
+      }
+      return outcome("restored", "已復原；請重新掃描後再整理此項目");
     } catch (error) {
       return outcome("failed", error instanceof Error ? error.message : "未知錯誤");
     }
@@ -1054,7 +1160,7 @@ export async function handleGoogleDriveApi(request: Request, env: GoogleDriveEnv
       const refreshed = await refreshSession(session, env);
       const accountResponse = await googleFetch(
         refreshed,
-        "https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress,photoLink)",
+        "https://www.googleapis.com/drive/v3/about?fields=user(permissionId,displayName,emailAddress,photoLink)",
       );
       const account = accountResponse.ok
         ? await accountResponse.json() as { user?: DriveUser }
@@ -1066,7 +1172,7 @@ export async function handleGoogleDriveApi(request: Request, env: GoogleDriveEnv
         SESSION_MAX_AGE_SECONDS,
       );
       return json(
-        { connected: true, configured: true, user: account.user ?? null },
+        { connected: true, configured: true, user: account.user ?? null, cacheKey: await indexAccount(account.user, env.SESSION_SECRET) },
         200,
         { "set-cookie": setCookie },
       );
@@ -1076,7 +1182,7 @@ export async function handleGoogleDriveApi(request: Request, env: GoogleDriveEnv
       const state = randomToken();
       const verifier = randomToken(48);
       const challenge = encodeBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", textEncoder.encode(verifier))));
-      const oauthCookie = await encrypt({ state, verifier }, env.SESSION_SECRET);
+      const oauthCookie = await encrypt({ state, verifier, locale: url.searchParams.get("lang") === "en" ? "en" : "zh-TW" }, env.SESSION_SECRET);
       const params = new URLSearchParams({
         client_id: env.GOOGLE_CLIENT_ID,
         redirect_uri: redirectUri(request),
@@ -1099,9 +1205,10 @@ export async function handleGoogleDriveApi(request: Request, env: GoogleDriveEnv
       });
     }
     if (url.pathname === "/api/google/callback" && request.method === "GET") {
-      const pending = await decrypt<{ state: string; verifier: string }>(parseCookies(request)[OAUTH_COOKIE], env.SESSION_SECRET);
+      const pending = await decrypt<{ state: string; verifier: string; locale?: string }>(parseCookies(request)[OAUTH_COOKIE], env.SESSION_SECRET);
+      const cleanerPath = pending?.locale === "en" ? "/en/cleaner/" : "/cleaner";
       if (!pending || pending.state !== url.searchParams.get("state") || !url.searchParams.get("code")) {
-        return Response.redirect(`${url.origin}/cleaner?error=oauth_state`, 302);
+        return Response.redirect(`${url.origin}${cleanerPath}?error=oauth_state`, 302);
       }
       const response = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
@@ -1115,14 +1222,14 @@ export async function handleGoogleDriveApi(request: Request, env: GoogleDriveEnv
           redirect_uri: redirectUri(request),
         }),
       });
-      if (!response.ok) return Response.redirect(`${url.origin}/cleaner?error=oauth_exchange`, 302);
+      if (!response.ok) return Response.redirect(`${url.origin}${cleanerPath}?error=oauth_exchange`, 302);
       const tokens = await response.json() as { access_token: string; refresh_token?: string; expires_in?: number };
       const session: OAuthSession = {
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token,
         expiresAt: Date.now() + (tokens.expires_in ?? 3600) * 1000,
       };
-      const headers = new Headers({ location: `${url.origin}/cleaner?connected=1`, "cache-control": "no-store" });
+      const headers = new Headers({ location: `${url.origin}${cleanerPath}?connected=1`, "cache-control": "no-store" });
       headers.append("set-cookie", cookie(SESSION_COOKIE, await encrypt(session, env.SESSION_SECRET), request, SESSION_MAX_AGE_SECONDS));
       headers.append("set-cookie", clearCookie(OAUTH_COOKIE, request));
       return new Response(null, { status: 302, headers });

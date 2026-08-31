@@ -106,10 +106,11 @@ test("ships PWA, crawler, sitemap and ad declarations", async () => {
 test("uses native navigation links that work in the deployed Worker", async () => {
   const source = await readFile(new URL("../app/components/site-shell.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(source, /next\/link|<Link/);
-  assert.match(source, /<a href="\/#features">功能特色<\/a>/);
-  assert.match(source, /<a href="\/download">Windows 客戶端<\/a>/);
+  const html = await (await render()).text();
+  assert.match(html, /<a href="\/#features">功能特色<\/a>/);
+  assert.match(html, /<a href="\/download">Windows 客戶端<\/a>/);
   assert.doesNotMatch(source, /href=\{download\}>免費下載/);
-  assert.match(source, /<a className="nav-cta" href="\/cleaner">/);
+  assert.match(html, /<a class="nav-cta" href="\/cleaner">/);
 });
 
 test("keeps responsive layouts stable and batch sounds bounded", async () => {
@@ -189,7 +190,7 @@ test("ships health scoring, persistent session status and a real trash restore p
   assert.doesNotMatch(healthSource, /duplicateGroups >= 50/);
   assert.match(clientSource, /fetch\("\/api\/auth\/session"/);
   assert.match(clientSource, /expiresAt: Date\.now\(\) \+ 10_000/);
-  assert.match(clientSource, /fetch\("\/api\/google\/restore"/);
+  assert.match(clientSource, /readJsonWithTimeout\("\/api\/google\/restore"/);
   assert.match(workerSource, /url\.pathname === "\/api\/auth\/session"/);
   assert.match(workerSource, /url\.pathname === "\/api\/google\/restore"/);
   assert.match(workerSource, /verifyProof\(item\.proof/);
@@ -236,11 +237,15 @@ test("presents Google Drive and recoverable Windows cleanup without an alarming 
 });
 
 test("renders a valid English alternate and keeps interface source free of emoji", async () => {
-  const response = await render("/en");
+  const redirect = await render("/en");
+  assert.equal(redirect.status, 301);
+  assert.equal(redirect.headers.get("location"), "http://localhost/en/");
+  const response = await render("/en/");
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /DUPESPACE is an open-source duplicate file cleaner/);
-  assert.match(html, /hrefLang="en" href="https:\/\/dupespace\.app\/en"/);
+  assert.match(html, /DUPESPACE is a free, open-source/);
+  assert.match(html, /hrefLang="en" href="https:\/\/dupespace\.app\/en\/"/);
+  assert.match(html, /<html lang="en"/);
   const sources = await Promise.all([
     "page.tsx", "components/cleaner-client.tsx", "components/hero-dashboard.tsx",
     "components/motion-showcase.tsx", "components/lower-page-motion.tsx", "components/site-shell.tsx", "components/github-stars.tsx",
@@ -257,6 +262,21 @@ test("renders legal and cleaner routes with security headers", async () => {
     assert.match(response.headers.get("x-content-type-options") ?? "", /nosniff/);
     assert.equal(response.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
   }
+});
+
+test("English routes have real server-rendered content, matching alternates and no cleaner ads", async () => {
+  for (const path of ["cleaner", "download", "privacy", "support", "terms"]) {
+    const response = await render(`/en/${path}/`);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.match(html, /<html lang="en"/);
+    assert.ok(html.includes(`rel="canonical" href="https://dupespace.app/en/${path}/"`));
+    assert.ok(html.includes(`hrefLang="zh-TW" href="https://dupespace.app/${path}"`));
+    assert.match(html, /<h1[^>]*>[^<]+/);
+    if (path === "cleaner") assert.doesNotMatch(html, /pagead2\.googlesyndication\.com\/pagead\/js/);
+  }
+  const redirect = await render("/en/cleaner?connected=1");
+  assert.equal(redirect.headers.get("location"), "http://localhost/en/cleaner/?connected=1");
 });
 
 test("excludes AdSense from the cleaner and safely redirects legacy hosts", async () => {
@@ -401,7 +421,7 @@ test("Drive-only login refreshes, displays the account, disconnects and reconnec
       return Response.json({ access_token: "synthetic-refreshed", expires_in: 3600 });
     }
     if (url.origin === "https://www.googleapis.com" && url.pathname === "/drive/v3/about") {
-      assert.equal(url.searchParams.get("fields"), "user(displayName,emailAddress,photoLink)");
+      assert.equal(url.searchParams.get("fields"), "user(permissionId,displayName,emailAddress,photoLink)");
       assert.equal(new Headers(init.headers).get("authorization"), "Bearer synthetic-refreshed");
       return Response.json({ user });
     }
@@ -420,11 +440,11 @@ test("Drive-only login refreshes, displays the account, disconnects and reconnec
   assert.doesNotMatch(sessionCookie, /synthetic|demo@example/);
   const account = await request("/api/auth/session", { headers: { cookie: sessionCookie } });
   assert.equal(account.status, 200);
-  assert.deepEqual(await account.json(), { connected: true, configured: true, user });
+  assert.deepEqual(await account.json(), { connected: true, configured: true, user, cacheKey: null });
   assert.match(account.headers.get("cache-control"), /no-store/);
   const renewedCookie = responseCookie(account, "dupespace_session");
   const revisited = await request("/api/auth/session", { headers: { cookie: renewedCookie } });
-  assert.deepEqual(await revisited.json(), { connected: true, configured: true, user });
+  assert.deepEqual(await revisited.json(), { connected: true, configured: true, user, cacheKey: null });
   const disconnected = await request("/api/google/disconnect", {
     method: "POST",
     headers: { cookie: renewedCookie, origin: "https://dupespace.example" },

@@ -46,7 +46,15 @@ const worker = {
       }, allowedWidths));
     }
 
-    return withSecurityHeaders(await handler.fetch(request, env, ctx));
+    const english = url.pathname === "/en" || url.pathname.startsWith("/en/");
+    if (english && !url.pathname.endsWith("/") && !url.pathname.split("/").at(-1)?.includes(".")) {
+      return withSecurityHeaders(Response.redirect(`${url.origin}${url.pathname}/${url.search}`, 301));
+    }
+    const headers = new Headers(request.headers);
+    // Derive locale from our route, never from a visitor-controlled request header.
+    headers.set("x-dupespace-locale", english ? "en" : "zh-TW");
+    if (english && url.pathname.endsWith("/")) url.pathname = url.pathname.slice(0, -1);
+    return withSecurityHeaders(await handler.fetch(new Request(url, new Request(request, { headers })), env, ctx));
   },
 };
 

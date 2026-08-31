@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { localizedAlternates } from "../../lib/seo";
 import { AdPanel } from "../components/ad-panel";
 import { SiteFooter, SiteHeader } from "../components/site-shell";
 import { BookOpenCheck } from "lucide-react";
@@ -6,7 +7,7 @@ import { BookOpenCheck } from "lucide-react";
 export const metadata: Metadata = {
   title: "重複檔案與 Windows 儲存空間整理指南",
   description: "了解如何安全清理 Windows 與 Google Drive 重複檔案，以及何時應改用 Windows 儲存空間感知與清理建議。",
-  alternates: { canonical: "/support" },
+  alternates: localizedAlternates("support"),
 };
 
 export default function SupportPage() {

@@ -5,7 +5,7 @@ import { Github, Star } from "lucide-react";
 
 const repository = "kaimeow1114-netizen/dupespace-duplicate-file-cleaner";
 
-export function GitHubStars() {
+export function GitHubStars({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" }) {
   const [stars, setStars] = useState<number | null>(null);
   useEffect(() => {
     fetch(`https://api.github.com/repos/${repository}`, { headers: { accept: "application/vnd.github+json" } })
@@ -15,5 +15,5 @@ export function GitHubStars() {
       })
       .catch(() => undefined);
   }, []);
-  return <a className="github-stars" href={`https://github.com/${repository}`} aria-label="在 GitHub 查看 DUPESPACE"><Github size={15} aria-hidden="true" /><b>GitHub</b>{stars !== null && <em><Star size={11} aria-hidden="true" />{stars.toLocaleString()}</em>}</a>;
+  return <a className="github-stars" href={`https://github.com/${repository}`} aria-label={locale === "en" ? "View DUPESPACE on GitHub" : "在 GitHub 查看 DUPESPACE"}><Github size={15} aria-hidden="true" /><b>GitHub</b>{stars !== null && <em><Star size={11} aria-hidden="true" />{stars.toLocaleString()}</em>}</a>;
 }

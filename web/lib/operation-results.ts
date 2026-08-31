@@ -10,7 +10,7 @@ export function hasCompleteOutcomes(
 ): boolean {
   const expected = new Set(ids);
   const actual = new Set(outcomes.map((item) => item.id));
-  const statuses = mode === "trash" ? ["trashed", "skipped", "failed"] : ["deleted", "skipped", "failed"];
+  const statuses = mode === "trash" ? ["trashed", "skipped", "failed"] : mode === "restore" ? ["restored", "skipped", "failed"] : ["deleted", "skipped", "failed"];
   return ids.length === expected.size && outcomes.length === ids.length && actual.size === expected.size &&
     outcomes.every((item) => expected.has(item.id) && item.operationMode === mode && statuses.includes(item.status));
 }

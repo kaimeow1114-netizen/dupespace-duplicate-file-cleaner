@@ -60,7 +60,7 @@ test("small verified mirror folders are preselected for trash only", async (t) =
   const result = await scan([
     folder("old-album", "2026-01-01T00:00:00Z"), folder("new-album", "2026-02-01T00:00:00Z"),
     file("a", { name: "photo.txt", parents: ["old-album"] }),
-    file("b", { name: "photo.txt", parents: ["new-album"] }),
+    file("b", { name: "photo.txt", parents: ["new-album"], createdTime: "2026-02-01T00:00:00Z" }),
   ], t);
   const records = result.groups.filter((g) => g.itemKind === "folder").flatMap((g) => g.records);
   assert.equal(records.length, 2);

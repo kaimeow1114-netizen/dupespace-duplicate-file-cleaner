@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
+import { localizedAlternates } from "../../lib/seo";
 import { CalendarDays } from "lucide-react";
 import { SiteFooter, SiteHeader } from "../components/site-shell";
 
 export const metadata: Metadata = {
   title: "隱私權政策",
   description: "DUPESPACE 如何處理 Google Drive 中繼資料、OAuth 憑證、CSV 報告、裝置端偏好與廣告 Cookie。",
-  alternates: { canonical: "/privacy" },
+  alternates: localizedAlternates("privacy"),
 };
 
 export default function PrivacyPage() {
@@ -27,6 +28,8 @@ export default function PrivacyPage() {
         <h2>操作、復原與稽核報告</h2>
         <p>垃圾桶、快速復原與永久刪除使用不同 API 路徑，垃圾桶失敗不會自動改用永久刪除。10 秒快速復原只接受原始簽章掃描證明，並重新確認項目確實位於垃圾桶、由登入者本人擁有且不在共用雲端硬碟。結果可匯出 CSV，內容可能含項目類型、名稱、完整父資料夾路徑、檔案 ID、大小、校驗碼、模式及失敗原因；CSV 只由你的瀏覽器產生並下載。</p>
         <h2>裝置端整理偏好</h2>
+        <p>為加快後續掃描，瀏覽器 IndexedDB 可保存加密中繼資料索引，有效期限為 7 天；過期後不再使用，於下次讀取時清除。您也可隨時清除快取或中斷連線。索引包含檔案 ID、名稱、父資料夾關係、大小、時間、版本、權限與校驗碼，不包含原始檔案、縮圖影像、OAuth 存取權杖或更新權杖。索引使用伺服器金鑰加密及完整性保護，並綁定登入帳號；同步時暫時回傳伺服器驗證及讀取 Google Drive 變更，不建立伺服器端持久檔案資料庫。</p>
+        <p>快取不是刪除授權，每次清理仍需重新驗證。索引失效、超出容量限制或資料夾結構與權限改變時，會改為完整掃描。你可按「清除掃描快取」、中斷連線或使用瀏覽器清除網站資料移除索引。加密不能防止已遭入侵的瀏覽器或裝置在登入期間讀取畫面資料，請勿在不信任的公用裝置保持登入。</p>
         <p>儲存健康趨勢、防護設定檔及容量費用等值計算的輸入只保存在目前瀏覽器的 localStorage。趨勢僅含時間、彙總評分及累計釋放容量，不保存檔名、路徑、檔案 ID 或 Google 帳號；可透過瀏覽器網站資料設定清除。</p>
         <h2>廣告與 Cookie</h2>
         <p>本網站使用 Google AdSense。Google 及其合作夥伴可能依其政策使用 Cookie 或類似技術提供、衡量及個人化廣告。訪客可在 Google 的廣告設定中管理個人化選項。</p>

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -9,13 +10,13 @@ export const metadata: Metadata = {
     canonical: "https://dupespace.app/",
     languages: {
       "zh-TW": "https://dupespace.app/",
-      en: "https://dupespace.app/en",
+      en: "https://dupespace.app/en/",
       "x-default": "https://dupespace.app/",
     },
   },
   applicationName: "DUPESPACE",
   category: "utilities",
-  keywords: ["重複檔案刪除", "重複檔案清理", "重複檔案搜尋", "Google Drive 重複檔案", "雲端硬碟清理", "Windows 重複檔案工具", "duplicate file cleaner", "Google Drive duplicate file cleaner"],
+  keywords: ["重複檔案刪除", "重複檔案清理", "重複檔案搜尋", "Google Drive 重複檔案", "雲端硬碟清理", "Windows 重複檔案工具", "duplicate file cleaner", "Google Drive duplicate file cleaner", "Google Drive cleaner", "drive cleaner"],
   manifest: "/site.webmanifest",
   icons: {
     icon: [{ url: "/favicon.ico" }, { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" }, { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" }],
@@ -36,13 +37,14 @@ export const metadata: Metadata = {
   other: { "msapplication-TileColor": "#082b40", "msapplication-TileImage": "/mstile-150x150.png" },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale = (await headers()).get("x-dupespace-locale") === "en" ? "en" : "zh-TW";
   return (
-    <html lang="zh-TW">
+    <html lang={locale}>
       <head>
         <meta name="theme-color" content="#082b40" />
         <meta name="google-adsense-account" content="ca-pub-7998471640181666" />

@@ -289,22 +289,30 @@ def _load_google_modules() -> tuple[Any, Any, Any, Any]:
 
 def _desktop_oauth_config() -> dict[str, Any]:
     client_id = os.getenv("DUPESPACE_GOOGLE_DESKTOP_CLIENT_ID", "")
+    client_secret = os.getenv("DUPESPACE_GOOGLE_DESKTOP_CLIENT_SECRET", "")
     try:
-        from ._desktop_oauth import CLIENT_ID
+        from . import _desktop_oauth
 
-        client_id = CLIENT_ID or client_id
+        client_id = _desktop_oauth.CLIENT_ID or client_id
+        client_secret = getattr(_desktop_oauth, "CLIENT_SECRET", "") or client_secret
     except ImportError:
         pass
     if not client_id:
         raise DriveAuthenticationError(
             "這個開發版本尚未注入 DUPESPACE Google Desktop OAuth Client ID。"
         )
+    if not client_secret:
+        raise DriveAuthenticationError(
+            "此版本缺少 Google Desktop Client 配套設定，請更新桌面版；"
+            "不是 Google 帳號或密碼錯誤。"
+        )
     return {
         "installed": {
             "client_id": client_id,
-            # A native app cannot keep a client secret. Google authenticates this public
-            # client with the loopback redirect and PKCE instead of a bundled secret.
-            "client_secret": "",
+            # Google's Desktop client may require its issued value at token exchange.
+            # It is extractable native-client material, NOT the confidential Web secret.
+            # PKCE + state + loopback and user authorization remain the security boundary.
+            "client_secret": client_secret,
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
             "redirect_uris": ["http://localhost"],
@@ -335,9 +343,15 @@ def build_drive_service(
         installed = data["installed"]
         if not isinstance(installed, dict) or not installed.get("client_id"):
             raise DriveAuthenticationError("OAuth Desktop app JSON 缺少 Client ID")
-        # Ignore the generated Desktop client secret even when an older Google JSON file
-        # contains one. Native client secrets are public material and must not be relied on.
-        data = {"installed": {**installed, "client_secret": ""}}
+        if not installed.get("client_secret"):
+            raise DriveAuthenticationError(
+                "Desktop OAuth JSON 缺少桌面 Client 配套設定，請重新下載桌面專用 JSON。"
+            )
+        # Never accept arbitrary token/auth hosts from an imported configuration.
+        data = {"installed": {**installed,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }}
 
     Request, Credentials, InstalledAppFlow, build = _load_google_modules()
     explicit_token_file = Path(token_path) if token_path else None
@@ -378,7 +392,13 @@ def build_drive_service(
                     DESKTOP_SCOPES,
                     autogenerate_code_verifier=True,
                 )
-                creds = flow.run_local_server(port=0, open_browser=True, timeout_seconds=180)
+                creds = flow.run_local_server(
+                    host="127.0.0.1", port=0, open_browser=True, timeout_seconds=180,
+                    success_message=(
+                        "DUPESPACE received Google's response. "
+                        "Return to the app to finish verification."
+                    ),
+                )
             except Exception as error:  # noqa: BLE001 - normalize auth library errors
                 raise DriveAuthenticationError(f"Google OAuth 登入失敗：{error}") from error
 

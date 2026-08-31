@@ -127,7 +127,8 @@ a full summary and countdown.
 - Windows 10/11 for the desktop app (core tests also run on Linux/macOS)
 - Python 3.10+ when running from source
 - A release build whose protected GitHub Actions configuration injects the public Desktop OAuth
-  Client ID; no Desktop Client Secret is used or bundled
+  Client ID and its Google-issued Desktop-only companion value. Native client values are
+  extractable from the installer and are not a security boundary; Web secrets are never bundled.
 
 Download
 [DupeSpace-Setup.exe](https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner/releases/latest/download/DupeSpace-Setup.exe).
@@ -154,18 +155,18 @@ published web runtime or the Windows desktop application.
 2. Configure the OAuth consent screen and add test users until verification is approved.
 3. Create a **Desktop application** client for the Windows app and a separate **Web application**
    client for `https://dupespace.app`.
-4. Authorize the existing Drive scope and `userinfo.email` for the desktop identity label.
+4. Authorize the existing Drive scope. The identity label comes from Drive `about.user`, without a new email scope.
 5. Never put a Web Client Secret in the desktop application or GitHub.
 
-The Desktop app is a public/native OAuth client: it uses a loopback redirect and PKCE, and does
-not use a client secret. A secret embedded in an EXE could always be extracted, even if it passed
-through GitHub Actions Secrets first. The web client is confidential and keeps its secret only in
-the Sites runtime secret store.
+The Desktop app is a public/native OAuth client: it uses a loopback redirect and PKCE. Google
+may require the issued Desktop client companion value during token exchange. The build accepts
+only `DUPESPACE_GOOGLE_DESKTOP_CLIENT_ID` and `DUPESPACE_GOOGLE_DESKTOP_CLIENT_SECRET`.
+That value is extractable from an EXE, even when supplied through Actions Secrets; it does not
+replace user consent, PKCE, state validation or Windows DPAPI token protection. The confidential
+Web client secret stays only in the Sites runtime secret store.
 
 DUPESPACE uses the restricted `https://www.googleapis.com/auth/drive` scope because finding and
-managing pre-existing duplicates cannot use the narrower `drive.file` scope. The desktop also asks
-for `https://www.googleapis.com/auth/userinfo.email` only to identify the connected account in its
-sidebar. Both trash and permanent deletion use the same Drive scope; permanent deletion does not
+managing pre-existing duplicates cannot use the narrower `drive.file` scope. Both trash and permanent deletion use the same Drive scope; permanent deletion does not
 add another Drive permission. Public distribution requires Google verification and may require a
 security assessment.
 
@@ -210,12 +211,26 @@ powershell -File scripts/build_windows.ps1 -Python .venv/Scripts/python.exe
 
 The executable is written to `dist\DupeSpace\`; the installer is
 `release\DupeSpace-Setup.exe`. Tagged GitHub releases build and publish the installer
-automatically. Only the public Desktop OAuth Client ID is injected from protected Actions
-configuration during the release build; the Web Client Secret is never bundled.
+automatically. Desktop-only OAuth configuration is injected from protected Actions configuration
+during the release build; missing values fail the build. The Web Client Secret is never bundled.
 The build keeps Qt DLLs separate and includes third-party notices and LGPL/GPL license texts.
 See `src/dupespace/assets/third-party-notices.txt` for source/rebuild and library replacement details.
 
 ## Known limits
+
+- Keeper selection: protection rules first, then earliest reliable creation time. If any eligible
+  candidate lacks a usable creation time, compare full path lengths for the whole group; equal
+  creation times also use shorter paths. Modification time is never a substitute. This is a
+  deterministic policy, not proof that a file was historically the original.
+- Repeat web scans can use an account-bound, AES-GCM encrypted browser index valid for seven days.
+  It contains metadata, never OAuth tokens or original file contents. The server replays Drive
+  changes and issues fresh operation proofs. Tampering, account mismatch, expiry and folder
+  structure changes require a full scan. Serialized indices above 4 MiB are not cached.
+- Undo updates only confirmed restored items without a full scan. Fresh file proofs require
+  target and keeper revalidation; restored folders must be rescanned before another cleanup.
+  Clearing the scan cache or disconnecting invalidates in-flight results in other open tabs.
+- Real English pages are available under `/en/`, with matching canonical and language alternate
+  links. Chinese URLs remain unchanged; Japanese pages are not published yet.
 
 - Google Workspace-native files do not expose a stable binary checksum and are skipped. Shortcuts,
   non-owner folders, shared drives, project/package trees, and unverifiable folder descendants are

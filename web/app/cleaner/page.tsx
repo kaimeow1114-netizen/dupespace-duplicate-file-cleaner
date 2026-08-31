@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { localizedAlternates } from "../../lib/seo";
 import { CleanerClient } from "../components/cleaner-client";
 import { SiteFooter, SiteHeader } from "../components/site-shell";
 import { ArrowRight, Cloud, HardDrive, ShieldCheck } from "lucide-react";
@@ -6,7 +7,7 @@ import { ArrowRight, Cloud, HardDrive, ShieldCheck } from "lucide-react";
 export const metadata: Metadata = {
   title: "重複檔案清理器｜Google Drive 與 Windows",
   description: "線上清理 Google Drive，或使用 Windows 桌面版安全整理本機資料夾。預設移至垃圾桶，每個重複群組至少保留一份。",
-  alternates: { canonical: "/cleaner" },
+  alternates: localizedAlternates("cleaner"),
 };
 
 export default function CleanerPage() {

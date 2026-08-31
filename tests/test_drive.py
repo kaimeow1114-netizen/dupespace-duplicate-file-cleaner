@@ -143,18 +143,19 @@ def record(file_id: str, parent_ids: tuple[str, ...] = ()) -> FileRecord:
     )
 
 
-def test_desktop_oauth_uses_public_client_id_without_secret(monkeypatch: Any) -> None:
+def test_desktop_oauth_uses_only_desktop_specific_configuration(monkeypatch: Any) -> None:
     monkeypatch.setenv("DUPESPACE_GOOGLE_DESKTOP_CLIENT_ID", "desktop.apps.googleusercontent.com")
-    monkeypatch.setenv("DUPESPACE_GOOGLE_DESKTOP_CLIENT_SECRET", "must-not-be-used")
+    monkeypatch.setenv("DUPESPACE_GOOGLE_DESKTOP_CLIENT_SECRET", "synthetic-desktop-value")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "web-secret-must-not-be-used")
 
     config = _desktop_oauth_config()
 
     assert config["installed"]["client_id"] == "desktop.apps.googleusercontent.com"
-    assert config["installed"]["client_secret"] == ""
-    assert "must-not-be-used" not in str(config)
+    assert config["installed"]["client_secret"] == "synthetic-desktop-value"
+    assert "web-secret-must-not-be-used" not in str(config)
 
 
-def test_desktop_oauth_enables_pkce_and_strips_json_secret(
+def test_desktop_oauth_enables_pkce_and_preserves_desktop_configuration(
     monkeypatch: Any,
     tmp_path: Any,
 ) -> None:
@@ -206,10 +207,13 @@ def test_desktop_oauth_enables_pkce_and_strips_json_secret(
     )
 
     assert service == "drive-service"
-    assert calls["config"]["installed"]["client_secret"] == ""
+    assert calls["config"]["installed"]["client_secret"] == "generated-but-public"
     assert calls["scopes"] == DESKTOP_SCOPES
     assert calls["kwargs"] == {"autogenerate_code_verifier": True}
-    assert calls["server"] == {"port": 0, "open_browser": True, "timeout_seconds": 180}
+    assert calls["server"]["host"] == "127.0.0.1"
+    assert calls["server"]["port"] == 0
+    assert calls["server"]["open_browser"] is True
+    assert calls["server"]["timeout_seconds"] == 180
 
 
 def test_noninteractive_auth_never_opens_browser(monkeypatch, tmp_path):

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { localizedAlternates } from "../../lib/seo";
 import Image from "next/image";
 import { HardDriveDownload, Info } from "lucide-react";
 import { SiteFooter, SiteHeader } from "../components/site-shell";
@@ -9,7 +10,7 @@ const installer = `${repo}/releases/latest/download/DupeSpace-Setup.exe`;
 export const metadata: Metadata = {
   title: "免費下載 Windows 重複檔案清理工具",
   description: "下載 DUPESPACE Windows 版前，先了解最舊檔保護、程式碼專案排除與資源回收筒規則。",
-  alternates: { canonical: "/download" },
+  alternates: localizedAlternates("download"),
 };
 
 export default function DownloadPage() {
@@ -23,7 +24,7 @@ export default function DownloadPage() {
             <h1><span className="heading-phrase">先看清楚用途，</span><wbr /><span className="heading-phrase">再清理副本。</span></h1>
             <p>DUPESPACE 只遞迴掃描您加入的本機資料夾，以完整 SHA-256 找出精確重複檔，每組最舊的一份自動鎖定。程式碼專案與系統位置不會成為刪除候選。</p>
             <div className="download-actions"><a className="button mint" href={installer}>下載 DupeSpace-Setup.exe</a><a className="button ghost" href={repo}>查看 GitHub 原始碼</a></div>
-            <small className="download-note">v1.3.0 · 免費使用 · MIT License · 安裝時可選擇建立桌面捷徑 · 內建安全更新</small>
+            <small className="download-note">免費使用 · MIT License · 安裝時可選擇建立桌面捷徑 · 內建安全更新</small>
           </div>
           <div className="download-product-card"><Image src="/dupespace-icon.png" alt="DUPESPACE 應用程式圖示" width={220} height={220} priority unoptimized /><b>DUPESPACE</b><span>Windows duplicate file cleaner</span></div>
         </div>

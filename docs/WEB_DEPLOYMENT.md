@@ -23,9 +23,10 @@ proof that expires after 30 minutes.
    users outside the test list cannot be promised access before approval; Google may also require
    an independent security assessment.
 
-The Desktop app uses only its public Client ID, a random loopback redirect, and PKCE. Do not create,
-store, or inject a Desktop Client Secret as a security control: native applications cannot keep one
-confidential after distribution. The web secret remains a Sites secret environment variable and
+The Desktop app uses a public Client ID, a random loopback redirect, PKCE, and the Google-issued
+Desktop-only companion value when required by token exchange. This value is not a security control:
+native applications cannot keep it confidential after distribution. Release builds use only the
+Desktop-specific Actions Secrets, never the Web secret. The Web secret remains a Sites secret environment variable and
 must never be printed by builds, request logs, diagnostics, or error pages. Rotate it and
 `SESSION_SECRET` after any suspected exposure. The encrypted Secure/HttpOnly/SameSite login cookie
 uses a sliding 30-day maximum age and is rotated on authenticated use; server-signed scan proofs

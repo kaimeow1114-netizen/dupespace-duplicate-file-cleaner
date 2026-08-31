@@ -101,7 +101,7 @@ def test_single_cleanup_root_keeps_oldest_copy_without_required_keep_zone(
     os.utime(older, (1_700_000_000, 1_700_000_000))
     os.utime(newer, (1_710_000_000, 1_710_000_000))
     # os.utime does not set Windows creation time; both writes can share one clock tick.
-    # Exercise explicit creation times and the modification-time fallback deterministically.
+    # Missing creation times use the shorter path, never modification time.
     monkeypatch.setattr(
         "dupespace.local._creation_time",
         lambda metadata: metadata.st_mtime if has_birth_time else None,
@@ -112,8 +112,9 @@ def test_single_cleanup_root_keeps_oldest_copy_without_required_keep_zone(
 
     assert report.examined_files == 2
     assert len(report.groups) == 1
-    assert report.groups[0].keeper.location == str(older)
-    assert default_selection(report.groups) == {f"local:{newer}"}
+    expected_keeper, expected_copy = (older, newer) if has_birth_time else (newer, older)
+    assert report.groups[0].keeper.location == str(expected_keeper)
+    assert default_selection(report.groups) == {f"local:{expected_copy}"}
 
 
 def test_protected_copy_and_only_outside_copy_are_both_retained(

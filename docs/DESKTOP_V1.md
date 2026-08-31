@@ -12,7 +12,7 @@ scores are used. The existing DUPESPACE icon and original sounds are retained.
 - The sidebar collapses, and its bottom account area shows unauthenticated state or the connected
   Google identity and avatar.
 - Account email comes from Drive's authenticated `about.user`; Desktop OAuth uses the existing
-  Drive scope plus `userinfo.email` for the identity label.
+  Drive scope without a separate email scope for the identity label.
 - Root profiles are explicit, local-only, revalidated on load, and never store unlocked state.
 - The result model virtualizes rows without creating a checkbox widget for each file.
 - A full-path detail view includes safe local image previews or two folder trees.
