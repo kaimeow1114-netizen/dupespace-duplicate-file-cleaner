@@ -18,6 +18,8 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install -e ".[build,dev]"
+      - name: Verify release version sources and tag
+        run: python scripts/check_release_version.py
       - run: python -m ruff check .
       - run: python -m pytest -vv -o faulthandler_timeout=30
         timeout-minutes: 5
