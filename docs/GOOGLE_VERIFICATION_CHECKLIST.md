@@ -29,7 +29,7 @@ Drive scope 仍需審核：掃描既有檔案、垃圾桶、復原及明確確�
 適用於「您預計如何使用這些範圍？」欄位，少於 1,000 個字元。提交前須確認最終部署行為與影片相符。
 
 ```text
-DUPESPACE finds exact duplicates already in a user's Google Drive. It reads IDs, names, parents, sizes, timestamps, versions, ownership, capabilities and checksums to compare duplicates and protect a keeper. Only user-selected, revalidated copies are trashed; users can restore them. Permanent deletion is a separate, explicitly confirmed option for regular files only. drive.file cannot discover or manage existing files not individually granted to the app; read-only scopes cannot trash, restore or delete them. We do not download, upload or modify file contents or sharing permissions. Necessary metadata transits the web service; file contents do not. Web tokens use encrypted HttpOnly cookies; desktop tokens stay on the user's PC. Google API data is used only for these user-facing features, not advertising or sale. Drive about.get identifies the connected account. CSV reports are generated locally.
+DUPESPACE finds exact duplicates in a user's Google Drive. It reads file and folder IDs, names, parents, sizes, timestamps, versions, ownership, capabilities, thumbnail links and checksums to compare files and protect one keeper per group. Small Google-generated previews may transit the web service for authenticated review; they are not stored or shared with advertisers. Original file contents are not downloaded or uploaded. Only user-selected, revalidated copies are trashed and can be restored. Permanent deletion is separate, explicitly confirmed and limited to regular files. drive.file cannot discover existing Drive-wide duplicates; read-only scopes cannot trash, restore or delete selected copies. Web tokens use encrypted HttpOnly cookies; desktop tokens remain on the PC under Windows DPAPI. Google API data is used only for these user-facing features, never advertising or sale. Drive about.get identifies the account. CSV reports are generated locally.
 ```
 
 2026-09-01 已將用途分類改為僅「雲端硬碟效率提升」，Console 顯示「已儲存資料存取權變更」。沒有新增範圍、修改 OAuth Client 或 Secret。DUPESPACE 的實際用途是生產力／檔案整理，不應聲稱提供未實作的同步或備份功能。
@@ -51,6 +51,8 @@ DUPESPACE finds exact duplicates already in a user's Google Drive. It reads IDs,
 - 關閉並重新啟動同一版本後，沒有再次開啟授權頁，帳號自動恢復；DPAPI 權杖只檢查檔案存在、大小與修改時間，未讀取或輸出內容。
 - 執行只讀 Drive 掃描後成功檢查 243 個檔案並顯示結果；沒有執行垃圾桶、復原或永久刪除。
 - 此驗收證明目前程式可用，不會補足既有影片可能缺少的 Desktop OAuth Client 示範。提交前仍須確認影片清楚展示 Desktop 授權畫面與 Client、回到程式後顯示帳號，以及至少一次 Drive 功能。
+- 已逐段核對既有影片：03:50 是桌面安裝、04:36 是本機掃描，05:06 起顯示本機 AppData 稽核紀錄；影片在 05:30 結束。沒有完整展示 Desktop OAuth 同意畫面、回到程式後的帳號狀態或 Desktop Drive 掃描，因此不能據此聲稱涵蓋 Desktop OAuth Client。
+- Console 的用途說明已改成 967 字元的精確資料流敘述並顯示「已儲存資料存取權變更」；影片網址維持不變。尚未按下最終送審。
 
 ## 真實示範影片清單
 
