@@ -4,6 +4,8 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
+import pytest
+
 import dupespace.drive as drive_module
 from dupespace.drive import (
     DESKTOP_SCOPES,
@@ -208,12 +210,109 @@ def test_desktop_oauth_enables_pkce_and_preserves_desktop_configuration(
 
     assert service == "drive-service"
     assert calls["config"]["installed"]["client_secret"] == "generated-but-public"
-    assert calls["scopes"] == DESKTOP_SCOPES
+    assert calls["scopes"] == ["https://www.googleapis.com/auth/drive"]
     assert calls["kwargs"] == {"autogenerate_code_verifier": True}
     assert calls["server"]["host"] == "127.0.0.1"
     assert calls["server"]["port"] == 0
     assert calls["server"]["open_browser"] is True
     assert calls["server"]["timeout_seconds"] == 180
+
+
+def test_desktop_authorization_url_requests_drive_only_with_pkce() -> None:
+    from urllib.parse import parse_qs, urlparse
+
+    from google_auth_oauthlib.flow import InstalledAppFlow
+
+    flow = InstalledAppFlow.from_client_config(
+        {"installed": {
+            "client_id": "synthetic-desktop.apps.googleusercontent.com",
+            "client_secret": "synthetic-public-desktop-value",
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }},
+        DESKTOP_SCOPES,
+        autogenerate_code_verifier=True,
+    )
+    flow.redirect_uri = "http://127.0.0.1:49152/"
+    url, state = flow.authorization_url()
+    query = parse_qs(urlparse(url).query)
+    assert query["scope"] == ["https://www.googleapis.com/auth/drive"]
+    assert query["code_challenge_method"] == ["S256"]
+    assert query["code_challenge"][0]
+    assert query["state"] == [state]
+    assert query.get("include_granted_scopes") != ["true"]
+    assert "client_secret" not in query
+
+
+@pytest.mark.parametrize("legacy_email", [False, True])
+@pytest.mark.parametrize("expired", [False, True])
+def test_desktop_reuses_drive_tokens_without_email_or_new_consent(
+    monkeypatch: Any, legacy_email: bool, expired: bool,
+) -> None:
+    import json
+    from datetime import datetime, timedelta, timezone
+
+    from google.oauth2.credentials import Credentials
+
+    scopes = ["https://www.googleapis.com/auth/drive"]
+    if legacy_email:
+        scopes.append("https://www.googleapis.com/auth/userinfo.email")
+    expiry = datetime.now(timezone.utc) + timedelta(hours=-1 if expired else 1)
+    token = {
+        "token": "synthetic-access-token",
+        "refresh_token": "synthetic-refresh-token",
+        "client_id": "synthetic-desktop.apps.googleusercontent.com",
+        "client_secret": "synthetic-public-desktop-value",
+        "scopes": scopes,
+        "expiry": expiry.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    saved = []
+    refresh_scopes = []
+
+    def fake_refresh(credentials: Any, _request: Any) -> None:
+        refresh_scopes.append(credentials.scopes)
+        credentials.token = "synthetic-refreshed-token"
+        credentials.expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1)
+
+    class NoConsentFlow:
+        @staticmethod
+        def from_client_config(*_args: Any, **_kwargs: Any) -> None:
+            pytest.fail("Existing Drive consent must not require a new email grant")
+
+    monkeypatch.setattr(drive_module, "_desktop_oauth_config", lambda: {"installed": {}})
+    monkeypatch.setattr(drive_module, "load_protected_token", lambda: json.dumps(token))
+    monkeypatch.setattr(drive_module, "save_protected_token", saved.append)
+    monkeypatch.setattr(Credentials, "refresh", fake_refresh)
+    monkeypatch.setattr(drive_module, "_load_google_modules", lambda: (
+        object, Credentials, NoConsentFlow, lambda *_args, **kwargs: kwargs["credentials"],
+    ))
+
+    credentials = build_drive_service(interactive=False)
+    assert credentials.scopes == ["https://www.googleapis.com/auth/drive"]
+    assert credentials.valid
+    assert len(saved) == int(expired)
+    assert refresh_scopes == ([["https://www.googleapis.com/auth/drive"]] if expired else [])
+
+
+def test_desktop_identity_uses_drive_about_without_userinfo_endpoint() -> None:
+    calls = []
+
+    class AboutService:
+        def about(self) -> AboutService:
+            return self
+
+        def get(self, **kwargs: Any) -> FakeRequest:
+            calls.append(kwargs)
+            return FakeRequest({"user": {
+                "displayName": "Test User",
+                "emailAddress": "test@example.com",
+                "photoLink": "https://lh3.googleusercontent.com/synthetic-avatar",
+            }})
+
+    assert drive_module.desktop_account_identity(AboutService()) == (
+        "Test User", "test@example.com", "https://lh3.googleusercontent.com/synthetic-avatar",
+    )
+    assert calls == [{"fields": "user(displayName,emailAddress,photoLink)"}]
 
 
 def test_noninteractive_auth_never_opens_browser(monkeypatch, tmp_path):

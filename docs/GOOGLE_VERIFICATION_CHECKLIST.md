@@ -1,18 +1,18 @@
 # DUPESPACE Google 資料存取權驗證
 
-更新：2026-08-29。這是送審準備文件，不代表已通過審查。
+更新：2026-09-01。這是送審準備文件，不代表已通過審查。
 
 ## 已查證狀態
 
 - 專案 `dupespace-app` 的品牌已完成驗證並發布。
-- 資料存取權尚未驗證；範圍用途說明已儲存，目前仍缺真實示範影片，尚未送審。
+- 資料存取權尚未驗證；範圍用途說明與影片 `https://youtu.be/WefrLDgKWpQ` 已在 Console 中儲存，尚未送審。
 - 已在 Google Cloud 移除 `userinfo.email`；目前保留受限制的 `drive` 範圍。
 - 現有用戶端是 `DUPESPACE Web` 與 `DUPESPACE Desktop`；影片應涵蓋兩者。
 - 這不是 Gmail 收信驗證。不需要新增 Gmail API 或 Gmail 讀取權限。
 
 ## 最小權限檢查
 
-原本網頁在授權時要求 `openid email https://www.googleapis.com/auth/drive`，但沒有使用 OpenID ID token 或 userinfo endpoint；帳號名稱與電子郵件透過 Drive `about.get` 取得。Desktop 僅要求 `drive`。
+原本網頁在授權時要求 `openid email https://www.googleapis.com/auth/drive`，但沒有使用 OpenID ID token 或 userinfo endpoint；帳號名稱與電子郵件透過 Drive `about.get` 取得。2026-09-01 查核發現桌面原始碼仍要求 `userinfo.email`，與 Cloud 宣告不一致；經使用者同意，本次已將原始碼改為僅要求 `drive`。既有已發布安裝檔尚不能視為已更新，仍須完成新建置及真人登入驗收。
 
 使用者已同意移除網頁未使用的 `openid email` 與 Google Cloud 的 `userinfo.email` 宣告。正式網站已部署為只要求 `drive`，並關閉 `include_granted_scopes`，不主動合併過去無關的授權。帳號顯示仍使用 Drive `about.get`。已實測正式 `/api/google/start` 的範圍與 callback，並在 Google Cloud 一般資料存取權設定頁儲存範圍及 907 字元用途說明；Console 顯示「已儲存資料存取權變更」。驗證模式仍要求影片，沒有提交審查。
 
@@ -32,7 +32,17 @@ Drive scope 仍需審核：掃描既有檔案、垃圾桶、復原及明確確�
 DUPESPACE finds exact duplicates already in a user's Google Drive. It reads IDs, names, parents, sizes, timestamps, versions, ownership, capabilities and checksums to compare duplicates and protect a keeper. Only user-selected, revalidated copies are trashed; users can restore them. Permanent deletion is a separate, explicitly confirmed option for regular files only. drive.file cannot discover or manage existing files not individually granted to the app; read-only scopes cannot trash, restore or delete them. We do not download, upload or modify file contents or sharing permissions. Necessary metadata transits the web service; file contents do not. Web tokens use encrypted HttpOnly cookies; desktop tokens stay on the user's PC. Google API data is used only for these user-facing features, not advertising or sale. Drive about.get identifies the connected account. CSV reports are generated locally.
 ```
 
-用途分類目前已選為「雲端硬碟效率提升和雲端硬碟同步處理用戶端」。DUPESPACE 的實際用途是生產力／檔案整理，不應聲稱提供未實作的同步或備份功能。
+2026-09-01 已將用途分類改為僅「雲端硬碟效率提升」，Console 顯示「已儲存資料存取權變更」。沒有新增範圍、修改 OAuth Client 或 Secret。DUPESPACE 的實際用途是生產力／檔案整理，不應聲稱提供未實作的同步或備份功能。
+
+## 本次送審前檢查
+
+- 新增桌面授權 URL 測試，確認只有 `drive`、使用 S256 PKCE、包含 state、不主動合併舊 scope，也不將 Client Secret 放入授權 URL。
+- 新增 Drive-only 與舊 Drive/email 憑證的有效／過期更新測試，避免額外 email 授權提示；帳號資訊仍走 Drive `about.get`。測試使用合成 Token，不讀取真實使用者憑證。
+- 不撤銷既有 Google 授權；縮減新請求不代表過去已授予的 email 權限被撤銷。
+- 影片已提供，仍需核對 Desktop Client 的完整 OAuth 授權與 Drive 操作片段，不能用本機掃描替代雲端功能示範。
+- 影片說明中的 GitHub 連結應為 `https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner`。
+- 送審文字必須區分原始檔案內容與 Google 產生的預覽縮圖，不應將縮圖代理描述成完全沒有圖像資料傳輸。
+- Google 若要求 CASA 或付費安全評估，先取得使用者同意，不擅自承諾費用。
 
 ## 真實示範影片清單
 

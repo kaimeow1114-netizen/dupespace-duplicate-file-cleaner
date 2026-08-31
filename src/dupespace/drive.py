@@ -37,8 +37,8 @@ from .token_store import (
 MINIMUM_AUTO_SELECT_BYTES = 1
 
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
-EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email"
-DESKTOP_SCOPES = [DRIVE_SCOPE, EMAIL_SCOPE]
+# Account name, email and avatar come from Drive about.get; no userinfo scope is needed.
+DESKTOP_SCOPES = [DRIVE_SCOPE]
 GOOGLE_FOLDER_MIME = "application/vnd.google-apps.folder"
 GOOGLE_SHORTCUT_MIME = "application/vnd.google-apps.shortcut"
 BATCH_LIMIT = 100
