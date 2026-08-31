@@ -44,6 +44,14 @@ DUPESPACE finds exact duplicates already in a user's Google Drive. It reads IDs,
 - 送審文字必須區分原始檔案內容與 Google 產生的預覽縮圖，不應將縮圖代理描述成完全沒有圖像資料傳輸。
 - Google 若要求 CASA 或付費安全評估，先取得使用者同意，不擅自承諾費用。
 
+### 2026-09-01 Desktop 真人驗收
+
+- 使用 Actions run `33435717324` 的可攜式驗證版本進行，程式路徑與執行中視窗已核對；不是先前缺少 Desktop OAuth 配套值的舊建置。
+- 使用者親自在 Google 頁面完成授權。DUPESPACE 成功顯示帳號名稱、信箱、頭像及「掃描 Google Drive」，沒有再產生 `client_secret is missing` 診斷事件。
+- 關閉並重新啟動同一版本後，沒有再次開啟授權頁，帳號自動恢復；DPAPI 權杖只檢查檔案存在、大小與修改時間，未讀取或輸出內容。
+- 執行只讀 Drive 掃描後成功檢查 243 個檔案並顯示結果；沒有執行垃圾桶、復原或永久刪除。
+- 此驗收證明目前程式可用，不會補足既有影片可能缺少的 Desktop OAuth Client 示範。提交前仍須確認影片清楚展示 Desktop 授權畫面與 Client、回到程式後顯示帳號，以及至少一次 Drive 功能。
+
 ## 真實示範影片清單
 
 請使用專門建立的測試檔案，避免暴露私人檔名、內容、密碼、OAuth Secret 或 Token。上傳至 YouTube 時使用「不公開」，不是「私人」。
