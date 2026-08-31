@@ -1,5 +1,11 @@
 export type CleanerLocale = "zh-TW" | "en";
 export const cleanerEnglish: Record<string, string> = {
+  "檔案版本與修改時間皆已變更，請重新掃描": "The file version and modification time both changed. Scan again.",
+  "檔案修改時間已變更，請重新掃描": "The file modification time changed. Scan again.",
+  "Google Drive 檔案版本已變更（修改時間相同），請重新掃描": "The Google Drive file version changed while its modification time stayed the same. Scan again.",
+  "保留檔案版本與修改時間皆已變更，請重新掃描": "The keeper version and modification time both changed. Scan again.",
+  "保留檔案修改時間已變更，請重新掃描": "The keeper modification time changed. Scan again.",
+  "保留檔案版本已變更（修改時間相同），請重新掃描": "The keeper version changed while its modification time stayed the same. Scan again.",
   "來源驗證失敗，未執行操作": "Request origin verification failed. No operation was performed.",
   "Google OAuth 尚未完成正式環境設定": "Google sign-in has not been configured for this environment.",
   "SESSION_SECRET 必須至少 32 個字元": "The server session security configuration is incomplete.",

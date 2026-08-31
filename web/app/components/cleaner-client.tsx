@@ -85,6 +85,7 @@ type ScanResult = {
   ignoreSystemMetadata: boolean;
 };
 type AuditOutcome = {
+  validation?: Record<string, string | null>;
   retryable?: boolean;
   restorable?: boolean;
   refreshedProof?: string;
@@ -693,10 +694,10 @@ export function CleanerClient({ locale = "zh-TW" }: { locale?: CleanerLocale }) 
   }
 
   function downloadCsv(): void {
-    const columns = ["timestamp", "source", "operation_mode", "status", "item_kind", "name", "path", "file_id", "size", "checksum", "reason"];
+    const columns = ["timestamp", "source", "operation_mode", "status", "item_kind", "name", "path", "file_id", "size", "checksum", "reason", "validation_details"];
     const lines = [columns.map(csvCell).join(","), ...audit.map((item) => [
       item.timestamp, "google_drive", item.operationMode, item.status, item.itemKind, item.name, item.path, item.id,
-      item.size, item.checksum, t(item.reason),
+      item.size, item.checksum, t(item.reason), item.validation ? JSON.stringify(item.validation) : "",
     ].map(csvCell).join(","))];
     const blob = new Blob(["\ufeff", lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);

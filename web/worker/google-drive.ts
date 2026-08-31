@@ -898,7 +898,9 @@ function validateSnapshot(file: DriveFile, payload: ProofPayload, mode: Operatio
   if (file.id !== payload.id || file.trashed || !file.ownedByMe) return "檔案已移動、刪除或不再由你擁有";
   if (payload.itemKind !== "file") return "掃描證明的項目類型不一致";
   if (unsupportedType(file) || file.mimeType !== payload.mimeType) return "資料夾、捷徑或檔案類型變更，已跳過";
-  if (file.version !== payload.version || file.modifiedTime !== payload.modifiedTime) return "檔案版本或修改時間已變更";
+  if (file.version !== payload.version && file.modifiedTime !== payload.modifiedTime) return "檔案版本與修改時間皆已變更，請重新掃描";
+  if (file.modifiedTime !== payload.modifiedTime) return "檔案修改時間已變更，請重新掃描";
+  if (file.version !== payload.version) return "Google Drive 檔案版本已變更（修改時間相同），請重新掃描";
   if (JSON.stringify([...(file.parents ?? [])].sort()) !== JSON.stringify(payload.parents)) return "檔案已移至不同的 Google Drive 資料夾";
   if (file.size !== payload.size || checksum(file) !== payload.checksum) return "檔案大小或校驗碼已變更";
   if (mode === "trash" && !file.capabilities?.canTrash) return "沒有移至垃圾桶權限";
@@ -909,7 +911,9 @@ function validateSnapshot(file: DriveFile, payload: ProofPayload, mode: Operatio
 function validateKeeper(file: DriveFile, payload: ProofPayload): string | null {
   if (file.id !== payload.keeperId || file.trashed || !file.ownedByMe) return "保留檔案已移動、刪除或不再由你擁有";
   if (unsupportedType(file)) return "保留項目不是可驗證的一般檔案";
-  if (file.version !== payload.keeperVersion || file.modifiedTime !== payload.keeperModifiedTime) return "保留檔案版本已變更";
+  if (file.version !== payload.keeperVersion && file.modifiedTime !== payload.keeperModifiedTime) return "保留檔案版本與修改時間皆已變更，請重新掃描";
+  if (file.modifiedTime !== payload.keeperModifiedTime) return "保留檔案修改時間已變更，請重新掃描";
+  if (file.version !== payload.keeperVersion) return "保留檔案版本已變更（修改時間相同），請重新掃描";
   if (JSON.stringify([...(file.parents ?? [])].sort()) !== JSON.stringify(payload.keeperParents)) return "保留檔案已移至不同的 Google Drive 資料夾";
   if (payload.itemKind !== "file") return "保留項目的掃描證明類型不一致";
   if (file.size !== payload.keeperSize || checksum(file) !== payload.keeperChecksum) return "保留檔案內容已變更";
@@ -972,7 +976,28 @@ function auditOutcome(
   status: "trashed" | "deleted" | "failed" | "skipped",
   reason: string,
   retryable = false,
+  keeper: DriveFile | null = null,
 ) {
+  // Diagnostic metadata only: never serialize OAuth sessions or signed proofs.
+  const validation = payload.itemKind === "file" ? {
+    expectedVersion: payload.version,
+    observedVersion: file?.version ?? null,
+    expectedModifiedTime: payload.modifiedTime,
+    observedModifiedTime: file?.modifiedTime ?? null,
+    expectedSize: payload.size,
+    observedSize: file?.size ?? null,
+    expectedChecksum: payload.checksum,
+    observedChecksum: file ? checksum(file) : null,
+    keeperId: payload.keeperId,
+    expectedKeeperVersion: payload.keeperVersion,
+    observedKeeperVersion: keeper?.version ?? null,
+    expectedKeeperModifiedTime: payload.keeperModifiedTime,
+    observedKeeperModifiedTime: keeper?.modifiedTime ?? null,
+    expectedKeeperSize: payload.keeperSize,
+    observedKeeperSize: keeper?.size ?? null,
+    expectedKeeperChecksum: payload.keeperChecksum,
+    observedKeeperChecksum: keeper ? checksum(keeper) : null,
+  } : undefined;
   return {
     timestamp: new Date().toISOString(),
     id: payload.id,
@@ -984,6 +1009,7 @@ function auditOutcome(
     itemKind: payload.itemKind,
     status,
     reason,
+    validation,
     retryable: mode === "trash" && status === "failed" && retryable,
   };
 }
@@ -1047,7 +1073,7 @@ async function mutate(request: Request, env: Required<GoogleDriveEnv>, mode: Ope
           mode,
           false,
         );
-        if (targetFailure) return auditOutcome(payload, target, mode, "skipped", targetFailure);
+        if (targetFailure) return auditOutcome(payload, target, mode, "skipped", targetFailure, false, keeper);
         const keeperFailure = validateFolderSnapshot(
           currentKeeper,
           payload,
@@ -1055,12 +1081,12 @@ async function mutate(request: Request, env: Required<GoogleDriveEnv>, mode: Ope
           mode,
           true,
         );
-        if (keeperFailure) return auditOutcome(payload, target, mode, "skipped", keeperFailure);
+        if (keeperFailure) return auditOutcome(payload, target, mode, "skipped", keeperFailure, false, keeper);
       } else {
         const targetFailure = validateSnapshot(target, payload, mode);
-        if (targetFailure) return auditOutcome(payload, target, mode, "skipped", targetFailure);
+        if (targetFailure) return auditOutcome(payload, target, mode, "skipped", targetFailure, false, keeper);
         const keeperFailure = validateKeeper(keeper, payload);
-        if (keeperFailure) return auditOutcome(payload, target, mode, "skipped", keeperFailure);
+        if (keeperFailure) return auditOutcome(payload, target, mode, "skipped", keeperFailure, false, keeper);
       }
 
       const endpoint = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(payload.id)}?supportsAllDrives=false`;

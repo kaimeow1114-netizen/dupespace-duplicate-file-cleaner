@@ -22,7 +22,7 @@ const file = (id, createdTime = "2025-01-01T00:00:00Z") => ({
 });
 
 async function setup(t) {
-  const state = { files: [file("original"), file("copy", "2025-02-01T00:00:00Z")], changes: [], reads: 0, writes: 0, expired: false, changeFailure: false };
+  const state = { files: [file("original"), file("copy", "2025-02-01T00:00:00Z")], changes: [], reads: 0, writes: 0, deletes: 0, expired: false, changeFailure: false };
   const mf = new Miniflare({ modules: true, compatibilityDate: "2026-05-15", script,
     outboundService: async (request) => {
       const url = new URL(request.url);
@@ -37,6 +37,7 @@ async function setup(t) {
       if (url.pathname === "/drive/v3/files") { state.reads++; return Response.json({ files: state.files.filter((item) => !item.trashed) }); }
       const item = state.files.find((item) => url.pathname.endsWith(`/${item.id}`));
       assert.ok(item);
+      if (request.method === "DELETE") { state.deletes++; return new Response(null, { status: 204 }); }
       if (request.method === "PATCH") {
         if (state.patchFailure) return new Response(null, { status: state.patchFailure });
         state.writes++;
@@ -124,6 +125,64 @@ test("changed targets remain protected even with a valid previous index/proof", 
   const result = await post("trash", { items: [{ id: copy.id, proof: copy.proof }] });
   assert.equal(result.body.outcomes[0].status, "skipped");
   assert.equal(state.writes, 0);
+});
+
+for (const keeperChanged of [false, true]) {
+  for (const change of ["version", "modifiedTime", "both"]) {
+    test(`diagnostics distinguish ${keeperChanged ? "keeper" : "target"} ${change} without permitting either deletion mode`, async (t) => {
+      const { state, post } = await setup(t);
+      const first = await post("scan");
+      const copy = first.body.groups[0].records.find((item) => !item.keeper);
+      const changed = state.files.find((item) => item.id === (keeperChanged ? "original" : copy.id));
+      if (change !== "modifiedTime") changed.version = "2";
+      if (change !== "version") changed.modifiedTime = "2026-09-01T00:00:00Z";
+      const items = [{ id: copy.id, proof: copy.proof }];
+      for (const mode of ["trash", "delete"]) {
+        const { body } = await post(mode, { items });
+        const result = body.outcomes[0];
+        assert.equal(result.status, "skipped");
+        assert.equal(result.retryable, false);
+        assert.match(result.reason, change === "both" ? /版本與修改時間皆/ : change === "version" ? /修改時間相同/ : /修改時間已變更/);
+        if (keeperChanged) assert.match(result.reason, /保留檔案/);
+        const prefix = keeperChanged ? "Keeper" : "";
+        assert.equal(result.validation[`expected${prefix}Version`], "1");
+        assert.equal(result.validation[`observed${prefix}Version`], change === "modifiedTime" ? "1" : "2");
+        assert.equal(result.validation[`observed${prefix}ModifiedTime`], changed.modifiedTime);
+        assert.equal(result.validation[`expected${prefix}Checksum`], "md5:same");
+        assert.equal(result.validation[`observed${prefix}Checksum`], "md5:same");
+        assert.doesNotMatch(JSON.stringify(result.validation), /accessToken|refreshToken|clientSecret|SESSION_SECRET|proof/);
+      }
+      assert.equal(state.writes, 0);
+      assert.equal(state.deletes, 0);
+    });
+  }
+}
+
+test("more than 30 same-created copies process across batches; only changed snapshots remain", async (t) => {
+  const { state, post } = await setup(t);
+  state.files.push(...Array.from({ length: 34 }, (_, i) => file(`copy-${i}`, "2025-02-01T00:00:00Z")));
+  const scanned = (await post("scan")).body;
+  const copies = scanned.groups[0].records.filter((item) => !item.keeper);
+  assert.equal(copies.length, 35);
+  const changedIds = new Set(copies.slice(0, 3).map((item) => item.id));
+  for (const item of state.files) if (changedIds.has(item.id)) item.version = "2";
+  const outcomes = [];
+  for (let offset = 0; offset < copies.length; offset += 10) {
+    outcomes.push(...(await post("trash", { items: copies.slice(offset, offset + 10).map(({ id, proof }) => ({ id, proof })) })).body.outcomes);
+  }
+  assert.equal(outcomes.length, 35);
+  assert.equal(outcomes.filter((item) => item.status === "trashed").length, 32);
+  assert.deepEqual(new Set(outcomes.filter((item) => item.status === "skipped").map((item) => item.id)), changedIds);
+  assert.equal(state.writes, 32);
+  assert.equal(state.deletes, 0);
+  assert.equal(state.files.find((item) => item.id === "original").trashed, false);
+});
+
+test("CSV exports validation metadata as an escaped cell", async () => {
+  const client = await readFile(new URL("../app/components/cleaner-client.tsx", import.meta.url), "utf8");
+  assert.match(client, /"validation_details"/);
+  assert.match(client, /JSON\.stringify\(item\.validation\)/);
+  assert.match(client, /\]\.map\(csvCell\)\.join/);
 });
 
 test("restore returns a fresh proof without listing the whole Drive", async (t) => {
