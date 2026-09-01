@@ -5,7 +5,7 @@
 ## 已查證狀態
 
 - 專案 `dupespace-app` 的品牌已完成驗證並發布。
-- 資料存取權尚未驗證；範圍用途說明與影片 `https://youtu.be/WefrLDgKWpQ` 已在 Console 中儲存，尚未送審。
+- 資料存取權尚未驗證；範圍用途說明已儲存，新影片 `https://youtu.be/F1SJ4HhlEvw` 已錄製並涵蓋 Web 與 Desktop Client，待儲存後送審。
 - 已在 Google Cloud 移除 `userinfo.email`；目前保留受限制的 `drive` 範圍。
 - 現有用戶端是 `DUPESPACE Web` 與 `DUPESPACE Desktop`；影片應涵蓋兩者。
 - 這不是 Gmail 收信驗證。不需要新增 Gmail API 或 Gmail 讀取權限。
@@ -39,7 +39,7 @@ DUPESPACE finds exact duplicates in a user's Google Drive. It reads file and fol
 - 新增桌面授權 URL 測試，確認只有 `drive`、使用 S256 PKCE、包含 state、不主動合併舊 scope，也不將 Client Secret 放入授權 URL。
 - 新增 Drive-only 與舊 Drive/email 憑證的有效／過期更新測試，避免額外 email 授權提示；帳號資訊仍走 Drive `about.get`。測試使用合成 Token，不讀取真實使用者憑證。
 - 不撤銷既有 Google 授權；縮減新請求不代表過去已授予的 email 權限被撤銷。
-- 影片已提供，仍需核對 Desktop Client 的完整 OAuth 授權與 Drive 操作片段，不能用本機掃描替代雲端功能示範。
+- 新影片已提供並完成基本核對，涵蓋 Desktop Client 的 OAuth 授權、回到程式後的帳號狀態與 Drive 功能；正式送審前仍需確認 Console 儲存的網址正確。
 - 影片說明中的 GitHub 連結應為 `https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner`。
 - 送審文字必須區分原始檔案內容與 Google 產生的預覽縮圖，不應將縮圖代理描述成完全沒有圖像資料傳輸。
 - Google 若要求 CASA 或付費安全評估，先取得使用者同意，不擅自承諾費用。
@@ -50,11 +50,13 @@ DUPESPACE finds exact duplicates in a user's Google Drive. It reads file and fol
 - 使用者親自在 Google 頁面完成授權。DUPESPACE 成功顯示帳號名稱、信箱、頭像及「掃描 Google Drive」，沒有再產生 `client_secret is missing` 診斷事件。
 - 關閉並重新啟動同一版本後，沒有再次開啟授權頁，帳號自動恢復；DPAPI 權杖只檢查檔案存在、大小與修改時間，未讀取或輸出內容。
 - 執行只讀 Drive 掃描後成功檢查 243 個檔案並顯示結果；沒有執行垃圾桶、復原或永久刪除。
-- 此驗收證明目前程式可用，不會補足既有影片可能缺少的 Desktop OAuth Client 示範。提交前仍須確認影片清楚展示 Desktop 授權畫面與 Client、回到程式後顯示帳號，以及至少一次 Drive 功能。
-- 已逐段核對既有影片：03:50 是桌面安裝、04:36 是本機掃描，05:06 起顯示本機 AppData 稽核紀錄；影片在 05:30 結束。沒有完整展示 Desktop OAuth 同意畫面、回到程式後的帳號狀態或 Desktop Drive 掃描，因此不能據此聲稱涵蓋 Desktop OAuth Client。
-- Console 的用途說明已改成 967 字元的精確資料流敘述並顯示「已儲存資料存取權變更」；影片網址維持不變。尚未按下最終送審。
+- 真人驗收證明目前程式可用；本次改用 6:27 的新影片，同時展示 Web 與 Desktop OAuth Client，不再使用缺少 Desktop OAuth 示範的舊影片。
+- Console 的用途說明已改成 967 字元的精確資料流敘述並顯示「已儲存資料存取權變更」；新影片網址已填入但尚未儲存，也尚未按下最終送審。
 
 ## 真實示範影片清單
+
+本次送審影片：<https://youtu.be/F1SJ4HhlEvw>（不公開，6:27）。影片標題與說明明確標示
+Web 與 Desktop Client；舊影片不再用於本次資料存取權送審。
 
 請使用專門建立的測試檔案，避免暴露私人檔名、內容、密碼、OAuth Secret 或 Token。上傳至 YouTube 時使用「不公開」，不是「私人」。
 
@@ -106,7 +108,10 @@ google.com, pub-7998471640181666, DIRECT, f08c47fec0942fa0
 
 HTTP 會轉至 HTTPS；www 網址與模擬 Googlebot / Mediapartners-Google User-Agent 測試也返回相同內容。這些測試不能替代 Google 真實爬蟲的後台記錄，但目前未重現 404 或爬蟲封鎖。
 
-AdSense 網站審查於 2026-08-29 00:10 提出，現為「正在接受審查」，ads.txt 顯示「找不到」，目前所見頁面沒有「檢查更新」按鈕。保留正確檔案，不刪除網站重送；等待重新檢索。若後續出現「檢查更新」，可要求重新檢查。狀態持續異常時再查實際爬蟲的 DNS、TLS、WAF 與來源記錄。
+AdSense 網站審查於 2026-08-29 00:10 提出，目前仍為「正在接受審查」，尚不能放送廣告；
+ads.txt 狀態已由「找不到」更新為「已授權」。網站已載入官方 Auto Ads 程式碼，但清理、登入、
+確認與檔案操作頁維持完全無廣告。只有 AdSense 核准狀態變成 Ready／審查完成後，才能宣稱
+廣告已正式放送或產生收益。
 
 ## 官方參考
 

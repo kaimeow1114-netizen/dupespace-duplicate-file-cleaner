@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .desktop_oauth import run_branded_local_server
 from .grouping import build_duplicate_groups
 from .models import (
     ActionOutcome,
@@ -392,13 +393,7 @@ def build_drive_service(
                     DESKTOP_SCOPES,
                     autogenerate_code_verifier=True,
                 )
-                creds = flow.run_local_server(
-                    host="127.0.0.1", port=0, open_browser=True, timeout_seconds=180,
-                    success_message=(
-                        "DUPESPACE received Google's response. "
-                        "Return to the app to finish verification."
-                    ),
-                )
+                creds = run_branded_local_server(flow)
             except Exception as error:  # noqa: BLE001 - normalize auth library errors
                 raise DriveAuthenticationError(f"Google OAuth 登入失敗：{error}") from error
 

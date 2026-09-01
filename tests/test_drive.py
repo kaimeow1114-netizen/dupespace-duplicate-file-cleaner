@@ -189,18 +189,23 @@ def test_desktop_oauth_enables_pkce_and_preserves_desktop_configuration(
             calls["kwargs"] = kwargs
             return cls()
 
-        def run_local_server(self, **kwargs: Any) -> FakeCredentials:
-            calls["server"] = kwargs
-            return FakeCredentials()
-
     def fake_build(*args: Any, **kwargs: Any) -> str:
         calls["build"] = (args, kwargs)
         return "drive-service"
+
+    def fake_branded_server(flow: Any) -> FakeCredentials:
+        calls["server_flow"] = flow
+        return FakeCredentials()
 
     monkeypatch.setattr(
         drive_module,
         "_load_google_modules",
         lambda: (object, object, FakeInstalledAppFlow, fake_build),
+    )
+    monkeypatch.setattr(
+        drive_module,
+        "run_branded_local_server",
+        fake_branded_server,
     )
 
     service = build_drive_service(
@@ -212,10 +217,7 @@ def test_desktop_oauth_enables_pkce_and_preserves_desktop_configuration(
     assert calls["config"]["installed"]["client_secret"] == "generated-but-public"
     assert calls["scopes"] == ["https://www.googleapis.com/auth/drive"]
     assert calls["kwargs"] == {"autogenerate_code_verifier": True}
-    assert calls["server"]["host"] == "127.0.0.1"
-    assert calls["server"]["port"] == 0
-    assert calls["server"]["open_browser"] is True
-    assert calls["server"]["timeout_seconds"] == 180
+    assert calls["server_flow"].__class__ is FakeInstalledAppFlow
 
 
 def test_desktop_authorization_url_requests_drive_only_with_pkce() -> None:
