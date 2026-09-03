@@ -241,12 +241,13 @@ def test_global_toast_expires_but_safety_notices_remain(window):
     assert not window.review_notice.isHidden()
 
 
-def test_pending_drive_status_and_every_navigation_page(window):
-    for key in ("drive", "history", "safety", "github", "local"):
+def test_local_first_navigation_has_no_cloud_login(window):
+    for key in ("history", "safety", "github", "local"):
         window.nav_buttons[key].click()
         assert window.current_page == key
-    assert window.connect_button.text() == "連接 Google Drive"
-    assert window.account_chip.text() == "未登入"
+    assert "drive" not in window.nav_buttons
+    assert "drive" not in window.pages
+    assert window.account_chip.text() == "本機模式 · 無需帳號"
 
 
 def test_sidebar_exposes_safe_in_app_updates_without_network_on_test_start(window):
@@ -261,11 +262,11 @@ def test_sidebar_collapses_to_icons_and_preserves_account_access(window):
     assert window.sidebar.width() == 72
     assert window.nav_buttons["local"].text() == ""
     assert window.account_chip.text() == ""
-    assert "未登入" in window.account_chip.toolTip()
+    assert "無需帳號" in window.account_chip.toolTip()
     window._toggle_sidebar()
     assert window.sidebar.width() == 240
     assert window.nav_buttons["local"].text() == "本機清理"
-    assert window.account_chip.text() == "未登入"
+    assert window.account_chip.text() == "本機模式 · 無需帳號"
 
 
 def test_folder_picker_shows_cleanup_and_optional_nested_protection(window):
@@ -295,15 +296,18 @@ def test_progress_displays_current_full_folder_path(window):
     assert "42" in window.progress_count.text()
 
 
-def test_account_chip_uses_real_identity_and_avatar_slot(window):
-    window._auth_silent = False
-    window._accept_account((object(), "測試使用者", "preview@example.test", b""))
-    assert window.account_chip.text()
-    assert "preview@example.test" in window.account_chip.toolTip()
-    assert window.account_email == "preview@example.test"
-    assert window.drive_scan.isVisible()
-    window._disconnected(None)
-    assert not window.drive_scan.isVisible()
+def test_retired_entry_points_never_launch_oauth_or_scan(window, monkeypatch):
+    def forbidden(*args, **kwargs):
+        pytest.fail("Retired cloud functionality must not start a worker")
+
+    monkeypatch.setattr(window, "_launch", forbidden)
+    window.connect_drive(interactive=True)
+    window.connect_drive(interactive=False, silent=True)
+    window.start_drive_scan()
+    window.navigate("drive")
+    assert window.current_page == "safety"
+    window.account_chip.click()
+    assert window.current_page == "safety"
     assert window.service is None
 
 

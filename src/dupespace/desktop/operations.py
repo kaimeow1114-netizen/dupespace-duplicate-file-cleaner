@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..drive import GoogleDrivePermanentDeleteExecutor, GoogleDriveTrashExecutor
 from ..local import LocalPermanentDeleteExecutor, LocalTrashExecutor
 from ..models import ActionOutcome, ActionReport, OperationItem, OperationMode, ProgressUpdate
 from ..reporting import AuditJournal
@@ -34,23 +33,16 @@ def run_cleanup(
     source = items[0].record.source
     if any(item.record.source != source for item in items):
         raise ValueError("一次操作只能使用一種掃描來源。")
-    if source == "drive" and service is None:
-        raise ValueError("Google Drive 尚未連線，沒有執行任何操作。")
+    if source != "local":
+        raise ValueError("此版本只接受本機清理計畫；沒有執行任何雲端操作。")
     # Creating the durable log is a prerequisite, not a best-effort cleanup step.
     journal = AuditJournal(directory)
     outcomes: list[ActionOutcome] = []
     warning = ""
-    batch_size = 1 if source == "local" else 20
-    if source == "local":
-        executor = local_executor or (
-            LocalTrashExecutor() if mode == "trash" else LocalPermanentDeleteExecutor()
-        )
-    else:
-        executor = (
-            GoogleDriveTrashExecutor(batch_size=batch_size)
-            if mode == "trash"
-            else GoogleDrivePermanentDeleteExecutor(batch_size=batch_size)
-        )
+    batch_size = 1
+    executor = local_executor or (
+        LocalTrashExecutor() if mode == "trash" else LocalPermanentDeleteExecutor()
+    )
     try:
         for offset in range(0, len(items), batch_size):
             if cancel_event.is_set():
@@ -60,11 +52,7 @@ def run_cleanup(
             progress(ProgressUpdate("validation", offset, len(items), batch[0].record.location))
             execute = executor.trash if mode == "trash" else executor.delete
             try:
-                report = (
-                    execute(batch, cancel_event=cancel_event)
-                    if source == "local"
-                    else execute(service, batch, cancel_event=cancel_event)
-                )
+                report = execute(batch, cancel_event=cancel_event)
             except Exception:
                 # Do not retry an unknown mutation or turn a trash failure into deletion.
                 report = ActionReport(

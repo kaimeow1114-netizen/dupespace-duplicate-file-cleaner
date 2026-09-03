@@ -16,10 +16,12 @@ def main() -> None:
     from PySide6.QtWidgets import QApplication
 
     from .desktop.window import MainWindow
-    from .drive import disconnect_desktop_account
 
     if "--revoke-and-clean" in sys.argv[1:]:
-        disconnect_desktop_account()
+        from .retirement import revoke_legacy_tokens
+
+        if not revoke_legacy_tokens():
+            sys.exit(1)
         return
     smoke_test = "--smoke-test" in sys.argv[1:]
     with ExitStack() as stack:

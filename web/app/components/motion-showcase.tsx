@@ -15,16 +15,16 @@ import { motion, useMotionValue, useReducedMotion, useSpring } from "framer-moti
 import type { PointerEvent, ReactNode } from "react";
 
 const safetyCards: Array<{ icon: LucideIcon; eyebrow: string; title: string; body: string }> = [
-  { icon: Trash2, eyebrow: "01 · RECOVERABLE", title: "預設不永久刪除", body: "檔案與鏡像資料夾先進 Windows 資源回收筒或 Google Drive 垃圾桶；失敗不會降級成永久刪除。" },
-  { icon: ShieldCheck, eyebrow: "02 · PROTECTED", title: "每組原檔自動保護", body: "Windows 每組鎖定最舊的一份；使用者指定的保護子資料夾也永遠不可勾選。" },
+  { icon: Trash2, eyebrow: "01 · RECOVERABLE", title: "清理預設可以復原", body: "瀏覽器只分析、不刪檔；Windows 完整版預設移至資源回收筒，失敗不會降級成永久刪除。" },
+  { icon: ShieldCheck, eyebrow: "02 · PROTECTED", title: "每組至少保留一份", body: "保護規則優先，再依建立時間與路徑選出保留檔；使用者指定的保護子資料夾永遠不可勾選。" },
   { icon: Code2, eyebrow: "03 · CONTEXT AWARE", title: "代碼專案自動排除", body: "Git、SVN、套件目錄、虛擬環境、程式資源、備份及同步情境不會成為整體清理候選。" },
   { icon: Clock3, eyebrow: "04 · REVALIDATED", title: "變更即中止", body: "操作前再次複驗 ID、權限、檔案數、容量、最新修改時間與內容校驗碼；任何變化都取消。" },
 ];
 
 const workflowSteps: Array<{ icon: LucideIcon; title: string; body: string }> = [
-  { icon: ScanSearch, title: "掃描", body: "只讀取比對需要的中繼資料與校驗碼" },
-  { icon: Files, title: "檢查", body: "查看完整路徑、預覽與雙樹鏡像差異" },
-  { icon: Trash2, title: "回收空間", body: "預設移至垃圾桶，保留復原機會" },
+  { icon: ScanSearch, title: "選擇", body: "只讀取你主動選取的本機資料夾" },
+  { icon: Files, title: "比對", body: "先按大小篩選，再做分塊內容指紋" },
+  { icon: Trash2, title: "整理", body: "網頁產生報告；Windows 版可移至資源回收筒" },
 ];
 
 function setGlow(event: PointerEvent<HTMLElement>) {
@@ -54,7 +54,7 @@ function MagneticLink({ href, className, children }: { href: string; className: 
 export function MotionHeroActions() {
   return (
     <div className="hero-actions">
-      <MagneticLink className="button primary hero-primary" href="/cleaner"><span>開始極速安全掃描</span><ArrowRight size={18} aria-hidden="true" /></MagneticLink>
+      <MagneticLink className="button primary hero-primary" href="/local"><span>免費分析本機資料夾</span><ArrowRight size={18} aria-hidden="true" /></MagneticLink>
       <MagneticLink className="button secondary" href="/download"><HardDriveDownload size={18} aria-hidden="true" /><span>下載 Windows 用戶端</span></MagneticLink>
     </div>
   );

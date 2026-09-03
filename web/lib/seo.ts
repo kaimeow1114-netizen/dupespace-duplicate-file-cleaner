@@ -17,3 +17,12 @@ export function englishMetadata(path: string, title: string, description: string
     twitter: { card: "summary_large_image", title: `${title} | DUPESPACE`, description, images: ["https://dupespace.app/og.png"] },
   };
 }
+
+export function chineseMetadata(path: string, title: string, description: string): Metadata {
+  const alternates = localizedAlternates(path);
+  return {
+    title, description, alternates,
+    openGraph: { title: `${title}｜DUPESPACE`, description, url: alternates.canonical, type: "website", locale: "zh_TW", alternateLocale: ["en_US"], siteName: "DUPESPACE", images: [{ url: "https://dupespace.app/og.png", width: 1732, height: 909, alt: "DUPESPACE 本機重複檔案分析與 Windows 清理工具" }] },
+    twitter: { card: "summary_large_image", title: `${title}｜DUPESPACE`, description, images: ["https://dupespace.app/og.png"] },
+  };
+}

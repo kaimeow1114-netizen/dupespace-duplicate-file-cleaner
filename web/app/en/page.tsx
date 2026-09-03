@@ -1,60 +1,33 @@
+import { productFaq } from "../../lib/product-copy";
+import { GuideLinks } from "../components/guide-links";
+import { headers } from "next/headers";
 import { englishMetadata } from "../../lib/seo";
 import { AdPanel } from "../components/ad-panel";
-import { ArrowRight, HardDriveDownload, ShieldCheck, TrendingUp, FolderLock, ChartNoAxesCombined, Code2, CheckCircle2, LockKeyhole } from "lucide-react";
 import { HeroDashboard } from "../components/hero-dashboard";
 import { SiteFooter, SiteHeader } from "../components/site-shell";
+import { ArrowRight, CheckCircle2, Code2, FileCheck2, FileSearch, FolderLock, HardDriveDownload, Images, LockKeyhole, ShieldCheck } from "lucide-react";
 
-export const metadata = englishMetadata("", "Free Google Drive Cleaner & Windows Duplicate File Cleaner", "DUPESPACE is a free, open-source Google Drive cleaner for exact duplicate files. Review paths, protect a keeper and move unwanted copies to trash. Windows app available.");
+export const metadata = englishMetadata("", "Local Duplicate File Finder & Windows Cleaner", "Find exact duplicate files without uploading filenames, paths or contents. Use the read-only browser analyzer or the free open-source Windows cleaner with protected copies and CSV audit reports.");
 
-const faq = [
-  ["What does this Google Drive cleaner remove?", "DUPESPACE identifies exact duplicate binary files and strictly mirrored folders. It does not decide whether a copy is unnecessary just from its name, and it is not a general junk-file or Gmail cleaner."],
-  ["Are my original files uploaded?", "No original file contents are downloaded to our servers. Scanning uses Google Drive metadata and content checksums. Small previews may be forwarded privately to your browser, without server storage or advertising use."],
-  ["Can I undo cleanup?", "Trash is the default. A short undo action is available after successful cleanup; you can also use Google Drive Trash subject to Google’s retention rules. Permanent deletion is a separate, explicitly confirmed file-only operation and cannot be undone."],
-  ["Does moving files to trash immediately free my Google storage?", "No. Items in Google Drive Trash may still count toward your storage quota. Duplicate capacity is an estimate of what you can organize, not a promise that quota has already been released."],
-  ["Why are repeat scans faster?", "A device-local encrypted metadata index can synchronize changes since your last scan. It is bound to your account and expires after seven days. Folder or permission changes, unavailable storage or an invalid index can require a full scan. Every cleanup still revalidates the target and keeper."],
-  ["Can it clean local Windows folders?", "Yes, using the free desktop application. Select folders or drag them into the app; full SHA-256 comparisons run locally. System locations and detected software projects are protected. Review each candidate before removing it."],
-];
+const faq = productFaq.en;
 
-export default function EnglishHome() {
-  return (
-    <main lang="en">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify([
-        { "@context": "https://schema.org", "@type": "SoftwareApplication", name: "DUPESPACE", url: "https://dupespace.app/en/", applicationCategory: "UtilitiesApplication", operatingSystem: "Web, Windows 10, Windows 11", offers: { "@type": "Offer", price: "0", priceCurrency: "USD" } },
-        { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faq.map(([name, text]) => ({ "@type": "Question", name, acceptedAnswer: { "@type": "Answer", text } })) },
-      ]) }} />
-      <SiteHeader locale="en" />
-      <section className="hero">
-        <div className="shell hero-grid">
-          <div className="hero-copy">
-          <span className="eyebrow"><ShieldCheck size={15} aria-hidden="true" /> FREE • OPEN SOURCE • PRIVACY-FIRST</span>
-          <h1><span>Find duplicate files.</span><br /><span className="gradient-text">Make room for what matters.</span></h1>
-          <p className="purpose-statement"><strong>DUPESPACE is an open-source duplicate file cleaner for Google Drive and Windows.</strong>{" "}It finds exact duplicate files and strictly mirrored folders, protects one original in every group, and moves selected copies to trash by default. Original files remain in your Google Drive. Small image, video and PDF thumbnails may be forwarded privately to your browser, without storage or sharing with advertisers.</p>
-          <div className="hero-actions"><a className="button primary" href="/en/cleaner/"><span>Open Google Drive cleaner</span><ArrowRight size={18} aria-hidden="true" /></a><a className="button secondary" href="/en/download/"><HardDriveDownload size={18} aria-hidden="true" /><span>Download for Windows</span></a></div>
-          <p><a href="/en/privacy/">Read our privacy policy</a> · Independent of Google · Free and open source</p>
-          </div>
-          <div className="hero-dashboard-wrap"><HeroDashboard locale="en" /></div>
-        </div>
-      </section>
-      <section className="section feature-band" id="features"><div className="shell"><div className="section-heading"><span className="eyebrow"><ShieldCheck size={15} aria-hidden="true" /> SAFE BY DESIGN</span><h2>A drive cleaner with clear safety boundaries.</h2><p>Exact matches are candidates, not automatic deletion decisions.</p></div><div className="download-safety-grid">
-        <article><ShieldCheck aria-hidden="true" /><h3>Keep one copy</h3><p>Protection rules come first, then earlier creation time. Missing or equal times use shorter paths. Neither timestamps nor path length prove a file’s original purpose.</p></article>
-        <article><ShieldCheck aria-hidden="true" /><h3>Review before removal</h3><p>Inspect thumbnails and complete paths. Software projects and unverifiable folder contents are excluded. Trash failures never become permanent deletions.</p></article>
-        <article><ShieldCheck aria-hidden="true" /><h3>Validate again</h3><p>Before cleanup, we check the target and keeper against their scanned versions, sizes, checksums, locations and permissions. Changed items are skipped.</p></article>
-      </div></div></section>
-      <section className="section alternate"><div className="shell"><h2>Google Drive duplicate file cleaner: how it works</h2><ol><li>Connect your Google account and start a metadata scan.</li><li>Review duplicate groups and their protected keepers.</li><li>Move selected copies to trash and review the confirmed results.</li></ol><p>Windows uses full SHA-256 hashing. Google Drive uses checksums provided by its API. No original cloud file contents need to pass through DUPESPACE.</p><a className="button mint" href="/en/support/">Read the safety guide</a></div></section>
-      <section className="section"><div className="shell"><div className="section-heading"><span className="eyebrow">STORAGE INTELLIGENCE</span><h2>Make your next cleanup easier.</h2><p>Useful context after each completed scan. No invented savings or urgency.</p></div><div className="download-safety-grid">
-        <article><TrendingUp aria-hidden="true" /><h3>Organization trends</h3><p>Review previous organization scores stored in this browser. The score reflects duplicate capacity, not your drive’s physical health.</p></article>
-        <article><FolderLock aria-hidden="true" /><h3>Protection profiles</h3><p>Choose project, media or strict protection. System exclusions and keeper protection stay active in every profile.</p></article>
-        <article><ChartNoAxesCombined aria-hidden="true" /><h3>Understand duplicate patterns</h3><p>See possible download, messaging and cross-folder copying patterns inferred from paths. These clues do not prove a copy is unnecessary.</p></article>
-      </div></div></section>
-      <section className="section alternate"><div className="shell"><div className="section-heading"><span className="eyebrow">WHY TRUST DUPESPACE</span><h2>Read the code. Verify the claims.</h2><p>We explain our safeguards instead of making unsupported claims about other cleaners.</p></div><div className="download-safety-grid">
-        <article><CheckCircle2 aria-hidden="true" /><h3>Content, not just filenames</h3><p>Windows uses full SHA-256 comparisons. Google Drive uses API-provided checksums, with exact relative-path matching for folders.</p></article>
-        <article><LockKeyhole aria-hidden="true" /><h3>Explicit actions, visible results</h3><p>Every group protects a keeper. Review individual outcomes and download a CSV audit. Permanent deletion is never a fallback.</p></article>
-        <article><Code2 aria-hidden="true" /><h3>Free and open source</h3><p>Inspect the implementation, report a problem, or run your own copy under the MIT License.</p><a href="https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner">Explore DUPESPACE on GitHub</a></article>
-      </div></div></section>
-      <section className="section faq-band" id="faq"><div className="shell"><h2>Google Drive cleaner FAQ</h2>{faq.map(([question, answer]) => <details key={question}><summary>{question}</summary><p>{answer}</p></details>)}</div></section>
-      <section className="section privacy-band"><div className="shell"><h2>Your Drive data is not advertising data.</h2><p>DUPESPACE uses Google API data only to provide requested sign-in, scanning, review, cleanup, restore and audit features. Our use and transfer of this information follows the Google API Services User Data Policy, including Limited Use requirements. It is not sold or used for targeted advertising.</p><a href="/en/privacy/">Access, storage, retention and privacy details</a></div></section>
-      <AdPanel />
-      <SiteFooter locale="en" />
-    </main>
-  );
+export default async function EnglishHome() {
+  const nonce = (await headers()).get("x-dupespace-nonce") ?? undefined;
+  return <main lang="en">
+    <script suppressHydrationWarning nonce={nonce} type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify([
+      { "@context": "https://schema.org", "@type": "SoftwareApplication", name: "DUPESPACE", url: "https://dupespace.app/en/", applicationCategory: "UtilitiesApplication", operatingSystem: "Web, Windows 10, Windows 11", offers: { "@type": "Offer", price: "0", priceCurrency: "USD" }, featureList: "Local duplicate analysis, Windows duplicate cleanup, exact image and video duplicate analysis, CSV reports" },
+      { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faq.map(({ question: name, answer: text }) => ({ "@type": "Question", name, acceptedAnswer: { "@type": "Answer", text } })) },
+    ]) }} />
+    <SiteHeader locale="en" />
+    <section className="hero"><div className="shell hero-grid"><div className="hero-copy"><span className="eyebrow"><ShieldCheck size={15} aria-hidden="true" /> FREE · OPEN SOURCE · LOCAL-FIRST</span><h1><span className="headline-line">Understand your files.</span><span className="headline-line gradient-text">Reclaim space with confidence.</span></h1><p className="hero-english">Find duplicate files. Keep what matters.</p><p className="purpose-statement"><strong>DUPESPACE is a free, open-source duplicate file finder and cleaner.</strong> Analyze a folder in your browser without an account or upload. To remove unwanted copies, review their paths in the Windows app and move them to the Recycle Bin.</p><div className="hero-actions"><a className="button primary" href="/en/local/"><span>Analyze a local folder</span><ArrowRight size={18} aria-hidden="true" /></a><a className="button secondary" href="/en/download/"><HardDriveDownload size={18} aria-hidden="true" /><span>Download for Windows</span></a></div><div className="trust-row"><span><CheckCircle2 size={14} aria-hidden="true" />No upload</span><span><CheckCircle2 size={14} aria-hidden="true" />Read-only web report</span><span><CheckCircle2 size={14} aria-hidden="true" />Keep at least one copy</span><a href="/en/privacy/">Privacy policy</a></div></div><div className="hero-dashboard-wrap"><HeroDashboard locale="en" /></div></div></section>
+    <section className="stats-strip"><div className="shell stats-grid"><div><strong>0</strong><span>Files uploaded</span></div><div><strong>2</strong><span>Browser analysis / Windows cleanup</span></div><div><strong>1+</strong><span>Copies kept per group</span></div><div><strong>0</strong><span>Web deletion permission</span></div></div></section>
+    <section className="section feature-band" id="features"><div className="shell"><div className="section-heading"><span className="eyebrow"><ShieldCheck size={15} aria-hidden="true" /> THREE PRODUCT PILLARS</span><h2>Focused tools for problems people actually feel.</h2><p>Start with exact duplicate analysis and Windows cleanup. Media organization and backup verification are future directions, not features included in the current browser analyzer.</p></div><div className="download-safety-grid"><article><FileSearch aria-hidden="true" /><h3>Exact duplicate analysis</h3><p>Filter by size, compare content and review every path. Browser analysis is read-only; Windows cleanup is recoverable by default.</p></article><article><Images aria-hidden="true" /><h3>Photo and video organization · roadmap</h3><p>Today: exact duplicate groups with lightweight image previews. Planned: richer media organization; similar-looking photos are not treated as exact duplicates.</p></article><article><FileCheck2 aria-hidden="true" /><h3>Folder and backup verification · roadmap</h3><p>Planned: compare relative paths, sizes and fingerprints to find missing or changed files. The current browser analyzer finds exact duplicate files; it does not certify backups.</p></article></div></div></section>
+    <section className="section alternate"><div className="shell split"><div><span className="eyebrow light">HOW IT WORKS</span><h2>Compare file content, not just names.</h2><p>The browser narrows candidates by size, then computes chunked content fingerprints entirely on your device. The Windows app is designed for large libraries and protected, recoverable cleanup. Matching content is a candidate, never proof that another path has no purpose.</p><a className="button mint" href="/en/support/">Read the safety guide</a></div><ol className="steps"><li><span>01</span><div><b>Choose</b><small>Select only the folder you want to analyze</small></div></li><li><span>02</span><div><b>Compare</b><small>Compute local content fingerprints</small></div></li><li><span>03</span><div><b>Organize</b><small>Export a report or use Windows cleanup</small></div></li></ol></div></section>
+    <section className="section privacy-band"><div className="shell privacy-feature"><div><span className="eyebrow"><LockKeyhole size={15} aria-hidden="true" /> LOCAL-FIRST PRIVACY</span><h2>Your files stay on your device.</h2><p>The analyzer does not require an account and does not upload filenames, paths or file contents. Your file list and results stay on this device. The analyzer cannot move or delete files.</p><div className="privacy-actions"><a className="button primary" href="/en/local/">Open local analyzer</a><a className="text-link" href="/en/privacy/">Read the privacy policy</a></div></div><div className="privacy-card"><b>No account. No upload. No deletion permission.</b><p>Only files explicitly handed to the browser file picker are available to the page. Close the tab to clear unexported in-memory results.</p></div></div></section>
+    <section className="section trust-section"><div className="shell"><div className="section-heading"><span className="eyebrow"><ShieldCheck size={15} aria-hidden="true" /> WHY TRUST DUPESPACE</span><h2>Read the code. Verify the claims.</h2></div><div className="download-safety-grid"><article><ShieldCheck aria-hidden="true" /><h3>Clear boundaries</h3><p>Web analysis is read-only. Windows protects projects, selected subfolders and at least one keeper per group.</p></article><article><FolderLock aria-hidden="true" /><h3>Purpose before matching</h3><p>Identical content does not prove a copy is disposable. Context and protection rules come before removal.</p></article><article><Code2 aria-hidden="true" /><h3>Free and open source</h3><p>Inspect the implementation, report issues or run your own copy under the MIT License.</p><a href="https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner">View source on GitHub</a></article></div></div></section>
+    <section className="section faq-band" id="faq"><div className="shell"><h2>Frequently asked questions</h2>{faq.map(({ question, answer }) => <details key={question}><summary>{question}</summary><p>{answer}</p></details>)}</div></section>
+    <GuideLinks locale="en" />
+    <AdPanel />
+    <SiteFooter locale="en" />
+  </main>;
 }

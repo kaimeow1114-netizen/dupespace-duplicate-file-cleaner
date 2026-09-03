@@ -69,9 +69,6 @@ class PreviewJob(QRunnable):
         image = QImage()
         try:
             if self.record.source == "drive":
-                from .cloud_thumbnail import read_thumbnail
-
-                image = read_thumbnail(self.record.thumbnail_url)
                 return
             path = DEFAULT_WINDOWS_SAFETY_POLICY.validate_regular_file(self.record.location)
             if is_cloud_placeholder(path):

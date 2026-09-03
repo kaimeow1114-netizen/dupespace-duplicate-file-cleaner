@@ -26,17 +26,17 @@ export function HeroDashboard({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" })
     { name: "Report (1).pdf", path: "Downloads / Report (1).pdf", keeper: false },
   ] : files;
   const reducedMotion = useReducedMotion();
-  const [score, setScore] = useState(reducedMotion ? 28 : 0);
+  const [score, setScore] = useState(reducedMotion ? 72 : 0);
   const [cleaned, setCleaned] = useState(false);
   const [savings, setSavings] = useState(reducedMotion ? 18.6 : 0);
 
   useEffect(() => {
     if (reducedMotion) return;
-    let scoreControl = animate(0, 28, { duration: .9, delay: .55, onUpdate: (value) => setScore(Math.round(value)) });
+    let scoreControl = animate(0, 72, { duration: .9, delay: .55, onUpdate: (value) => setScore(Math.round(value)) });
     const savingsControl = animate(0, 18.6, { duration: 1.1, delay: 1, ease: [0.2, 0.8, 0.2, 1], onUpdate: setSavings });
     const cleanTimer = window.setTimeout(() => {
       setCleaned(true);
-      scoreControl = animate(28, 98, { duration: 1.1, ease: [0.16, 1, 0.3, 1], onUpdate: (value) => setScore(Math.round(value)) });
+      scoreControl = animate(72, 96, { duration: 1.1, ease: [0.16, 1, 0.3, 1], onUpdate: (value) => setScore(Math.round(value)) });
     }, 4300);
     return () => {
       scoreControl.stop();
@@ -46,7 +46,7 @@ export function HeroDashboard({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" })
   }, [reducedMotion]);
 
   const ring = 2 * Math.PI * 47;
-  const urgent = score < 40;
+  const urgent = score < 80;
 
   return (
     <motion.div
@@ -71,19 +71,19 @@ export function HeroDashboard({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" })
             <div><strong>{score}</strong><small>/100</small></div>
           </div>
           <div className="health-demo-copy">
-            <small>{en ? "Organization score · Example" : "空間健康指數 · 整理指標"}</small>
-            <b>{en ? (urgent ? "Duplicate candidates found" : "Duplicates organized") : (urgent ? "發現實質重複項目" : "重複項目已完成整理")}</b>
-            <span>{urgent ? <AlertTriangle size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}{en ? (urgent ? "Review before removing" : "Review complete") : (urgent ? "建議檢查並安全清理" : "儲存狀態極佳")}</span>
+            <small>{en ? "Organization score · Example" : "空間整理指數 · 示意"}</small>
+            <b>{en ? (urgent ? "Duplicate candidates found" : "Review plan ready") : (urgent ? "發現可檢查的重複項目" : "整理報告已建立")}</b>
+            <span>{urgent ? <AlertTriangle size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}{en ? (urgent ? "Review before taking action" : "Analysis complete") : (urgent ? "先檢查，再決定如何處理" : "分析完成，檔案未被修改")}</span>
           </div>
         </div>
-        <div className="scan-heading"><div><small>CONTENT CHECKSUM SCAN</small><b>{en ? (cleaned ? "Cleanup complete" : "Matching file contents") : (cleaned ? "安全清理完成" : "正在精確比對內容")}</b></div><strong>{cleaned ? "100%" : "82%"}</strong></div>
+        <div className="scan-heading"><div><small>LOCAL CONTENT ANALYSIS</small><b>{en ? (cleaned ? "Report ready" : "Matching file contents") : (cleaned ? "本機分析報告完成" : "正在精確比對內容")}</b></div><strong>{cleaned ? "100%" : "82%"}</strong></div>
         <div className="scan-progress"><motion.i initial={{ width: 0 }} animate={{ width: cleaned ? "100%" : "82%" }} transition={{ duration: reducedMotion ? 0 : 1.1 }} /></div>
-        <div className="hash-stream" aria-hidden="true"><span>SHA-256</span><i>8f14e45fceea...</i><i>c9f0f895fb98...</i><i>45c48cce2e2d...</i></div>
-        <div className="dashboard-columns"><span>{en ? "KEEPER · PROTECTED" : "最舊原檔 · PROTECTED"}</span><span>{en ? "COPY · DUPLICATE" : "待清理副本 · DUPLICATE"}</span></div>
+        <div className="hash-stream" aria-hidden="true"><span>LOCAL HASH</span><i>8f14e45fceea...</i><i>c9f0f895fb98...</i><i>45c48cce2e2d...</i></div>
+        <div className="dashboard-columns"><span>{en ? "FILE · REFERENCE" : "參考檔案 · REFERENCE"}</span><span>{en ? "COPY · DUPLICATE" : "待清理副本 · DUPLICATE"}</span></div>
         <div className="dashboard-files">
-          {demoFiles.map((file, index) => <motion.div key={file.path} className={`demo-file ${file.keeper ? "safe" : "duplicate"} ${cleaned && !file.keeper ? "cleaned" : ""}`} initial={reducedMotion ? false : { opacity: 0, x: index % 2 ? 14 : -14 }} animate={{ opacity: cleaned && !file.keeper ? .5 : 1, x: 0 }} transition={{ delay: reducedMotion ? 0 : .45 + index * .09 }}><i>{file.keeper ? <ShieldCheck size={15} aria-hidden="true" /> : cleaned ? <CheckCircle2 size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}</i><span><b>{file.name}</b><small>{file.path}</small></span><em>{en ? (file.keeper ? "Keep" : cleaned ? "Trashed" : "Review") : (file.keeper ? "保留" : cleaned ? "已回收" : "待清")}</em></motion.div>)}
+          {demoFiles.map((file, index) => <motion.div key={file.path} className={`demo-file ${file.keeper ? "safe" : "duplicate"} ${cleaned && !file.keeper ? "cleaned" : ""}`} initial={reducedMotion ? false : { opacity: 0, x: index % 2 ? 14 : -14 }} animate={{ opacity: cleaned && !file.keeper ? .5 : 1, x: 0 }} transition={{ delay: reducedMotion ? 0 : .45 + index * .09 }}><i>{file.keeper ? <ShieldCheck size={15} aria-hidden="true" /> : cleaned ? <CheckCircle2 size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}</i><span><b>{file.name}</b><small>{file.path}</small></span><em>{en ? (file.keeper ? "Keep" : cleaned ? "Matched" : "Review") : (file.keeper ? "保留" : cleaned ? "已比對" : "待清")}</em></motion.div>)}
         </div>
-        <div className="dashboard-savings"><div><small>{en ? "Demo · Duplicate capacity" : "儀表板示意 · 可安全釋放"}</small><strong>{savings.toFixed(1)} GB</strong></div><span>{cleaned ? <Sparkles size={18} aria-hidden="true" /> : <Trash2 size={18} aria-hidden="true" />}<small>{en ? (cleaned ? "Moved to trash" : "Keep one per group") : (cleaned ? "已移至垃圾桶" : "每組保留一份")}</small></span></div>
+        <div className="dashboard-savings"><div><small>{en ? "Demo · Potential savings" : "儀表板示意 · 可整理容量"}</small><strong>{savings.toFixed(1)} GB</strong></div><span>{cleaned ? <Sparkles size={18} aria-hidden="true" /> : <Trash2 size={18} aria-hidden="true" />}<small>{en ? (cleaned ? "Report generated" : "Keep one per group") : (cleaned ? "報告已產生" : "每組保留一份")}</small></span></div>
       </div>
     </motion.div>
   );

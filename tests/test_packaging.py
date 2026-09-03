@@ -17,11 +17,12 @@ def test_installer_preserves_upgrade_app_id_and_uses_new_names() -> None:
     assert "RestartApplications=no" in installer
 
 
-def test_release_injects_desktop_configuration_without_web_secret() -> None:
+def test_local_first_release_never_injects_oauth_configuration() -> None:
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github/workflows/release.yml").read_text(encoding="utf-8")
-    assert "secrets.DUPESPACE_GOOGLE_DESKTOP_CLIENT_ID" in workflow
-    assert "secrets.DUPESPACE_GOOGLE_DESKTOP_CLIENT_SECRET" in workflow
+    assert "secrets.DUPESPACE_GOOGLE_DESKTOP_CLIENT_ID" not in workflow
+    assert "secrets.DUPESPACE_GOOGLE_DESKTOP_CLIENT_SECRET" not in workflow
     assert "secrets.GOOGLE_CLIENT_SECRET" not in workflow
-    assert "IsNullOrWhiteSpace($env:DESKTOP_CLIENT_VALUE)" in workflow
-    assert "CLIENT_SECRET = base64.b64decode" in workflow
+    spec = (root / "DupeSpace.spec").read_text(encoding="utf-8")
+    assert '"dupespace._desktop_oauth"' in spec
+    assert '"dupespace.drive"' in spec

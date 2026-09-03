@@ -51,16 +51,6 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__
-from ..diagnostics import append_diagnostic_event, safe_error_message
-from ..drive import (
-    DriveAuthenticationError,
-    DriveScanCancelled,
-    GoogleDriveScanner,
-    build_drive_service,
-    desktop_account_identity,
-    disconnect_desktop_account,
-    fetch_google_avatar,
-)
 from ..grouping import selected_bytes, unlock_locked_folder
 from ..local import LocalScanner, ScanCancelled
 from ..models import ProgressUpdate, ScanReport, ScanRoot
@@ -163,7 +153,7 @@ class MainWindow(QMainWindow):
         self.nav_specs: dict[str, tuple[str, str]] = {}
         self.sidebar_aux_buttons: list[tuple[QWidget, str]] = []
         self.sidebar_collapsed = False
-        self.account_display_text = "未登入"
+        self.account_display_text = "本機模式 · 無需帳號"
         self._auth_silent = False
         self.update_thread: QThread | None = None
         self.update_worker: Worker | None = None
@@ -185,8 +175,6 @@ class MainWindow(QMainWindow):
         self._refresh_roots()
         self.navigate("local")
         if restore_session:
-            if (app_data_dir() / "oauth-token.dpapi").is_file():
-                QTimer.singleShot(350, lambda: self.connect_drive(interactive=False, silent=True))
             QTimer.singleShot(2200, self._auto_update_check)
 
     def _build_shell(self) -> None:
@@ -234,7 +222,6 @@ class MainWindow(QMainWindow):
         side.addSpacing(8)
         for key, title, glyph in (
             ("local", "本機清理", "drive"),
-            ("drive", "Google Drive", "cloud"),
             ("history", "清理紀錄", "history"),
             ("safety", "安全中心", "shield"),
             ("github", "GitHub 與回報", "github"),
@@ -258,11 +245,11 @@ class MainWindow(QMainWindow):
         self.update_button.clicked.connect(self.check_updates)
         self.sidebar_aux_buttons.append((self.update_button, "檢查更新"))
         side.addWidget(self.update_button)
-        self.account_chip = button("未登入", "user", "account")
-        self.account_chip.setIcon(icon("user", "#99F6E4"))
+        self.account_chip = button(self.account_display_text, "shield", "account")
+        self.account_chip.setIcon(icon("shield", "#99F6E4"))
         self.account_chip.setIconSize(QSize(22, 22))
-        self.account_chip.setToolTip("連接 Google Drive")
-        self.account_chip.clicked.connect(lambda: self.navigate("drive"))
+        self.account_chip.setToolTip("檔案留在這台電腦。查看安全中心")
+        self.account_chip.clicked.connect(lambda: self.navigate("safety"))
         side.addWidget(self.account_chip)
         self.version_label = label(f"WINDOWS  /  {__version__}", "small")
         side.addWidget(self.version_label)
@@ -275,7 +262,6 @@ class MainWindow(QMainWindow):
         self.pages = {}
         for key, page in (
             ("local", self._build_local()),
-            ("drive", self._build_drive()),
             ("progress", self._build_progress()),
             ("review", self._build_review()),
             ("complete", self._build_complete()),
@@ -297,8 +283,7 @@ class MainWindow(QMainWindow):
         box.addWidget(label("把想整理的資料夾放進來。", "title", wrap=True))
         box.addWidget(
             label(
-                "DUPESPACE 只會遞迴掃描您加入的位置；找出內容完全相同的檔案後，"
-                "每組最舊的一份會自動保留。",
+                "選擇或拖入資料夾，比對內容後再決定。掃描不會修改檔案。",
                 "muted",
                 wrap=True,
             )
@@ -317,7 +302,7 @@ class MainWindow(QMainWindow):
         self.root_picker.currentItemChanged.connect(self._root_selection_changed)
         picker_card.box.addWidget(self.root_picker)
         self.current_root_feedback = label(
-            "點選已加入的位置後，可以保護其中的子資料夾或移除該位置。",
+            "需要保留特定子資料夾？選取位置後可設定保護。",
             "small",
             wrap=True,
         )
@@ -360,72 +345,12 @@ class MainWindow(QMainWindow):
         self.scan_button.clicked.connect(self.start_local_scan)
         actions.addWidget(self.scan_button)
         box.addLayout(actions)
-        box.addWidget(
-            Notice(
-                "程式碼專案與 Windows 系統位置不列入清理；套件、備份、同步資料夾"
-                "與雲端占位檔預設鎖定。保護子資料夾是選用功能。"
-            )
-        )
+        safety_link = button("系統與專案保護規則", "shield", "subtle")
+        safety_link.clicked.connect(lambda: self.navigate("safety"))
+        box.addWidget(safety_link, 0, Qt.AlignmentFlag.AlignLeft)
         box.addStretch()
         return page
 
-    def _build_drive(self) -> QWidget:
-        page, box = scroll_page()
-        box.addWidget(label("YOUR FILES STAY IN YOUR GOOGLE DRIVE", "eyebrow"))
-        box.addWidget(label("雲端整理，也要先守護原檔。", "title", wrap=True))
-        box.addWidget(
-            label(
-                "登入後只讀取比對與操作所需的 Google Drive 資訊。"
-                "您可以隨時中斷連線並清除這台電腦上的登入權杖。",
-                "muted",
-                wrap=True,
-            )
-        )
-        account = Card()
-        heading = QHBoxLayout()
-        orbit = ScanOrbit(compact=True)
-        heading.addWidget(orbit)
-        identity = QVBoxLayout()
-        self.drive_identity = label("尚未連接 Google Drive", "heading", wrap=True)
-        self.drive_email = label("本機清理不需要 Google 帳號。", "muted", wrap=True)
-        identity.addWidget(self.drive_identity)
-        identity.addWidget(self.drive_email)
-        heading.addLayout(identity, 1)
-        account.box.addLayout(heading)
-        account.box.addWidget(
-            label(
-                "使用 Google 提供的檔案資訊與校驗碼比對，不會把檔案內容上傳到 DUPESPACE。"
-                "每組保留最舊的一份，程式碼專案與不符合權限的項目不會自動選取。",
-                "muted",
-                wrap=True,
-            )
-        )
-        actions = QHBoxLayout()
-        self.connect_button = button("連接 Google Drive", "cloud", "primary")
-        self.connect_button.clicked.connect(lambda: self.connect_drive(interactive=True))
-        self.disconnect_button = button("中斷連線", "close", "subtle")
-        self.disconnect_button.clicked.connect(self.disconnect_drive)
-        self.disconnect_button.hide()
-        self.drive_scan = button("掃描 Google Drive", "search", "primary")
-        self.drive_scan.clicked.connect(self.start_drive_scan)
-        self.drive_scan.hide()
-        actions.addWidget(self.connect_button)
-        actions.addWidget(self.drive_scan)
-        actions.addWidget(self.disconnect_button)
-        actions.addStretch()
-        account.box.addLayout(actions)
-        box.addWidget(account)
-        box.addWidget(
-            Notice(
-                "登入權杖以目前 Windows 使用者的 DPAPI 保護，重新啟動後可嘗試恢復連線。"
-                "這不是抵抗已入侵電腦的保證；請不要在不信任的共用電腦登入。"
-            )
-        )
-        policy = button("了解 Google 資料使用與隱私政策", "external", "subtle")
-        policy.clicked.connect(lambda: self._open_url(WEBSITE + "/privacy"))
-        box.addWidget(policy, 0, Qt.AlignmentFlag.AlignLeft)
-        box.addStretch()
-        return page
 
     def _build_progress(self) -> QWidget:
         page, box = scroll_page()
@@ -824,11 +749,11 @@ class MainWindow(QMainWindow):
     def navigate(self, key: str) -> None:
         if self.busy:
             return
+        if key == "drive":
+            key = "safety"
         if key == "history":
             self._refresh_history()
         if key == "local" and self.session.source == "local" and self.session.report:
-            key = "review"
-        if key == "drive" and self.session.source == "drive" and self.session.report:
             key = "review"
         self._show_page(key)
 
@@ -881,9 +806,7 @@ class MainWindow(QMainWindow):
     def _refresh_account_chip(self) -> None:
         self.account_chip.setText("" if self.sidebar_collapsed else self.account_display_text)
         self.account_chip.setToolTip(
-            f"Google Drive 已連線\n{self.account_email}"
-            if self.account_email
-            else "未登入；本機清理不需要 Google 帳號"
+            "本機模式，無需帳號；檔案留在這台電腦。查看安全中心"
         )
 
     def _rotate_progress_tip(self) -> None:
@@ -1133,18 +1056,7 @@ class MainWindow(QMainWindow):
         )
 
     def start_drive_scan(self) -> None:
-        if self.busy or self.service is None:
-            return
-        self.session.clear_scan()
-        self.session.source = "drive"
-        self._launch(
-            lambda emit: GoogleDriveScanner().scan(
-                self.service, progress=emit, cancel_event=self.cancel_event
-            ),
-            self._accept_scan,
-            "正在比對 Google Drive",
-            "只讀取檔案資訊與校驗碼，不下載檔案內容。",
-        )
+        self.global_notice.setText("雲端清理已停止。請選擇本機資料夾；不需要登入帳號。")
 
     def rescan(self) -> None:
         if self.busy:
@@ -1179,6 +1091,9 @@ class MainWindow(QMainWindow):
         self._show_page("local")
 
     def _accept_scan(self, report: ScanReport) -> None:
+        if report.source != "local":
+            self.global_notice.setText("舊版雲端結果已失效，沒有載入任何可清理項目。")
+            return
         self._close_details()
         self.previews.clear()
         self.model.limits.clear()
@@ -1555,21 +1470,14 @@ class MainWindow(QMainWindow):
                 if self._return_page == "review" and self.session.report is None
                 else self._return_page
             )
-            if isinstance(error, (ScanCancelled, DriveScanCancelled)):
+            if isinstance(error, ScanCancelled):
                 message = "掃描已停止。未產生可供清理的部分結果，沒有刪除任何檔案。"
-            elif isinstance(error, DriveAuthenticationError):
-                self._auth_silent = False
-                append_diagnostic_event("google_drive_authentication_failed", error)
-                message = (
-                    "無法完成 Google 連線；本機功能不受影響。\n原因："
-                    + safe_error_message(error)[:400]
-                )
             else:
                 message = "這次工作未能完成，沒有啟動後續操作。請確認位置、權限與網路狀態後重試。"
                 if isinstance(error, (ValueError, OSError)) and self.session.source == "local":
                     message += f"\n{str(error)[:400]}"
             self.global_notice.setText(message)
-            if not isinstance(error, (ScanCancelled, DriveScanCancelled)):
+            if not isinstance(error, ScanCancelled):
                 self.sound.play("error")
         else:
             self._callback(self._job_result)
@@ -1584,75 +1492,10 @@ class MainWindow(QMainWindow):
             self.progress_subtitle.setText("正在等目前檔案或網路請求完成；之後不再開始新的批次。")
 
     def connect_drive(self, *, interactive: bool, silent: bool = False) -> None:
-        if self.busy:
-            return
+        # Compatibility guard: stale entry points must never restart OAuth.
+        if interactive and not silent:
+            self.global_notice.setText("此版本不再提供雲端登入。本機清理無需帳號。")
 
-        def connect(_emit):
-            service = build_drive_service(interactive=interactive)
-            name, email, photo_url = desktop_account_identity(service)
-            avatar = fetch_google_avatar(photo_url) if photo_url else b""
-            return service, name, email, avatar
-
-        self._auth_silent = silent
-        self._launch(
-            connect,
-            self._accept_account,
-            "正在連接 Google Drive",
-            "請在系統瀏覽器完成 Google 授權。"
-            if interactive
-            else "正在安全地恢復先前連線；失效時會請你重新登入。",
-            show_progress=not silent,
-        )
-
-    def _accept_account(self, account) -> None:
-        self.service, self.account_name, self.account_email, avatar = account
-        self.drive_identity.setText(self.account_name)
-        self.drive_email.setText(self.account_email or "Google Drive 已連線")
-        self.account_display_text = self.account_chip.fontMetrics().elidedText(
-            self.account_email or self.account_name, Qt.TextElideMode.ElideMiddle, 160
-        )
-        if avatar:
-            pixmap = QPixmap()
-            if pixmap.loadFromData(avatar):
-                self.account_chip.setIcon(QIcon(pixmap))
-        else:
-            self.account_chip.setIcon(icon("user", "#99F6E4"))
-        self._refresh_account_chip()
-        self.connect_button.hide()
-        self.disconnect_button.show()
-        self.drive_scan.show()
-        if not self._auth_silent:
-            self._show_page("drive")
-        self._auth_silent = False
-
-    def disconnect_drive(self) -> None:
-        if not self.busy:
-            self._launch(
-                lambda _emit: disconnect_desktop_account(),
-                self._disconnected,
-                "正在中斷 Google 連線",
-                "清除這台電腦的登入權杖，並嘗試通知 Google 撤銷授權。",
-            )
-
-    def _disconnected(self, _result) -> None:
-        self.service = None
-        self.account_name = self.account_email = ""
-        self.account_display_text = "未登入"
-        self.account_chip.setIcon(icon("user", "#99F6E4"))
-        self._refresh_account_chip()
-        self.drive_identity.setText("尚未連接 Google Drive")
-        self.drive_email.setText("本機清理不需要 Google 帳號。")
-        self.connect_button.show()
-        self.disconnect_button.hide()
-        self.drive_scan.hide()
-        if self.session.source == "drive":
-            self.session.clear_scan()
-            self.model.refresh()
-        self._show_page("drive")
-        self.global_notice.setText(
-            "本機登入資料已移除。如需確認 Google 端授權已撤銷，"
-            "請到 Google 帳戶的第三方連線頁面檢查。"
-        )
 
     def _auto_update_check(self) -> None:
         if self.busy:
