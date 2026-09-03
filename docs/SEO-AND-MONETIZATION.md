@@ -1,6 +1,7 @@
 # DUPESPACE local-first SEO and monetization
 
-Status: implementation prepared on September 3, 2026; public rollout requires confirmation.
+Status: publicly deployed on September 3, 2026 after owner approval. Search-console submission and
+account-level advertising settings remain separate follow-up work; no indexing or revenue is claimed.
 
 ## Positioning and copy rules
 

@@ -35,7 +35,7 @@ Browser file-picker QA used only three synthetic files and correctly returned on
 The local analyzer had no horizontal overflow at 390, 768 and 1440 pixel viewport settings.
 Credential-pattern and environment-key scans found no matches in 167 source/build text files.
 This does not undo the earlier environment-key exposure in a diagnostic task log; its manager
-should rotate that key. Public deployment and account-level changes are pending approval.
+should rotate that key. This was the pre-publication check; see the completed rollout below.
 
 Run TypeScript, ESLint, `vinext build`, then `node --test tests/*.test.mjs`. Removed cloud runtime tests are replaced with 410/no-file-access and legacy-session-revocation regression tests. Reusable legacy utility safety tests remain.
 
@@ -51,7 +51,7 @@ The new social preview was edited with the built-in image tool. Prompt: preserve
 - Desktop local-first release source is v1.6.0. Cloud cleanup is rejected before journaling or mutation;
   the remaining explicit legacy revocation helper cannot log in, refresh tokens or follow redirects.
 - Desktop build output is isolated under `outputs/local-first-1.6.0/`; no installed application or
-  user folder was replaced. Publishing the website, tag, release and installer still awaits approval.
+  user folder was replaced. The owner subsequently approved the public website and v1.6.0 release.
 
 Final follow-up validation:
 
@@ -67,3 +67,21 @@ Final follow-up validation:
   the old Drive SDK nor desktop OAuth client/configuration modules.
 - Local homepage preview responds HTTP 200. The previous viewport checks predate this copy/guide
   pass; no new visual screenshot or live-domain verification is claimed here.
+
+## Completed public rollout — September 3, 2026
+
+- Published the validated website on https://dupespace.app using the existing Sites project.
+- Published Git tag and stable GitHub Release v1.6.0 with `DupeSpace-Setup.exe` and `SHA256SUMS.txt`.
+- GitHub Actions passed: both main/tag test runs and the Windows release build. Windows CI recorded
+  177 passing tests and one default integration skip; the separately enabled Recycle Bin test passed.
+- The packaged app launch, v0.6.0 upgrade, desktop shortcut and uninstall preservation checks passed
+  in the disposable Windows runner. No installed app or personal data on the development PC changed.
+- Downloaded the published installer and verified SHA-256:
+  `ac03c323d3835c14f60058d3a803fb724917cecdc92d0ac316bbf34e95bdf7e0`.
+- Live anonymous HTTP checks passed for sixteen Chinese/English product, analyzer, download,
+  support, policy and guide pages; favicon/PWA/share assets; ads.txt; robots.txt; sitemap and 404.
+- Live checks confirmed canonical/locale headers, AdSense on public homepages, strict analyzer CSP
+  without the ad script, retired cloud APIs returning 410, no connected session, and the old-domain
+  301 preserving path and query.
+- AdSense account review was not changed by this rollout. Last observed status remains under review,
+  not verified Ready. Account-level exclusions and search-console submissions remain follow-ups.
