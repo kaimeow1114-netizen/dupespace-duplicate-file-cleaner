@@ -35,6 +35,11 @@ DUPESPACE 是不依賴託管雲端帳號的本機優先檔案工具。網頁提�
   modification time, then path length; it is not claimed to be the original.
 - Project/application/backup context is flagged for review. No result authorizes deletion.
 - Safely stop analysis, choose the same folder again, or export a formula-neutralized CSV.
+- A single-folder result can also be exported as a versioned `.dupejob` and opened in the Windows
+  app. The handoff contains relative paths, sizes, timestamps and fingerprints, never file content
+  or absolute paths. Desktop treats it as an untrusted hint: the user selects the matching folder,
+  every listed file is constrained to that root and fully reverified, then ordinary keeper and
+  cleanup protections apply. It skips walking unrelated files but never grants deletion authority.
 - No AdSense, external frames or external social counter requests on the private analyzer routes.
 
 ## Windows application
@@ -43,6 +48,9 @@ The existing native Qt application provides a collapsible teal sidebar, folder p
 optional protected subfolders, virtual duplicate groups, lightweight previews, audit history and issue reporting.
 It recursively scans only the locations selected by the user. A protected subfolder never replaces
 the separately protected keeper outside that subfolder.
+
+Use **載入網頁分析檔** to continue from a browser `.dupejob`. Changed, missing, protected or
+out-of-root entries are skipped or rejected; the report cannot bypass the normal review screen.
 
 Protection rules take priority, followed by reliable creation time and deterministic path tie-breaks.
 A keeper is never selectable. System directories, links, junctions, reparse points and cloud placeholders
@@ -61,7 +69,8 @@ entry is not proof of deletion. Files in the Recycle Bin still occupy disk space
 The installer offers an optional desktop shortcut. Built-in updates check the public release,
 verify installer size and SHA-256, and require confirmation before installation.
 
-The v1.6.0 source removes desktop cloud navigation, startup authentication and cloud operations.
+The v1.7.0 source removes desktop cloud navigation, startup authentication and cloud operations,
+and adds verified `.dupejob` handoff from the browser analyzer.
 Its executable excludes OAuth clients and credentials. Earlier installed versions are unchanged
 until the user updates; see GitHub Releases for the actually published installer version.
 

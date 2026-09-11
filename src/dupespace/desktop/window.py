@@ -51,6 +51,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__
+from ..dupejob import load_dupejob
 from ..grouping import selected_bytes, unlock_locked_folder
 from ..local import LocalScanner, ScanCancelled
 from ..models import ProgressUpdate, ScanReport, ScanRoot
@@ -311,6 +312,10 @@ class MainWindow(QMainWindow):
         add = button("選擇資料夾", "plus", "primary")
         add.clicked.connect(self._add_cleanup_root)
         picker_actions.addWidget(add)
+        import_job = button("載入網頁分析檔", "download", "subtle")
+        import_job.setToolTip("載入 .dupejob，重新驗證清單後直接進入檢查畫面")
+        import_job.clicked.connect(self._load_browser_job)
+        picker_actions.addWidget(import_job)
         self.protect_root_button = button("保護所選位置內的子資料夾", "shield")
         self.protect_root_button.clicked.connect(self._protect_subfolder)
         self.protect_root_button.setEnabled(False)
@@ -1053,6 +1058,47 @@ class MainWindow(QMainWindow):
             self._accept_scan,
             "正在仔細比對內容",
             "只掃描：" + "、".join(clean_names[:4]) + (" 等位置" if len(clean_names) > 4 else ""),
+        )
+
+    def _load_browser_job(self) -> None:
+        if self.busy:
+            return
+        job_path, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "載入 DUPESPACE 網頁分析檔",
+            "",
+            "DUPESPACE 分析檔 (*.dupejob);;所有檔案 (*)",
+        )
+        if not job_path:
+            return
+        initial = ""
+        clean_roots = [root.physical_path for root in self.session.roots if root.role == "clean"]
+        if clean_roots:
+            initial = clean_roots[0]
+        selected_root = QFileDialog.getExistingDirectory(
+            self,
+            "選擇當時在網頁分析的同一個資料夾",
+            initial,
+        )
+        if not selected_root:
+            return
+        try:
+            self.session.set_roots((ScanRoot(selected_root, "clean"),))
+            self._refresh_roots()
+        except (ValueError, OSError) as error:
+            self.global_notice.setText(f"資料夾無法使用：{error}")
+            return
+        self.session.source = "local"
+        self._launch(
+            lambda emit: load_dupejob(
+                job_path,
+                selected_root,
+                progress=emit,
+                cancel_event=self.cancel_event,
+            ),
+            self._accept_scan,
+            "正在接續網頁分析結果",
+            "只重新驗證報告內的候選檔案，不會走訪其他檔案。",
         )
 
     def start_drive_scan(self) -> None:

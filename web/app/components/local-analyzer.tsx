@@ -1,11 +1,12 @@
 "use client";
 
-import { AlertCircle, CheckCircle2, Download, FileSearch, FolderOpen, FolderTree, Gauge, HardDrive, Image as ImageIcon, PauseCircle, ScanSearch, ShieldAlert, ShieldCheck, Video } from "lucide-react";
+import { AlertCircle, CheckCircle2, Download, FileSearch, FolderOpen, FolderTree, Gauge, HardDrive, Image as ImageIcon, Laptop, PauseCircle, ScanSearch, ShieldAlert, ShieldCheck, Video } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { analysisCsv, localInsights, type DuplicateGroup, type LocalRecord } from "../../lib/local-analysis";
 import { findLocalDuplicatesInWorker } from "../../lib/local-analysis-worker";
+import { dupeJobJson } from "../../lib/dupejob";
 
 type ScanState = "idle" | "scanning" | "done" | "stopped" | "error";
 
@@ -88,6 +89,20 @@ export function LocalAnalyzer({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" })
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  function exportDupeJob(): void {
+    try {
+      const url = URL.createObjectURL(new Blob([dupeJobJson(groups)], { type: "application/json;charset=utf-8" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `DUPESPACE-${new Date().toISOString().slice(0, 19).replaceAll(":", "-")}.dupejob`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setNotice(en ? "DupeJob exported. Open it in the Windows app to verify the listed files and continue." : "已匯出 DupeJob。請在 Windows 版載入，重新驗證清單後接續整理。");
+    } catch {
+      setNotice(en ? "Choose one folder with Choose folder before exporting a DupeJob." : "請先用「選擇資料夾」分析單一資料夾，才能匯出 DupeJob。");
+    }
+  }
+
   return <section className="local-analyzer" >
     <input ref={input} className="sr-only" aria-label={en ? "Select a local folder" : "選擇本機資料夾"} type="file" multiple onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ""; void analyze(files); }} {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} />
     <div className={`local-dropzone ${dragging ? "dragging" : ""}`} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); if (controller.current) return; if (Array.from(event.dataTransfer.items).some((item) => item.webkitGetAsEntry?.()?.isDirectory)) { setNotice(en ? "For folders, use Choose folder to include every subfolder. You can drop individual files here." : "要完整包含所有子資料夾，請使用「選擇資料夾」。也可直接拖入個別檔案。"); return; } void analyze(Array.from(event.dataTransfer.files)); }}>
@@ -98,7 +113,7 @@ export function LocalAnalyzer({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" })
     {notice && <p role="status" className="local-warning">{notice}</p>}
     <div className="local-privacy-row"><span><ShieldCheck size={16} aria-hidden="true" />{en ? "Never sent to a server" : "不傳送至伺服器"}</span><span><HardDrive size={16} aria-hidden="true" />{en ? "On-device analysis" : "裝置端分析"}</span><span><CheckCircle2 size={16} aria-hidden="true" />{en ? "Read-only report" : "唯讀報告"}</span></div>
     {state !== "idle" && <div className="local-progress-card"><div><b role="status">{status}</b><span>{progress}%</span></div><div className="progress-track"><i style={{ width: `${progress}%` }} /></div><small>{en ? `${filesExamined.toLocaleString()} non-empty files selected` : `已選取 ${filesExamined.toLocaleString()} 個非空白檔案`}</small>{state === "scanning" && <button className="text-button" type="button" onClick={() => { controller.current?.abort(); }}><PauseCircle size={16} aria-hidden="true" />{en ? "Stop safely" : "安全停止"}</button>}</div>}
-    {state === "done" && <div className="local-results-summary"><article><small>{en ? "Duplicate groups" : "重複群組"}</small><strong>{groups.length}</strong></article><article><small>{en ? "Duplicate copies" : "重複副本"}</small><strong>{duplicateFiles}</strong></article><article><small>{en ? "Candidate capacity" : "重複候選容量"}</small><strong>{formatBytes(duplicateBytes)}</strong></article>{groups.length > 0 && <button type="button" className="button secondary" onClick={exportReport}><Download size={17} aria-hidden="true" />{en ? "Export CSV" : "匯出 CSV"}</button>}</div>}
+    {state === "done" && <div className="local-results-summary"><article><small>{en ? "Duplicate groups" : "重複群組"}</small><strong>{groups.length}</strong></article><article><small>{en ? "Duplicate copies" : "重複副本"}</small><strong>{duplicateFiles}</strong></article><article><small>{en ? "Candidate capacity" : "重複候選容量"}</small><strong>{formatBytes(duplicateBytes)}</strong></article>{groups.length > 0 && <div className="local-export-actions"><button type="button" className="button primary" onClick={exportDupeJob}><Laptop size={17} aria-hidden="true" />{en ? "Continue in Windows" : "交給 Windows 版整理"}</button><button type="button" className="button secondary" onClick={exportReport}><Download size={17} aria-hidden="true" />{en ? "Export CSV" : "匯出 CSV"}</button></div>}</div>}
     {state === "done" && groups.length === 0 && <div className="local-empty"><CheckCircle2 size={38} aria-hidden="true" /><h2>{filesExamined < 2 ? (en ? "Not enough files to compare." : "沒有足夠的檔案可供比對。") : (en ? "No exact duplicates found." : "沒有找到內容完全相同的檔案。")}</h2><p>{en ? "No exact duplicates were found. Choose another folder whenever you are ready." : "沒有找到內容完全相同的檔案。你可以繼續分析其他資料夾。 "}</p><button type="button" className="button primary" onClick={() => input.current?.click()}>{en ? "Analyze another folder" : "分析其他資料夾"}</button></div>}
     {groups.length > 0 && <section className="local-intelligence" aria-labelledby="local-intelligence-title"><div className="local-intelligence-heading"><div><span className="eyebrow"><ScanSearch size={15} aria-hidden="true" />{en ? "FILE INTELLIGENCE" : "檔案情報"}</span><h2 id="local-intelligence-title">{en ? "A decision report, not just a duplicate count." : "不只列出重複，更說明重複發生在哪裡。"}</h2></div><p>{en ? "Use these signals to decide where to review first. Exact content can still serve different purposes." : "這些訊號用來安排檢查順序；內容完全相同，仍可能承擔不同用途。"}</p></div><div className="local-intelligence-grid"><article><FolderTree aria-hidden="true" /><small>{en ? "Renamed exact matches" : "改名後仍相同"}</small><strong>{insights.renamedGroups.toLocaleString()}</strong><span>{en ? "groups with different filenames" : "組內容相同、檔名不同"}</span></article><article><HardDrive aria-hidden="true" /><small>{en ? "Cross-folder copies" : "跨資料夾副本"}</small><strong>{insights.crossFolderGroups.toLocaleString()}</strong><span>{en ? "groups span multiple locations" : "組分散在不同位置"}</span></article><article className={insights.contextReviewGroups ? "warning" : ""}><ShieldAlert aria-hidden="true" /><small>{en ? "Context review" : "用途需要確認"}</small><strong>{insights.contextReviewGroups.toLocaleString()}</strong><span>{en ? "project, app or backup groups" : "組涉及專案、程式或備份"}</span></article><article><Gauge aria-hidden="true" /><small>{en ? "Candidate share" : "候選容量占比"}</small><strong>{insights.duplicateRatio < .1 && insights.duplicateRatio > 0 ? "<0.1" : insights.duplicateRatio.toFixed(1)}%</strong><span>{en ? `of ${formatBytes(selectedBytes)} analyzed` : `占本次分析 ${formatBytes(selectedBytes)}`}</span></article></div><div className="local-next-action"><div><ShieldCheck aria-hidden="true" /><span><b>{insights.contextReviewGroups ? (en ? "Review context-sensitive groups first." : "先檢查可能有用途依賴的群組。") : (en ? "Start with the largest duplicate groups." : "可先從容量最大的重複群組開始。")}</b><small>{en ? "The browser stays read-only. Use the Windows app when you are ready to move reviewed copies to the Recycle Bin." : "瀏覽器維持唯讀；確認用途後，可使用 Windows 版將副本移至資源回收筒。"}</small></span></div><a className="button secondary" href={en ? "/en/download/" : "/download"}>{en ? "Open Windows options" : "查看 Windows 整理方式"}</a></div></section>}
     {groups.length > 0 && <p className="local-review-note">{en ? "Identical content does not mean a copy is unnecessary. Reference order uses modification time, not creation time (unavailable in browsers). Review each file’s purpose; this is not deletion advice." : "內容相同不代表副本沒有用途。參考檔案依修改時間排序，不代表原始檔案（瀏覽器無法可靠取得建立時間）；請確認每份檔案的用途，報告不是刪除建議。"}</p>}

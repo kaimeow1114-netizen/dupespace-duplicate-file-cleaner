@@ -270,7 +270,8 @@ button, a { -webkit-tap-highlight-color:transparent; }
 .local-results-summary small,.local-results-summary strong { display:block; }
 .local-results-summary small { color:#6b8189; font-size:12px; font-weight:800; }
 .local-results-summary strong { margin-top:6px; color:var(--navy); font-size:25px; }
-.local-results-summary>.button { margin-right:20px; }
+.local-export-actions { display:flex; align-items:center; gap:8px; padding:14px 20px; }
+.local-export-actions .button { white-space:nowrap; }
 .local-groups { display:grid; gap:12px; margin-top:16px; }
 .local-group { display:grid; grid-template-columns:86px minmax(220px,.8fr) minmax(260px,1.3fr) 110px; align-items:center; gap:18px; padding:16px 20px; background:white; border:1px solid #d6e5e2; border-radius:16px; box-shadow:0 8px 24px rgba(8,43,64,.04); transition:transform .18s,border-color .18s,box-shadow .18s; }
 .local-group:hover { transform:translateY(-2px); border-color:#9edbd2; box-shadow:0 13px 30px rgba(8,43,64,.08); }
@@ -324,7 +325,7 @@ button, a { -webkit-tap-highlight-color:transparent; }
   .local-dropzone { grid-template-columns:auto minmax(0,1fr); }
   .local-dropzone>.button { grid-column:1/-1; width:100%; }
   .local-results-summary { grid-template-columns:repeat(3,1fr); }
-  .local-results-summary>.button { grid-column:1/-1; margin:0 20px 20px; }
+  .local-export-actions { grid-column:1/-1; padding:0 20px 20px; }
   .local-group { grid-template-columns:76px minmax(0,1fr) 90px; }
   .local-group-copies { grid-column:2/4; }
   .local-intelligence-heading { align-items:flex-start; flex-direction:column; gap:10px; }
@@ -374,6 +375,8 @@ button, a { -webkit-tap-highlight-color:transparent; }
   .local-dropzone>.button { grid-column:auto; }
   .local-results-summary { grid-template-columns:1fr; }
   .local-results-summary article { border-right:0; border-bottom:1px solid #e2ecea; }
+  .local-export-actions { flex-direction:column; align-items:stretch; }
+  .local-export-actions .button { justify-content:center; }
   .local-group { grid-template-columns:68px minmax(0,1fr); padding:14px; }
   .local-group-preview { width:64px; height:56px; }
   .local-group>strong { grid-column:1/-1; text-align:left; }
