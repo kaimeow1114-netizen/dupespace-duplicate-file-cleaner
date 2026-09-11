@@ -79,7 +79,7 @@ test("folder merge preview is server rendered, bilingual, private and clearly re
     const html = await response.text(); assert.ok(html.includes(phrase), path);
     assert.equal((html.match(/webkitdirectory/g) ?? []).length, 2, path);
     assert.doesNotMatch(html, /adsbygoogle\.js|Google Drive/, path);
-    assert.match(html, /唯讀預演|Read-only preview/, path);
+    assert.match(html, /不會更動檔案|Read-only preview/, path);
   }
   const source = await readFile(new URL("../app/components/merge-analyzer.tsx", import.meta.url), "utf8");
   assert.match(source, /shown\.slice\(page \* PAGE_SIZE, \(page \+ 1\) \* PAGE_SIZE\)/);
@@ -128,7 +128,7 @@ test("each Chinese content page has its own share URL and purpose-specific descr
 test("marketing stays accurate and vendor details stay in the privacy policy", async () => {
   const home = await (await render()).text();
   assert.doesNotMatch(home, /也不載入 AdSense 或第三方分析程式|本機檔案智慧工具|傳統清理工具/);
-  assert.match(home, /資料夾合併核對與重複檔案工具/);
+  assert.match(home, /DUPESPACE 幫你比較兩個資料夾/);
   assert.match(home, /FILE INTELLIGENCE/);
   assert.doesNotMatch(home, /規劃中/);
   assert.match(home, /目前不提供相似照片搜尋/);
