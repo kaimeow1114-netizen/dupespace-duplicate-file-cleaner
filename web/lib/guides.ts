@@ -23,6 +23,16 @@ export const guides: Record<"zh-TW" | "en", Guide[]> = {
         { title: "核對、少量測試，再批次處理", paragraphs: ["先檢查群組的檔名、完整路徑、預覽與保留標記。使用少量測試資料驗證操作，再處理更大的批次。整理期間避免其他程式修改目標資料夾，因為變更會使原先的掃描結果失效。", "預設使用資源回收筒。若操作失敗或檔案已變更，DUPESPACE 會記錄結果，不會把垃圾桶失敗自動轉為永久刪除。完成後查看 CSV 的各筆狀態，不要只看總容量。CSV 可能含私人路徑，公開回報前請先遮蔽。"] },
       ],
     },
+    {
+      slug: "merge-folders-without-duplicates", title: "合併兩個資料夾前，如何找出改名重複與版本衝突？",
+      description: "比較兩個資料夾的相對路徑與完整內容，在真正複製前找出改名後仍相同的檔案、單邊缺漏與同路徑版本衝突；全程在瀏覽器本機唯讀分析。",
+      sections: [
+        { title: "只看檔名，無法安全合併資料夾", paragraphs: ["備份、手機匯出與工作資料夾常會累積同一份內容的不同檔名。若只用檔名判斷，改名副本會被再次複製；若只看相對路徑，又可能用錯誤版本覆蓋已有檔案。", "安全的合併前核對需要同時回答三件事：哪些內容目的端已經有、哪些檔案只存在單邊，以及哪些相同路徑其實包含不同內容。"] },
+        { title: "先按大小縮小範圍，再完整驗證內容", paragraphs: ["DUPESPACE 先用精確位元組大小分組，再讀取檔頭、中段與檔尾快速排除不同候選。只有仍可能相同的檔案才進入完整分塊 SHA-256 內容驗證，因此快速階段不會直接決定檔案相同。", "完整驗證已移到獨立背景 Worker。大量檔案仍需要由儲存裝置讀出，但畫面操作、停止按鈕與進度更新不必等待雜湊工作讓出主執行緒。"] },
+        { title: "先處理版本衝突，再處理重複內容", paragraphs: ["同一相對路徑出現不同內容時，應先比較日期、大小與實際用途，主動決定要保留哪個版本。不要把名稱相同當作可以覆蓋的證據。", "改名或移動後的完全相同內容，可以標記為避免再次複製；只存在待合併端的檔案才是新增候選。專案、應用程式與備份情境則會要求額外確認，因為相同內容可能在兩邊都不可缺少。"] },
+        { title: "網頁只產生合併地圖，不替你移動檔案", paragraphs: ["瀏覽器版不會上傳、覆蓋或刪除檔案。核對完成後，先匯出 CSV 留存決策依據，再使用你熟悉的檔案管理工具執行合併。", "若需要實際整理重複副本，可改用 Windows 版。每次動作前仍須重新驗證檔案狀態；網頁報告不能直接成為跳過安全檢查的刪除指令。"] },
+      ],
+    },
   ],
   en: [
     {
@@ -43,6 +53,16 @@ export const guides: Record<"zh-TW" | "en", Guide[]> = {
         { title: "Begin with one clearly defined folder", paragraphs: ["Do not start by treating an entire drive as a cleanup target. Choose a download folder, photo import directory or manual copy whose purpose you understand. DUPESPACE recursively scans the locations you add; it does not expand the task to the whole computer.", "Protect important working subfolders. Windows protection rules take priority, followed by usable creation times and path-based keeper suggestions. Copying or restoring a file can change its timestamps, so you still need to verify its purpose."] },
         { title: "Projects and backups can need identical copies", paragraphs: ["Separate software projects may each require identical configuration files, plug-ins or dependencies. Detected projects and package environments are excluded, but rules cannot identify every dependency of a custom application. Matching content alone does not make another location unnecessary.", "Backups and synchronized folders need similar care. A sync client may propagate a deletion to other devices, and NAS or network storage may not provide the Windows Recycle Bin. Understand the storage behavior and your backup plan before cleanup."] },
         { title: "Review, test a small batch, then continue", paragraphs: ["Check names, full paths, previews and protected-copy markers. Validate the workflow with disposable test data before processing larger batches. Avoid modifying the target folders from other applications while cleanup runs: changes invalidate scan results.", "Use the Recycle Bin by default. Failed or changed files are recorded rather than forcibly removed, and trash failures never become permanent deletion. Read each CSV outcome instead of relying only on a capacity total. Reports can contain private paths; redact them before posting a support request."] },
+      ],
+    },
+    {
+      slug: "merge-folders-without-duplicates", title: "How to merge two folders without duplicate files or silent overwrites",
+      description: "Compare two folders before copying. Find renamed exact matches, one-sided files and same-path version conflicts locally in your browser without uploading or changing files.",
+      sections: [
+        { title: "Filenames are not enough for a safe folder merge", paragraphs: ["Backups, phone exports and work folders often contain identical content under different names. A filename-only comparison copies renamed duplicates again, while a relative-path-only merge can overwrite a different version without warning.", "A useful preflight must answer three questions: which content already exists at the destination, which files exist on only one side, and which matching relative paths contain different bytes."] },
+        { title: "Filter cheaply, then verify complete content", paragraphs: ["DUPESPACE groups files by exact byte size, then reads the beginning, middle and end to eliminate obvious mismatches. Only remaining candidates proceed to complete chunked SHA-256 content verification. A sample never decides that two files are equal.", "Complete verification runs in a dedicated background worker. Storage still has to read every candidate byte, but controls, progress updates and safe cancellation no longer compete with hashing on the page’s main thread."] },
+        { title: "Resolve version conflicts before duplicate content", paragraphs: ["When the same relative path contains different content, compare the dates, sizes and actual purpose before choosing a version. A matching filename is not evidence that an overwrite is safe.", "Renamed or moved exact matches can be marked as copies you do not need to transfer again. Incoming-only files are new candidates. Project, application and backup contexts require separate review because identical content may be required on both sides."] },
+        { title: "The browser creates a merge map, not file changes", paragraphs: ["The web tool does not upload, overwrite or delete files. Export the CSV as a decision record, then perform the merge with a file manager you trust.", "Use the Windows app when you need to organize duplicate copies. It still revalidates the current file state before any action; a browser report is never permission to skip cleanup safeguards."] },
       ],
     },
   ],

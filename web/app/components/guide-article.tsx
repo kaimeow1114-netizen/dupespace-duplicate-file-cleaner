@@ -32,7 +32,7 @@ export async function GuideArticle({ guide, locale }: { guide: Guide; locale: "z
   return <main lang={locale}>
     <SiteHeader locale={locale} pagePath={`guides/${guide.slug}`} />
     <script suppressHydrationWarning nonce={nonce} type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify([
-      { "@context": "https://schema.org", "@type": "Article", headline: guide.title, description: guide.description, inLanguage: locale, mainEntityOfPage: url, author: { "@type": "Organization", name: "DUPESPACE", url: "https://dupespace.app/" }, dateModified: "2026-09-03" },
+      { "@context": "https://schema.org", "@type": "Article", headline: guide.title, description: guide.description, inLanguage: locale, mainEntityOfPage: url, author: { "@type": "Organization", name: "DUPESPACE", url: "https://dupespace.app/" }, dateModified: "2026-09-11" },
       { "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: crumbs.map((crumb, index) => ({ "@type": "ListItem", position: index + 1, ...crumb })) },
     ]).replace(/</g, "\\u003c") }} />
     <section className="guide-hero"><div className="shell"><nav className="guide-breadcrumbs" aria-label={en ? "Breadcrumb" : "麵包屑導覽"}><a href={`${prefix}/`}>DUPESPACE</a><span aria-hidden="true">/</span><a href={`${prefix}/support${end}`}>{en ? "Safety guide" : "安全整理指南"}</a></nav><span className="eyebrow"><BookOpenCheck size={16} aria-hidden="true" />{en ? "PRACTICAL FILE GUIDES" : "實用檔案整理指南"}</span><h1>{guide.title}</h1><p>{guide.description}</p><a className="text-link" href={en ? `/guides/${guide.slug}` : `/en/guides/${guide.slug}/`} hrefLang={en ? "zh-TW" : "en"}>{en ? "繁體中文" : "Read in English"}</a></div></section>

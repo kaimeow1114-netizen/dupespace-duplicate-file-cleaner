@@ -9,9 +9,10 @@ import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  compareFolders, mergeCsv, recordsFromFolder, type MergeCategory, type MergeFinding,
+  mergeCsv, recordsFromFolder, type MergeCategory, type MergeFinding,
   type MergeRecord, type MergeResult, type MergeSide,
 } from "../../lib/folder-merge";
+import { compareFoldersInWorker } from "../../lib/folder-merge-worker";
 
 type FolderSelection = { files: File[]; records: MergeRecord[]; name: string; bytes: number };
 type ScanState = "idle" | "scanning" | "done" | "stopped" | "error";
@@ -123,7 +124,7 @@ export function MergeAnalyzer({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" })
     setState("scanning"); setResult(null); setFilter("all"); setPage(0); setProgress(0);
     setStatus(en ? "Building a read-only inventory…" : "正在建立唯讀檔案清單…");
     try {
-      const compared = await compareFolders(incoming.records, destination.records, run.signal, (value) => {
+      const compared = await compareFoldersInWorker(incoming.records, destination.records, run.signal, (value) => {
         if (controller.current !== run) return;
         setProgress(Math.round(value.percent));
         const phase = value.phase === "sample" ? (en ? "Filtering possible matches" : "快速篩選可能相同的內容") : value.phase === "full" ? (en ? "Verifying complete content" : "完整核對檔案內容") : value.phase === "classify" ? (en ? "Organizing differences" : "正在整理差異") : (en ? "Building inventory" : "建立檔案清單");

@@ -16,6 +16,7 @@ test("only complete content matches; empty files ignored; reference is not a del
 });
 test("same size and sampled edges cannot conceal a different middle", async () => {
   const a = new Uint8Array(600000); const b = a.slice(); b[300000] = 1;
+  assert.notEqual(await api.sampleFingerprint(record("a", a), new AbortController().signal), await api.sampleFingerprint(record("b", b), new AbortController().signal));
   assert.equal((await scan([record("a", a), record("b", b)])).length, 0);
 });
 test("reads at most 4 MiB per request and reports full-content byte progress", async () => {

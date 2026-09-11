@@ -4,7 +4,8 @@ import { AlertCircle, CheckCircle2, Download, FileSearch, FolderOpen, FolderTree
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { analysisCsv, findLocalDuplicates, localInsights, type DuplicateGroup, type LocalRecord } from "../../lib/local-analysis";
+import { analysisCsv, localInsights, type DuplicateGroup, type LocalRecord } from "../../lib/local-analysis";
+import { findLocalDuplicatesInWorker } from "../../lib/local-analysis-worker";
 
 type ScanState = "idle" | "scanning" | "done" | "stopped" | "error";
 
@@ -58,10 +59,17 @@ export function LocalAnalyzer({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" })
     setSelectedBytes(records.reduce((sum, record) => sum + record.size, 0));
     setStatus(en ? "Preparing selected files…" : "正在準備選取的檔案…");
     try {
-      const found = await findLocalDuplicates(records, run.signal, (value) => {
+      const found = await findLocalDuplicatesInWorker(records, run.signal, (value) => {
         if (controller.current !== run) return;
         setProgress(Math.round(value.percent));
-        setStatus(`${value.phase === "sample" ? (en ? "Filtering candidates" : "快速篩選候選") : (en ? "Comparing full content" : "完整比對內容")}：${value.path}`);
+        const phase = value.phase === "sample" ? (en ? "Filtering candidates" : "快速篩選候選") : (en ? "Verifying every byte" : "逐段驗證完整內容");
+        const metric = value.phase === "sample" && value.candidateFiles
+          ? `${value.processedFiles?.toLocaleString()} / ${value.candidateFiles.toLocaleString()}`
+          : value.totalBytes
+            ? `${formatBytes(value.processedBytes ?? 0)} / ${formatBytes(value.totalBytes)}`
+            : "";
+        const path = value.path.length > 64 ? `…${value.path.slice(-63)}` : value.path;
+        setStatus(`${phase}${metric ? ` · ${metric}` : ""}${path ? ` · ${path}` : ""}`);
       });
       if (controller.current !== run) return;
       setGroups(found); setProgress(100); setState("done");

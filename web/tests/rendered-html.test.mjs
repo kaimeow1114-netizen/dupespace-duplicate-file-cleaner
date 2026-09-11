@@ -26,7 +26,7 @@ test("all English content pages are real localized HTML with canonical alternate
 test("private analyzer routes including trailing slash exclude ads and external scripts", async () => {
   for (const path of ["/local", "/local/", "/en/local/", "/merge", "/en/merge/"]) {
     const response = await render(path);
-    const csp = response.headers.get("content-security-policy"); assert.match(csp, /connect-src 'self';/); assert.match(csp, /frame-src 'none'/); assert.doesNotMatch(csp, /strict-dynamic|unsafe-inline.*script-src/);
+    const csp = response.headers.get("content-security-policy"); assert.match(csp, /connect-src 'self';/); assert.match(csp, /frame-src 'none'/); assert.match(csp, /worker-src 'self'/); assert.doesNotMatch(csp, /strict-dynamic|unsafe-inline.*script-src/);
     if (path === "/local/") { assert.equal(response.status, 308); assert.equal(response.headers.get("location"), "/local"); continue; }
     assert.equal(response.status, 200, path);
     const html = await response.text(); assert.doesNotMatch(html, /src="https:\/\/pagead2|src="https:\/\/.*\.js/); assert.match(html, /webkitdirectory/);
@@ -56,10 +56,22 @@ test("PWA, crawler and publisher assets retain correct declarations", async () =
   const sitemap = await readFile(new URL("../public/sitemap.xml", import.meta.url), "utf8"); assert.match(sitemap, /dupespace.app\/merge/); assert.match(sitemap, /dupespace.app\/en\/merge/); assert.match(sitemap, /dupespace.app\/local/); assert.match(sitemap, /dupespace.app\/en\/local/); assert.doesNotMatch(sitemap, /dupesweep|\/cleaner/);
   const manifest = JSON.parse(await readFile(new URL("../public/site.webmanifest", import.meta.url), "utf8")); assert.equal(manifest.start_url, "/merge");
 });
+test("download pages expose accurate SoftwareApplication data without invented ratings", async () => {
+  for (const path of ["/download", "/en/download/"]) {
+    const response = await render(path); assert.equal(response.status, 200, path);
+    const html = await response.text();
+    assert.match(html, /SoftwareApplication/); assert.match(html, /UtilitiesApplication/);
+    assert.match(html, /DupeSpace-Setup\.exe/); assert.doesNotMatch(html, /aggregateRating|reviewRating/);
+  }
+});
 test("bounded previews, pagination and cancellation remain explicit", async () => {
   const source = await readFile(new URL("../app/components/local-analyzer.tsx", import.meta.url), "utf8");
   assert.match(source, /groups\.slice\(page \* 20, \(page \+ 1\) \* 20\)/); assert.match(source, /controller.current \|\| !selected.length/); assert.match(source, /loading="lazy"/); assert.match(source, /12 \* 1024 \* 1024/);
   assert.doesNotMatch(source, /<video|fetch\(/);
+  assert.match(source, /findLocalDuplicatesInWorker/);
+  const workerSource = await readFile(new URL("../workers/local-analysis.worker.ts", import.meta.url), "utf8");
+  assert.match(workerSource, /findLocalDuplicates/);
+  assert.doesNotMatch(workerSource, /fetch\(|XMLHttpRequest|sendBeacon|createWritable|removeEntry|indexedDB|localStorage/);
 });
 test("folder merge preview is server rendered, bilingual, private and clearly read-only", async () => {
   for (const [path, phrase] of [["/merge", "合併資料夾前"], ["/en/merge/", "before you merge"]]) {
@@ -73,6 +85,10 @@ test("folder merge preview is server rendered, bilingual, private and clearly re
   assert.match(source, /shown\.slice\(page \* PAGE_SIZE, \(page \+ 1\) \* PAGE_SIZE\)/);
   assert.match(source, /12 \* 1024 \* 1024/);
   assert.doesNotMatch(source, /<video|fetch\(/);
+  assert.match(source, /compareFoldersInWorker/);
+  const workerSource = await readFile(new URL("../workers/folder-merge.worker.ts", import.meta.url), "utf8");
+  assert.match(workerSource, /compareFolders/);
+  assert.doesNotMatch(workerSource, /fetch\(|XMLHttpRequest|sendBeacon|createWritable|removeEntry|indexedDB|localStorage/);
 });
 test("English 404 remains English, noindex, and safely framed", async () => {
   const response = await render("/en/not-a-real-page/"); assert.equal(response.status, 404);
@@ -80,7 +96,7 @@ test("English 404 remains English, noindex, and safely framed", async () => {
 });
 
 test("bilingual guides have article-specific metadata, breadcrumbs and reciprocal language links", async () => {
-  for (const slug of ["duplicate-photos", "safe-windows-cleanup"]) {
+  for (const slug of ["duplicate-photos", "safe-windows-cleanup", "merge-folders-without-duplicates"]) {
     for (const prefix of ["", "/en"]) {
       const path = `${prefix}/guides/${slug}${prefix ? "/" : ""}`;
       const response = await render(path); assert.equal(response.status, 200, path);

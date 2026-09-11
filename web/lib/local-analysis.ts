@@ -1,6 +1,14 @@
 export type LocalRecord = { file: File; path: string; size: number; lastModified: number };
 export type DuplicateGroup = { id: string; category: "image" | "video" | "document" | "other"; files: LocalRecord[]; duplicateBytes: number; contextSensitive: boolean };
-export type ScanProgress = { percent: number; path: string; phase: "sample" | "full" };
+export type ScanProgress = {
+  percent: number;
+  path: string;
+  phase: "sample" | "full";
+  processedFiles?: number;
+  candidateFiles?: number;
+  processedBytes?: number;
+  totalBytes?: number;
+};
 export type LocalInsights = {
   renamedGroups: number;
   crossFolderGroups: number;
@@ -42,8 +50,10 @@ async function read(record: LocalRecord, start: number, end: number, signal: Abo
 export async function sampleFingerprint(record: LocalRecord, signal: AbortSignal): Promise<string> {
   if (record.size <= 2 * SAMPLE_BYTES) return hex(await digest(await read(record, 0, record.size, signal)));
   const head = new Uint8Array(await read(record, 0, SAMPLE_BYTES, signal));
+  const middleStart = Math.max(SAMPLE_BYTES, Math.floor((record.size - SAMPLE_BYTES) / 2));
+  const middle = new Uint8Array(await read(record, middleStart, middleStart + SAMPLE_BYTES, signal));
   const tail = new Uint8Array(await read(record, record.size - SAMPLE_BYTES, record.size, signal));
-  return hex(await digest(join([sizeHeader(record.size), head, tail])));
+  return hex(await digest(join([sizeHeader(record.size), head, middle, tail])));
 }
 
 // This is a versioned complete-content chunk fingerprint, not a standard file SHA-256 digest.
@@ -108,7 +118,7 @@ export async function findLocalDuplicates(records: LocalRecord[], signal: AbortS
     for (const record of records) {
       append(matches, await sampleFingerprint(record, signal), record);
       signal.throwIfAborted();
-      progress({ percent: ++done / total * 35, path: record.path, phase: "sample" });
+      progress({ percent: ++done / total * 35, path: record.path, phase: "sample", processedFiles: done, candidateFiles: total });
     }
     for (const values of matches.values()) if (values.length > 1) sampled.push(values);
   }
@@ -119,7 +129,7 @@ export async function findLocalDuplicates(records: LocalRecord[], signal: AbortS
     const matches = new Map<string, LocalRecord[]>();
     for (const record of records) append(matches, await fullFingerprint(record, signal, (bytes) => {
       readBytes += bytes;
-      progress({ percent: 35 + readBytes / fullBytes * 65, path: record.path, phase: "full" });
+      progress({ percent: 35 + readBytes / fullBytes * 65, path: record.path, phase: "full", processedBytes: readBytes, totalBytes: fullBytes });
     }), record);
     for (const [id, files] of matches) {
       if (files.length < 2) continue;
