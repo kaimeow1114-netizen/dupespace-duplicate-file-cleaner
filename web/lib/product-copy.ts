@@ -1,11 +1,11 @@
 export const productFaq = {
   "zh-TW": [
-    { question: "DUPESPACE 的用途是什麼？", answer: "DUPESPACE 是免費開源的資料夾合併核對與重複檔案工具。網頁可比較待合併與目的資料夾，找出改名後的相同內容、單邊缺漏與版本衝突；Windows 版則提供可復原的重複副本清理。" },
-    { question: "檔案改名或移到其他子資料夾，還能找到嗎？", answer: "可以。合併前核對以完整檔案內容確認，不依賴檔名或相對路徑。內容完全相同但名稱或位置不同時，會列為已存在內容；相同路徑但內容不同時，會列為版本衝突。" },
-    { question: "照片看起來一樣，就算重複嗎？", answer: "不一定。DUPESPACE 比對完整檔案內容，不是用畫面相似度判定。裁切、壓縮、轉檔或中繼資料不同的照片，可能不會出現在同一組；目前不提供相似照片搜尋。" },
-    { question: "不同專案中的相同設定檔會被處理嗎？", answer: "網頁版不刪除任何檔案，並提示常見專案情境。Windows 版會排除偵測到的專案與套件目錄；規則無法辨識所有自訂工作流程，請把重要工作子資料夾加入保護，並核對每份副本的用途。" },
-    { question: "網頁分析會上傳我的檔案嗎？", answer: "不會。檔名、路徑、檔案內容與比對結果都在你的瀏覽器處理，不會上傳到 DUPESPACE。網頁也沒有移動或刪除本機檔案的權限。" },
-    { question: "移至資源回收筒後，空間會立刻增加嗎？", answer: "不一定。檔案仍可能占用原磁碟空間，通常要清空資源回收筒才會釋放。請先檢查檔案確實不再需要；NAS、網路磁碟或部分外接裝置的回收筒支援可能不同，失敗不會改用永久刪除。" },
+    { question: "DUPESPACE 可以幫我做什麼？", answer: "你可以先比較兩個資料夾，找出改過名稱的重複檔案、缺少的內容和版本衝突；也能分析單一資料夾的重複檔案。需要實際清理時，再使用免費的 Windows 版把確認不需要的副本移至資源回收筒。" },
+    { question: "檔案改名或搬到其他資料夾，還找得到嗎？", answer: "可以。DUPESPACE 會確認檔案內容，不只看名稱或位置。內容相同但名稱或位置不同時，會標示為已經存在；相同位置卻有不同內容時，會提醒你處理版本衝突。" },
+    { question: "照片看起來一樣，就算重複嗎？", answer: "不一定。DUPESPACE 找的是內容完全相同的檔案，不是看起來相似的照片。裁切、壓縮、轉檔或修改照片資訊後，檔案內容就可能不同；目前不提供相似照片搜尋。" },
+    { question: "不同程式專案裡的相同設定檔會被清掉嗎？", answer: "網頁版不會刪除任何檔案。Windows 版會避開偵測到的程式專案與套件資料夾；如果你有特殊工作流程，也可以把重要子資料夾加入保護，並在清理前確認每份檔案的用途。" },
+    { question: "網頁分析會上傳我的檔案嗎？", answer: "不會。檔案內容、名稱、路徑和比較結果都在目前的瀏覽器分頁中處理。網頁沒有移動或刪除本機檔案的權限，關閉分頁後，未匯出的結果也會消失。" },
+    { question: "移至資源回收筒後，空間會立刻增加嗎？", answer: "不一定。檔案在清空資源回收筒前，通常仍會占用原本的磁碟空間。NAS、網路磁碟和部分外接裝置也可能不支援資源回收筒；操作失敗時，DUPESPACE 不會偷偷改用永久刪除。" },
   ],
   en: [
     { question: "What does DUPESPACE do?", answer: "DUPESPACE is a free, open-source folder merge preview and duplicate file tool. The web app compares incoming and destination folders for renamed exact matches, one-sided files and version conflicts. The Windows app provides recoverable duplicate cleanup." },

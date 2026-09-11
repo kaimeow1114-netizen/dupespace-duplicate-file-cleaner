@@ -72,14 +72,14 @@ export function HeroDashboard({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" })
           </div>
           <div className="health-demo-copy">
             <small>{en ? "Merge readiness · Example" : "合併準備度 · 示意"}</small>
-            <b>{en ? (urgent ? "Relationships still unknown" : "Merge map ready") : (urgent ? "檔案關係尚未釐清" : "合併地圖已建立")}</b>
+            <b>{en ? (urgent ? "Relationships still unknown" : "Comparison ready") : (urgent ? "還在整理檔案差異" : "比較結果已完成")}</b>
             <span>{urgent ? <AlertTriangle size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}{en ? (urgent ? "Compare before copying" : "Conflicts are visible") : (urgent ? "複製之前先核對內容" : "改名重複與衝突已標出")}</span>
           </div>
         </div>
         <div className="scan-heading"><div><small>LOCAL CONTENT ANALYSIS</small><b>{en ? (cleaned ? "Report ready" : "Matching file contents") : (cleaned ? "本機分析報告完成" : "正在精確比對內容")}</b></div><strong>{cleaned ? "100%" : "82%"}</strong></div>
         <div className="scan-progress"><motion.i initial={{ width: 0 }} animate={{ width: cleaned ? "100%" : "82%" }} transition={{ duration: reducedMotion ? 0 : 1.1 }} /></div>
         <div className="hash-stream" aria-hidden="true"><span>LOCAL HASH</span><i>8f14e45fceea...</i><i>c9f0f895fb98...</i><i>45c48cce2e2d...</i></div>
-        <div className="dashboard-columns"><span>{en ? "DESTINATION · EXISTING" : "目的資料夾 · EXISTING"}</span><span>{en ? "INCOMING · EXACT MATCH" : "待合併資料夾 · EXACT MATCH"}</span></div>
+        <div className="dashboard-columns"><span>{en ? "DESTINATION · EXISTING" : "要合併到 · 已存在"}</span><span>{en ? "INCOMING · EXACT MATCH" : "要搬入 · 內容相同"}</span></div>
         <div className="dashboard-files">
           {demoFiles.map((file, index) => <motion.div key={file.path} className={`demo-file ${file.keeper ? "safe" : "duplicate"}`} initial={reducedMotion ? false : { opacity: 0, x: index % 2 ? 14 : -14 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: reducedMotion ? 0 : .45 + index * .09 }}><i>{file.keeper ? <ShieldCheck size={15} aria-hidden="true" /> : cleaned ? <CheckCircle2 size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}</i><span><b>{file.name}</b><small>{file.path}</small></span><em>{en ? (file.keeper ? "Exists" : cleaned ? "Matched" : "Compare") : (file.keeper ? "已存在" : cleaned ? "內容相同" : "核對中")}</em></motion.div>)}
         </div>

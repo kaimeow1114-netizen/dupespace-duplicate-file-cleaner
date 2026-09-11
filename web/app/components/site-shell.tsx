@@ -31,7 +31,7 @@ export function SiteHeader({ locale = "zh-TW", privateWorkspace = false, pagePat
         <div className="nav-actions">
           <a className="text-button" href={languagePath} lang={en ? "zh-TW" : "en"} hrefLang={en ? "zh-TW" : "en"}>{en ? "繁中" : "EN"}</a>
           <GitHubStars locale={locale} live={!privateWorkspace} />
-          <a className="nav-cta" href={en ? "/en/merge/" : "/merge"}><span>{en ? "Preview a merge" : "合併前先核對"}</span><ArrowRight className="nav-cta-arrow" size={20} strokeWidth={1.8} aria-hidden="true" /></a>
+          <a className="nav-cta" href={en ? "/en/merge/" : "/merge"}><span>{en ? "Compare two folders" : "比較兩個資料夾"}</span><ArrowRight className="nav-cta-arrow" size={20} strokeWidth={1.8} aria-hidden="true" /></a>
           <details className="mobile-nav">
             <summary aria-label={en ? "Open navigation" : "開啟導覽選單"}><Menu aria-hidden="true" /></summary>
             <div>
@@ -60,8 +60,8 @@ export function SiteFooter({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" }) {
   return (
     <footer className="footer">
       <div className="shell footer-grid">
-        <div><a className="brand inverse" href="/" aria-label="DUPESPACE 首頁"><Image src="/dupespace-icon.png" alt="DUPESPACE 雲朵文件標誌" width={38} height={38} unoptimized /><span className="brand-name notranslate" translate="no" lang="en">DUPE<em>SPACE</em></span></a><p>安全清理重複檔案，把空間還給重要的事。</p></div>
-        <div><b>產品</b><a href="/merge">資料夾合併前核對</a><a href="/local">重複檔案搜尋</a><a href="/download">Windows 下載說明</a><a href={repo}>GitHub 原始碼</a></div>
+        <div><a className="brand inverse" href="/" aria-label="DUPESPACE 首頁"><Image src="/dupespace-icon.png" alt="DUPESPACE 雲朵文件標誌" width={38} height={38} unoptimized /><span className="brand-name notranslate" translate="no" lang="en">DUPE<em>SPACE</em></span></a><p>看清楚檔案差異，再安心整理空間。</p></div>
+        <div><b>產品</b><a href="/merge">比較兩個資料夾</a><a href="/local">尋找重複檔案</a><a href="/download">下載 Windows 清理工具</a><a href={repo}>GitHub 原始碼</a></div>
         <div><b>資訊</b><a href="/blog">Space Notes</a><a href="/blog/editorial-policy">編輯與比較原則</a><a href="/support">整理指南</a><a href="/privacy">隱私權政策</a><a href="/terms">服務條款</a></div>
       </div>
       <div className="shell footer-bottom"><span>© 2026 <span className="notranslate" translate="no" lang="en">DUPESPACE</span> · MIT License</span><span>本機優先 · 免費開源</span></div>

@@ -29,15 +29,15 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 const pipeline = [
-  { zh: "按容量排除不可能相同", en: "Eliminate impossible sizes", value: 100, color: "teal" },
-  { zh: "樣本指紋縮小候選", en: "Narrow with sample fingerprints", value: 58, color: "emerald" },
-  { zh: "完整內容逐段確認", en: "Verify complete content", value: 27, color: "amber" },
-  { zh: "標出用途風險", en: "Flag context risks", value: 12, color: "slate" },
+  { zh: "依大小快速排除", en: "Eliminate impossible sizes", value: 100, color: "teal" },
+  { zh: "找出可能重複", en: "Narrow with sample fingerprints", value: 58, color: "emerald" },
+  { zh: "完整確認檔案內容", en: "Verify complete content", value: 27, color: "amber" },
+  { zh: "標出需要人工確認的項目", en: "Flag context risks", value: 12, color: "slate" },
 ] as const;
 
 const priorities: Array<{ icon: LucideIcon; zh: string; en: string; zhStatus: string; enStatus: string }> = [
   { icon: AlertTriangle, zh: "版本衝突", en: "Version conflicts", zhStatus: "相同路徑、不同內容，優先處理", enStatus: "Same path, different content: resolve first" },
-  { icon: ShieldCheck, zh: "用途風險", en: "Context review", zhStatus: "專案、程式與備份先保留", enStatus: "Keep project, app and backup copies by default" },
+  { icon: ShieldCheck, zh: "需要人工確認", en: "Context review", zhStatus: "專案、程式與備份先保留", enStatus: "Keep project, app and backup copies by default" },
   { icon: FileCheck2, zh: "改名後的相同內容", en: "Renamed exact matches", zhStatus: "避免再次複製，保留決策權", enStatus: "Avoid copying again without deleting anything" },
 ];
 
@@ -84,7 +84,7 @@ export function StorageIntelligenceMotion({ locale = "zh-TW" }: { locale?: "zh-T
       variants={{ visible: { transition: { staggerChildren: 0.11 } } }}
     >
       <motion.article className="intelligence-card health-trend-card" variants={reveal}>
-        <div className="intelligence-card-head"><span><TrendingUp size={18} aria-hidden="true" /></span><div><small>MERGE READINESS</small><h3>{en ? "From unknown relationships to a reviewable map" : "從關係未知，到合併地圖完成"}</h3></div><strong><CountUp from={24} to={96} /><small>/100</small></strong></div>
+        <div className="intelligence-card-head"><span><TrendingUp size={18} aria-hidden="true" /></span><div><small>MERGE READINESS</small><h3>{en ? "From unknown relationships to a reviewable map" : "從看不懂差異，到可以安心決定"}</h3></div><strong><CountUp from={24} to={96} /><small>/100</small></strong></div>
         <div className="trend-visual" aria-label={en ? "Illustrative merge readiness rises from 24 to 96 after analysis" : "分析後的合併準備度示意由 24 分提升至 96 分"}>
           <svg viewBox="0 0 620 190" role="img" aria-hidden="true">
             <defs><linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#14b8a6" stopOpacity=".38" /><stop offset="1" stopColor="#14b8a6" stopOpacity="0" /></linearGradient></defs>
@@ -92,14 +92,14 @@ export function StorageIntelligenceMotion({ locale = "zh-TW" }: { locale?: "zh-T
             <motion.path className="trend-area" d="M0 154 C70 150 94 137 142 140 S225 126 270 130 S350 102 394 105 S469 58 515 68 S574 28 620 22 V190 H0Z" initial={reducedMotion ? false : { opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }} transition={{ duration: .8, delay: .3 }} />
             <motion.path className="trend-line" d="M0 154 C70 150 94 137 142 140 S225 126 270 130 S350 102 394 105 S469 58 515 68 S574 28 620 22" initial={reducedMotion ? false : { pathLength: 0 }} whileInView={{ pathLength: 1 }} viewport={{ once: true }} transition={{ duration: 1.25, delay: .2, ease: "easeOut" }} />
           </svg>
-          <div className="trend-labels"><span>{en ? "Before comparison" : "尚未核對"}</span><span>{en ? "Merge map ready" : "合併地圖完成"}</span></div>
+          <div className="trend-labels"><span>{en ? "Before comparison" : "尚未比較"}</span><span>{en ? "Merge map ready" : "差異已整理"}</span></div>
         </div>
         <div className="trend-summary"><span><CheckCircle2 size={15} aria-hidden="true" />{en ? "Renamed matches exposed" : "改名重複已標出"}</span><span>{en ? "Visual example" : "介面示意"} <b>{en ? "not device data" : "非裝置數據"}</b></span></div>
       </motion.article>
 
       <motion.article className="intelligence-card cause-card" variants={reveal}>
         <div className="intelligence-card-head"><span><BarChart3 size={18} aria-hidden="true" /></span><div><small>CONTENT PIPELINE</small><h3>{en ? "Fast filtering, complete verification" : "快速縮小範圍，再完整確認"}</h3></div></div>
-        <p>{en ? "The interface stays simple while multiple verification layers run locally. Bars illustrate the narrowing pipeline, not your data." : "介面保持簡單，裝置端仍執行多層內容核對。長條呈現候選逐步縮小的流程，不是你的數據。"}</p>
+        <p>{en ? "The interface stays simple while multiple verification layers run locally. Bars illustrate the narrowing pipeline, not your data." : "畫面保持簡單，系統仍會在你的裝置上逐步確認內容。長條只是流程示意，不是你的檔案數據。"}</p>
         <div className="cause-bars">
           {pipeline.map((item, index) => <div key={item.en}><div><span>{en ? item.en : item.zh}</span><b>0{index + 1}</b></div><i><motion.em className={item.color} initial={reducedMotion ? { width: `${item.value}%` } : { width: 0 }} whileInView={{ width: `${item.value}%` }} viewport={{ once: true }} transition={{ duration: .7, delay: .28 + index * .1, ease: [0.22, 1, 0.36, 1] }} /></i></div>)}
         </div>
@@ -142,7 +142,7 @@ export function TrustMatrixMotion({ repository }: { repository: string }) {
         <motion.div role="row" variants={reveal}><b role="columnheader">你在意的事</b><b role="columnheader"><ShieldCheck size={17} aria-hidden="true" />DUPESPACE 的做法</b></motion.div>
         {comparisons.map(([question, answer]) => <motion.div role="row" variants={reveal} key={question}><span role="cell">{question}</span><span role="cell"><CheckCircle2 size={17} aria-hidden="true" />{answer}</span></motion.div>)}
       </div>
-      <motion.aside className="open-source-proof" variants={reveal}><span><Code2 size={24} aria-hidden="true" /></span><small>OPEN SOURCE PROOF</small><h3>不只要求你相信，還能親自驗證。</h3><p lang="en">Read the code. Verify the claims. Run it yourself.</p><a className="button secondary" href={repository}>在 GitHub 查看原始碼</a><div><Download size={15} aria-hidden="true" /><span>免費下載</span><Lock size={15} aria-hidden="true" /><span>安全規則公開</span></div></motion.aside>
+      <motion.aside className="open-source-proof" variants={reveal}><span><Code2 size={24} aria-hidden="true" /></span><small>OPEN SOURCE PROOF</small><h3>每一項安全做法，都能從原始碼查證。</h3><p>你也可以自行建置執行，不必只相信產品介紹。</p><a className="button secondary" href={repository}>在 GitHub 查看原始碼</a><div><Download size={15} aria-hidden="true" /><span>免費下載</span><Lock size={15} aria-hidden="true" /><span>安全規則公開</span></div></motion.aside>
     </motion.div>
   );
 }

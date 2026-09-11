@@ -166,7 +166,7 @@ button, a { -webkit-tap-highlight-color:transparent; }
 .stats-grid div { display:flex; align-items:center; justify-content:center; gap:13px; min-height:54px; border-right:1px solid rgba(255,255,255,.12); }
 .stats-grid div:last-child { border:0; }
 .stats-grid strong { font-size:36px; color:var(--mint-light); }
-.stats-grid span { max-width:90px; color:#c3d5db; font-size:12px; font-weight:800; line-height:1.5; }
+.stats-grid span { max-width:160px; color:#c3d5db; font-size:13px; font-weight:800; line-height:1.5; }
 
 .section { padding-block:108px; }
 .section-heading { max-width:730px; margin-bottom:50px; }
@@ -192,6 +192,10 @@ button, a { -webkit-tap-highlight-color:transparent; }
 .split { display:grid; grid-template-columns:1fr 1fr; gap:100px; align-items:center; }
 .split h2 { color:white; }
 .split p { color:#b9cdd4; }
+.technical-details { margin:18px 0 24px; padding:14px 16px; color:#c8dcdf; background:rgba(255,255,255,.045); border:1px solid rgba(153,246,228,.2); border-radius:12px; }
+.technical-details summary { width:max-content; max-width:100%; cursor:pointer; color:#99f6e4; font-size:14px; font-weight:850; line-height:1.5; }
+.technical-details summary:focus-visible { outline:3px solid rgba(45,212,191,.38); outline-offset:4px; border-radius:4px; }
+.technical-details p { margin:10px 0 0 !important; font-size:14px !important; line-height:1.75 !important; }
 .steps { list-style:none; margin:0; padding:0; }
 .steps li { position:relative; display:flex; gap:20px; align-items:center; padding:24px 0; border-bottom:1px solid rgba(255,255,255,.12); }
 .steps>li>span { width:46px; height:46px; display:grid; place-items:center; flex:none; border-radius:50%; color:var(--navy); background:var(--mint); font-weight:900; }
@@ -251,6 +255,10 @@ button, a { -webkit-tap-highlight-color:transparent; }
 .local-analyzer { position:relative; z-index:3; margin-top:-42px; }
 .local-pagination { display:flex; align-items:center; justify-content:center; gap:1rem; margin-block:1.5rem; grid-column:1 / -1; }
 .local-review-note { color:var(--muted); line-height:1.7; margin:1rem 0; }
+.local-technical-details,.local-sort-details { color:#4d6872; background:rgba(255,255,255,.82); border-color:#cfe2de; }
+.local-technical-details { margin:0 0 16px; }
+.local-sort-details { margin:0 0 18px; }
+.local-technical-details summary,.local-sort-details summary { color:#0f766e; }
 .local-context-warning { display:block; color:#92400e; margin-top:.5rem; }
 .local-dropzone { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:22px; padding:30px 32px; background:rgba(255,255,255,.97); border:1px solid #cfe2de; border-radius:22px; box-shadow:0 24px 65px rgba(8,43,64,.14); transition:border-color .2s,transform .2s,box-shadow .2s; }
 .local-dropzone.dragging { transform:translateY(-3px); border-color:#14b8a6; box-shadow:0 28px 75px rgba(13,148,136,.2); }

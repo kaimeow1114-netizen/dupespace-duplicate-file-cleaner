@@ -66,7 +66,7 @@ function toolLink(type: NonNullable<BlogArticle["relatedTool"]>, en: boolean) {
   const end = en ? "/" : "";
   if (type === "merge") return {
     href: prefix + "/merge" + end,
-    title: en ? "Compare two folders without uploading them" : "在瀏覽器核對兩個資料夾",
+    title: en ? "Compare two folders without uploading them" : "在瀏覽器比較兩個資料夾",
     copy: en ? "Find renamed matches, one-sided files and version conflicts in a read-only preview." : "唯讀找出改名後的相同內容、單側檔案與版本衝突，不把檔案傳送至伺服器。",
   };
   if (type === "local") return {
