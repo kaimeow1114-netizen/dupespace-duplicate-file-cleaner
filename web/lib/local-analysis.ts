@@ -1,6 +1,12 @@
 export type LocalRecord = { file: File; path: string; size: number; lastModified: number };
 export type DuplicateGroup = { id: string; category: "image" | "video" | "document" | "other"; files: LocalRecord[]; duplicateBytes: number; contextSensitive: boolean };
 export type ScanProgress = { percent: number; path: string; phase: "sample" | "full" };
+export type LocalInsights = {
+  renamedGroups: number;
+  crossFolderGroups: number;
+  contextReviewGroups: number;
+  duplicateRatio: number;
+};
 
 export const CHUNK_BYTES = 4 * 1024 * 1024;
 const SAMPLE_BYTES = 128 * 1024;
@@ -33,7 +39,7 @@ async function read(record: LocalRecord, start: number, end: number, signal: Abo
   if (data.byteLength !== end - start || record.file.size !== record.size || record.file.lastModified !== record.lastModified) throw new Error("File changed during analysis");
   return data;
 }
-async function sample(record: LocalRecord, signal: AbortSignal): Promise<string> {
+export async function sampleFingerprint(record: LocalRecord, signal: AbortSignal): Promise<string> {
   if (record.size <= 2 * SAMPLE_BYTES) return hex(await digest(await read(record, 0, record.size, signal)));
   const head = new Uint8Array(await read(record, 0, SAMPLE_BYTES, signal));
   const tail = new Uint8Array(await read(record, record.size - SAMPLE_BYTES, record.size, signal));
@@ -59,7 +65,7 @@ export function contextSensitive(path: string): boolean {
     || /(?:^|[\\/])(?:package(?:-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|pyproject\.toml|requirements[^\\/]*\.txt|\.env(?:\.[^\\/]*)?)$/i.test(path)
     || /\.(?:exe|dll|msi|sys|lnk|ini|cfg|config)$/i.test(path);
 }
-function category(file: File): DuplicateGroup["category"] {
+export function fileCategory(file: File): DuplicateGroup["category"] {
   if (file.type.startsWith("video/") || /\.(mp4|mov|mkv|webm|avi)$/i.test(file.name)) return "video";
   if (file.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|heic|psd)$/i.test(file.name)) return "image";
   if (file.type.startsWith("text/") || /\.(docx?|xlsx?|pptx?|pdf|txt|md|csv)$/i.test(file.name)) return "document";
@@ -69,6 +75,26 @@ export function referenceOrder(a: LocalRecord, b: LocalRecord): number {
   const aTime = a.lastModified > 0 ? a.lastModified : Number.MAX_SAFE_INTEGER;
   const bTime = b.lastModified > 0 ? b.lastModified : Number.MAX_SAFE_INTEGER;
   return aTime - bTime || a.path.length - b.path.length || a.path.localeCompare(b.path);
+}
+
+function fileName(path: string): string {
+  return path.replaceAll("\\", "/").split("/").at(-1)?.normalize("NFC").toLocaleLowerCase("en-US") ?? "";
+}
+
+function parentPath(path: string): string {
+  const parts = path.replaceAll("\\", "/").split("/");
+  parts.pop();
+  return parts.join("/").normalize("NFC").toLocaleLowerCase("en-US");
+}
+
+export function localInsights(groups: DuplicateGroup[], selectedBytes: number): LocalInsights {
+  const duplicateBytes = groups.reduce((sum, group) => sum + group.duplicateBytes, 0);
+  return {
+    renamedGroups: groups.filter((group) => new Set(group.files.map((record) => fileName(record.path))).size > 1).length,
+    crossFolderGroups: groups.filter((group) => new Set(group.files.map((record) => parentPath(record.path))).size > 1).length,
+    contextReviewGroups: groups.filter((group) => group.contextSensitive).length,
+    duplicateRatio: selectedBytes > 0 ? Math.min(100, duplicateBytes / selectedBytes * 100) : 0,
+  };
 }
 export async function findLocalDuplicates(records: LocalRecord[], signal: AbortSignal, progress: (value: ScanProgress) => void): Promise<DuplicateGroup[]> {
   const sizes = new Map<number, LocalRecord[]>();
@@ -80,7 +106,7 @@ export async function findLocalDuplicates(records: LocalRecord[], signal: AbortS
   for (const records of candidates) {
     const matches = new Map<string, LocalRecord[]>();
     for (const record of records) {
-      append(matches, await sample(record, signal), record);
+      append(matches, await sampleFingerprint(record, signal), record);
       signal.throwIfAborted();
       progress({ percent: ++done / total * 35, path: record.path, phase: "sample" });
     }
@@ -98,7 +124,7 @@ export async function findLocalDuplicates(records: LocalRecord[], signal: AbortS
     for (const [id, files] of matches) {
       if (files.length < 2) continue;
       files.sort(referenceOrder);
-      groups.push({ id, files, category: category(files[0].file), duplicateBytes: files[0].size * (files.length - 1), contextSensitive: files.some((record) => contextSensitive(record.path)) });
+      groups.push({ id, files, category: fileCategory(files[0].file), duplicateBytes: files[0].size * (files.length - 1), contextSensitive: files.some((record) => contextSensitive(record.path)) });
     }
   }
   signal.throwIfAborted();

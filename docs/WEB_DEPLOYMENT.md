@@ -1,65 +1,43 @@
-# Web deployment and Google OAuth
+# Web deployment and retired Google access
 
-DUPESPACE Web is a Cloudflare Worker-compatible Vinext application under `web/`. It stores no file
-contents and has no application database. Google access and refresh tokens remain inside an
-AES-GCM encrypted, HttpOnly, SameSite cookie. Every operation candidate carries a server-signed
-proof that expires after 30 minutes.
+DUPESPACE Web is a Cloudflare Worker-compatible Vinext application under `web/`. The current public
+product is local-first: `/local` and `/merge` read only the files a visitor explicitly chooses and
+perform analysis in that browser tab. File contents, paths and reports are not sent to DUPESPACE,
+and the application has no file-analysis database.
 
-## Google Cloud setup
+## Google Drive retirement boundary
 
-1. Enable Google Drive API in the DUPESPACE Google Cloud project.
-2. Configure the OAuth brand as **DUPESPACE** with:
-   - Homepage: `https://dupespace.app/`
-   - Privacy: `https://dupespace.app/privacy`
-   - Terms: `https://dupespace.app/terms`
-3. Create a **Web application** client with origin `https://dupespace.app` and redirect URI
-   `https://dupespace.app/api/google/callback`.
-4. Create a separate **Desktop application** client for the Windows app. Never package the Web
-   Client Secret in the desktop executable.
-5. Store `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and a random 32+ character `SESSION_SECRET`
-   only as encrypted production hosting variables. Never commit credentials, tokens, or user data.
-6. Add explicit test users until Google verification is complete.
-7. Submit the restricted `https://www.googleapis.com/auth/drive` scope for verification. Public
-   users outside the test list cannot be promised access before approval; Google may also require
-   an independent security assessment.
+The public Google Drive analyzer and every Drive mutation route are retired. Do not enable the Drive
+API, add restricted scopes, restore OAuth buttons or deploy new Google OAuth credentials for the
+current product. Retired file-access routes fail closed with HTTP 410 before making a network call.
 
-The Desktop app uses a public Client ID, a random loopback redirect, PKCE, and the Google-issued
-Desktop-only companion value when required by token exchange. This value is not a security control:
-native applications cannot keep it confidential after distribution. Release builds use only the
-Desktop-specific Actions Secrets, never the Web secret. The Web secret remains a Sites secret environment variable and
-must never be printed by builds, request logs, diagnostics, or error pages. Rotate it and
-`SESSION_SECRET` after any suspected exposure. The encrypted Secure/HttpOnly/SameSite login cookie
-uses a sliding 30-day maximum age and is rotated on authenticated use; server-signed scan proofs
-remain short-lived and expire after 30 minutes. Disconnect attempts to revoke the Google token
-before clearing the local session cookie.
+Two compatibility endpoints remain temporarily so previous users can inspect and revoke an existing
+encrypted login cookie. Status checks never refresh a token. Disconnect is same-origin only, attempts
+revocation first and retains a still-usable grant when revocation fails so the user can retry. These
+endpoints must never be expanded into listing, scanning, trash or permanent-delete operations.
 
-The full Drive scope is required to find and manage pre-existing user-selected duplicate files.
-Both trash and permanent deletion use that same already-declared scope; the permanent operation
-does not introduce an additional scope. The application still checks `canTrash` or `canDelete`
-immediately before the corresponding API call.
+After the migration window ends and existing grants have been revoked, remove the compatibility
+cookie code and delete the unused hosting secrets. Until then, never print a token, cookie,
+`GOOGLE_CLIENT_SECRET` or `SESSION_SECRET` in builds, logs, diagnostics or error pages.
 
-## Runtime safety
+## Browser analysis safety
 
-Listings use Drive pages of up to 1,000 items and mutations use application batches of 10, with a
-server maximum of 20. Keeper lookups are shared within each request to avoid redundant API calls.
-`PATCH trashed=true` and `DELETE files/{id}` are separate endpoints and code paths. A trash failure
-never invokes permanent delete. A trash result is successful only when Google explicitly returns
-`trashed=true`. Every operation revalidates target and keeper metadata, ownership, checksum,
-version, modified time, parent folder, and capability, then returns a full per-item audit outcome.
-Verified mirror folders are trash-only. Right before a folder mutation, the runtime rebuilds its
-relative-path manifest and rechecks file count, total bytes, latest modification time, ownership,
-location, capabilities, and checksum. Any mismatch cancels the operation.
+The browser workspaces are read-only. They have no application code path for upload, move, delete or
+permanent deletion. Candidate reduction may use file size and samples, but a duplicate result is
+emitted only after complete content verification. If a file changes, cannot be read completely or the
+visitor cancels, the analysis fails closed instead of returning partial results. Reports distinguish
+content identity from user intent: project, application and backup copies remain review items, not
+deletion advice.
 
 ## AdSense and search
 
 The site declares publisher `ca-pub-7998471640181666` and publishes
 `google.com, pub-7998471640181666, DIRECT, f08c47fec0942fa0` in `ads.txt`. Add `dupespace.app` to
 AdSense, complete ownership review, and enable Auto Ads only after approval. The complete
-`/cleaner` route is excluded and does not load the AdSense script; login, confirmation, and cleanup
-controls never contain ads. Enable Google Privacy & Messaging/CMP before public personalized ads.
+`/local` and `/merge` workspaces do not load the AdSense script; file selection, analysis results and
+other private work surfaces never contain ads. Enable Google Privacy & Messaging/CMP before public personalized ads.
 
 Submit `https://dupespace.app/sitemap.xml` to Google Search Console and Bing Webmaster Tools after
 verifying domain ownership. Canonicals always point to `https://dupespace.app`; legacy
-`*.chatgpt.site`, `dupesweep.app`, and `www.dupesweep.app` GET/HEAD requests redirect permanently
-to the canonical domain while preserving path and query. Legacy write requests are rejected and
-must be restarted at the new origin. `www.dupespace.app` redirects to the apex domain.
+`*.chatgpt.site` GET/HEAD requests redirect permanently to the canonical domain while preserving
+path and query. `www.dupespace.app` redirects to the apex domain.

@@ -1,10 +1,10 @@
 "use client";
 
-import { AlertCircle, CheckCircle2, Download, FileSearch, FolderOpen, HardDrive, Image as ImageIcon, PauseCircle, ShieldCheck, Video } from "lucide-react";
+import { AlertCircle, CheckCircle2, Download, FileSearch, FolderOpen, FolderTree, Gauge, HardDrive, Image as ImageIcon, PauseCircle, ScanSearch, ShieldAlert, ShieldCheck, Video } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { analysisCsv, findLocalDuplicates, type DuplicateGroup, type LocalRecord } from "../../lib/local-analysis";
+import { analysisCsv, findLocalDuplicates, localInsights, type DuplicateGroup, type LocalRecord } from "../../lib/local-analysis";
 
 type ScanState = "idle" | "scanning" | "done" | "stopped" | "error";
 
@@ -38,6 +38,7 @@ export function LocalAnalyzer({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" })
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState(en ? "Choose a folder to begin." : "選擇資料夾後即可開始。 ");
   const [filesExamined, setFilesExamined] = useState(0);
+  const [selectedBytes, setSelectedBytes] = useState(0);
   const [groups, setGroups] = useState<DuplicateGroup[]>([]);
   const [page, setPage] = useState(0);
   const [notice, setNotice] = useState("");
@@ -45,6 +46,7 @@ export function LocalAnalyzer({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" })
 
   const duplicateBytes = useMemo(() => groups.reduce((total, group) => total + group.duplicateBytes, 0), [groups]);
   const duplicateFiles = useMemo(() => groups.reduce((total, group) => total + group.files.length - 1, 0), [groups]);
+  const insights = useMemo(() => localInsights(groups, selectedBytes), [groups, selectedBytes]);
 
   async function analyze(selected: File[]): Promise<void> {
     if (controller.current || !selected.length) return;
@@ -53,6 +55,7 @@ export function LocalAnalyzer({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" })
     setState("scanning"); setGroups([]); setProgress(0); setPage(0); setNotice("");
     const records = selected.filter((file) => file.size > 0).map((file) => ({ file, path: file.webkitRelativePath || file.name, size: file.size, lastModified: file.lastModified }));
     setFilesExamined(records.length);
+    setSelectedBytes(records.reduce((sum, record) => sum + record.size, 0));
     setStatus(en ? "Preparing selected files…" : "正在準備選取的檔案…");
     try {
       const found = await findLocalDuplicates(records, run.signal, (value) => {
@@ -85,10 +88,11 @@ export function LocalAnalyzer({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" })
       <button className="button primary" type="button" onClick={() => input.current?.click()} disabled={state === "scanning"}><FolderOpen size={18} aria-hidden="true" />{en ? "Choose folder" : "選擇資料夾"}</button>
     </div>
     {notice && <p role="status" className="local-warning">{notice}</p>}
-    <div className="local-privacy-row"><span><ShieldCheck size={16} aria-hidden="true" />{en ? "No upload" : "零上傳"}</span><span><HardDrive size={16} aria-hidden="true" />{en ? "On-device analysis" : "裝置端分析"}</span><span><CheckCircle2 size={16} aria-hidden="true" />{en ? "Read-only report" : "唯讀報告"}</span></div>
+    <div className="local-privacy-row"><span><ShieldCheck size={16} aria-hidden="true" />{en ? "Never sent to a server" : "不傳送至伺服器"}</span><span><HardDrive size={16} aria-hidden="true" />{en ? "On-device analysis" : "裝置端分析"}</span><span><CheckCircle2 size={16} aria-hidden="true" />{en ? "Read-only report" : "唯讀報告"}</span></div>
     {state !== "idle" && <div className="local-progress-card"><div><b role="status">{status}</b><span>{progress}%</span></div><div className="progress-track"><i style={{ width: `${progress}%` }} /></div><small>{en ? `${filesExamined.toLocaleString()} non-empty files selected` : `已選取 ${filesExamined.toLocaleString()} 個非空白檔案`}</small>{state === "scanning" && <button className="text-button" type="button" onClick={() => { controller.current?.abort(); }}><PauseCircle size={16} aria-hidden="true" />{en ? "Stop safely" : "安全停止"}</button>}</div>}
     {state === "done" && <div className="local-results-summary"><article><small>{en ? "Duplicate groups" : "重複群組"}</small><strong>{groups.length}</strong></article><article><small>{en ? "Duplicate copies" : "重複副本"}</small><strong>{duplicateFiles}</strong></article><article><small>{en ? "Candidate capacity" : "重複候選容量"}</small><strong>{formatBytes(duplicateBytes)}</strong></article>{groups.length > 0 && <button type="button" className="button secondary" onClick={exportReport}><Download size={17} aria-hidden="true" />{en ? "Export CSV" : "匯出 CSV"}</button>}</div>}
     {state === "done" && groups.length === 0 && <div className="local-empty"><CheckCircle2 size={38} aria-hidden="true" /><h2>{filesExamined < 2 ? (en ? "Not enough files to compare." : "沒有足夠的檔案可供比對。") : (en ? "No exact duplicates found." : "沒有找到內容完全相同的檔案。")}</h2><p>{en ? "No exact duplicates were found. Choose another folder whenever you are ready." : "沒有找到內容完全相同的檔案。你可以繼續分析其他資料夾。 "}</p><button type="button" className="button primary" onClick={() => input.current?.click()}>{en ? "Analyze another folder" : "分析其他資料夾"}</button></div>}
+    {groups.length > 0 && <section className="local-intelligence" aria-labelledby="local-intelligence-title"><div className="local-intelligence-heading"><div><span className="eyebrow"><ScanSearch size={15} aria-hidden="true" />{en ? "FILE INTELLIGENCE" : "檔案情報"}</span><h2 id="local-intelligence-title">{en ? "A decision report, not just a duplicate count." : "不只列出重複，更說明重複發生在哪裡。"}</h2></div><p>{en ? "Use these signals to decide where to review first. Exact content can still serve different purposes." : "這些訊號用來安排檢查順序；內容完全相同，仍可能承擔不同用途。"}</p></div><div className="local-intelligence-grid"><article><FolderTree aria-hidden="true" /><small>{en ? "Renamed exact matches" : "改名後仍相同"}</small><strong>{insights.renamedGroups.toLocaleString()}</strong><span>{en ? "groups with different filenames" : "組內容相同、檔名不同"}</span></article><article><HardDrive aria-hidden="true" /><small>{en ? "Cross-folder copies" : "跨資料夾副本"}</small><strong>{insights.crossFolderGroups.toLocaleString()}</strong><span>{en ? "groups span multiple locations" : "組分散在不同位置"}</span></article><article className={insights.contextReviewGroups ? "warning" : ""}><ShieldAlert aria-hidden="true" /><small>{en ? "Context review" : "用途需要確認"}</small><strong>{insights.contextReviewGroups.toLocaleString()}</strong><span>{en ? "project, app or backup groups" : "組涉及專案、程式或備份"}</span></article><article><Gauge aria-hidden="true" /><small>{en ? "Candidate share" : "候選容量占比"}</small><strong>{insights.duplicateRatio < .1 && insights.duplicateRatio > 0 ? "<0.1" : insights.duplicateRatio.toFixed(1)}%</strong><span>{en ? `of ${formatBytes(selectedBytes)} analyzed` : `占本次分析 ${formatBytes(selectedBytes)}`}</span></article></div><div className="local-next-action"><div><ShieldCheck aria-hidden="true" /><span><b>{insights.contextReviewGroups ? (en ? "Review context-sensitive groups first." : "先檢查可能有用途依賴的群組。") : (en ? "Start with the largest duplicate groups." : "可先從容量最大的重複群組開始。")}</b><small>{en ? "The browser stays read-only. Use the Windows app when you are ready to move reviewed copies to the Recycle Bin." : "瀏覽器維持唯讀；確認用途後，可使用 Windows 版將副本移至資源回收筒。"}</small></span></div><a className="button secondary" href={en ? "/en/download/" : "/download"}>{en ? "Open Windows options" : "查看 Windows 整理方式"}</a></div></section>}
     {groups.length > 0 && <p className="local-review-note">{en ? "Identical content does not mean a copy is unnecessary. Reference order uses modification time, not creation time (unavailable in browsers). Review each file’s purpose; this is not deletion advice." : "內容相同不代表副本沒有用途。參考檔案依修改時間排序，不代表原始檔案（瀏覽器無法可靠取得建立時間）；請確認每份檔案的用途，報告不是刪除建議。"}</p>}
     {groups.length > 0 && <div className="local-groups">{groups.slice(page * 20, (page + 1) * 20).map((group, groupIndex) => <article key={group.id} className="local-group"><div className="local-group-preview"><LocalPreview key={group.files[0].path} record={group.files[0]} category={group.category} /></div><div className="local-group-main"><small>{en ? `Group ${page * 20 + groupIndex + 1} · ${group.files.length - 1} duplicate copies` : `群組 ${page * 20 + groupIndex + 1} · ${group.files.length - 1} 個重複副本`}</small><h3>{group.files[0].file.name}</h3><p>{group.files[0].path}</p><span><ShieldCheck size={14} aria-hidden="true" />{en ? "Reference only" : "參考檔案"}</span>{group.contextSensitive && <small className="local-context-warning">{en ? "Project, app or backup: both copies may be needed." : "專案、程式或備份情境：兩份可能都需要保留。"}</small>}</div><div className="local-group-copies">{group.files.slice(1, 4).map((record) => <p key={record.path}><b>{record.file.name}</b><small>{record.path}</small></p>)}{group.files.length > 4 && <small>{en ? `and ${group.files.length - 4} more` : `另有 ${group.files.length - 4} 個副本`}</small>}</div><strong>{formatBytes(group.duplicateBytes)}</strong></article>)}{groups.length > 20 && <nav className="local-pagination" aria-label={en ? "Results pages" : "結果分頁"}><button type="button" className="button secondary" disabled={page === 0} onClick={() => setPage((value) => value - 1)}>{en ? "Previous" : "上一頁"}</button><span>{page + 1} / {Math.ceil(groups.length / 20)}</span><button type="button" className="button secondary" disabled={(page + 1) * 20 >= groups.length} onClick={() => setPage((value) => value + 1)}>{en ? "Next" : "下一頁"}</button></nav>}</div>}
     {(state === "stopped" || state === "error") && <div className="local-warning"><AlertCircle size={20} aria-hidden="true" /><p>{status}</p><button type="button" className="button secondary" onClick={() => input.current?.click()}>{en ? "Choose again" : "重新選擇"}</button></div>}

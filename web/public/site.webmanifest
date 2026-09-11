@@ -3,7 +3,7 @@
   "short_name": "DUPESPACE",
   "description": "零上傳分析本機重複檔案，並使用 Windows 版安全整理照片、影片與備份資料夾。",
   "lang": "zh-TW",
-  "start_url": "/local",
+  "start_url": "/merge",
   "scope": "/",
   "display": "standalone",
   "background_color": "#f7faf9",

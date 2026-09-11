@@ -50,3 +50,16 @@ test("CSV neutralizes formula injection, commas, quotes and multiline paths", ()
 test("browser engine has no network or filesystem mutation capability", () => {
   assert.doesNotMatch(source, /\bfetch\s*\(|XMLHttpRequest|sendBeacon|createWritable|removeEntry|localStorage|indexedDB/);
 });
+test("file intelligence distinguishes renamed, cross-folder and context-sensitive groups", async () => {
+  const groups = await scan([
+    record("photos/original.jpg", "same"),
+    record("archive/renamed.jpg", "same", 2000),
+    record("project/.env", "secret"),
+    record("project-copy/.env", "secret", 2000),
+  ]);
+  const insights = api.localInsights(groups, 20);
+  assert.equal(insights.renamedGroups, 1);
+  assert.equal(insights.crossFolderGroups, 2);
+  assert.equal(insights.contextReviewGroups, 1);
+  assert.equal(insights.duplicateRatio, 50);
+});

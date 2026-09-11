@@ -1,22 +1,28 @@
 # DUPESPACE
 
-**Local file analysis in your browser. Safe duplicate cleanup for Windows.**
+**Compare folders before merging. Find renamed duplicates. Clean safely on Windows.**
 
-[本機唯讀分析 / Local analyzer](https://dupespace.app/local) ·
+[資料夾合併前核對 / Folder merge preview](https://dupespace.app/merge) ·
+[單一資料夾重複分析 / Duplicate finder](https://dupespace.app/local) ·
+[Space Notes 數位工具與工作整理誌](https://dupespace.app/blog) ·
 [Windows 下載說明](https://dupespace.app/download) ·
 [English website](https://dupespace.app/en/) ·
 [Latest release](https://github.com/kaimeow1114-netizen/dupespace-duplicate-file-cleaner/releases/latest)
 
 ## 本機優先，免費開源
 
-DUPESPACE 正在轉型為不依賴託管雲端帳號的檔案整理工具。網頁提供免登入、零上傳的
-本機重複檔案分析；Windows 應用程式提供真正的本機清理。網站與桌面程式仍是不同產品表面，
+DUPESPACE 是不依賴託管雲端帳號的本機優先檔案工具。網頁提供免登入、不把檔案傳送至伺服器的
+兩資料夾合併前核對與單一資料夾重複分析；Windows 應用程式提供真正的本機清理。網站與桌面程式仍是不同產品表面，
 網站部署不會自動改變已安裝的桌面版本。
 
 內容相同只表示「重複候選」，不能證明另一份沒有用途。不同專案的設定檔、
 套件、外掛與備份即使完全一樣，也可能需要同時存在。
 
-## Browser analyzer
+## Browser tools
+
+- Folder merge preview compares an incoming folder with a destination and separates same-path exact
+  matches, renamed or moved exact matches, same-path content conflicts and files found on only one side.
+  It is a read-only merge map, not an automatic copy, overwrite or deletion tool.
 
 - Select a folder or drop individual files. No account, file upload, write permission or deletion.
 - Size prefilter and edge sampling narrow the candidates. Versioned complete-content chunk
@@ -29,7 +35,7 @@ DUPESPACE 正在轉型為不依賴託管雲端帳號的檔案整理工具。網�
   modification time, then path length; it is not claimed to be the original.
 - Project/application/backup context is flagged for review. No result authorizes deletion.
 - Safely stop analysis, choose the same folder again, or export a formula-neutralized CSV.
-- No AdSense, external frames or external social counter requests on the analyzer routes.
+- No AdSense, external frames or external social counter requests on the private analyzer routes.
 
 ## Windows application
 
@@ -70,15 +76,15 @@ Revocation cannot be guaranteed while the external service is unreachable or whe
 returns. Users can revoke the old grant in their account's third-party access settings.
 No Web Client Secret is needed by the new analyzer. Never commit credentials, tokens or user reports.
 
-AdSense runs only on public marketing, download and guide pages. Its approval is independent of
+AdSense runs only on public marketing, download, guide and Space Notes article pages. Its approval is independent of
 OAuth verification. Ads.txt and a script do not prove that ads are approved, filled or earning revenue.
 See [transition notes](docs/LOCAL-FIRST-TRANSITION.md) for the current rollout status.
 
 ## Roadmap
 
-Three focused directions: exact duplicate cleanup, media organization, and folder/backup integrity.
-Similar-photo search, missing-file backup verification and browser storage-history charts are not
-part of the current browser release. Homepage concept visuals are labelled as demonstrations.
+Three focused directions: safe folder merging, exact duplicate cleanup and media organization.
+Two-folder merge preview and exact duplicate analysis are available now. Similar-photo search,
+automatic merge execution and browser storage-history charts are not part of the current release.
 
 ## Development and tests
 
@@ -101,8 +107,8 @@ npm run lint
 node --test tests/*.test.mjs
 ```
 
-Web regression tests cover complete-content matching, false sampled matches, bounded reads,
-5,001 synthetic files, cancellation, CSV injection, retired cloud routes, server-rendered bilingual
+Web regression tests cover renamed matches, version conflicts, complete-content matching, false sampled
+matches, bounded reads, 5,001 synthetic files, cancellation, CSV injection, retired cloud routes, server-rendered bilingual
 pages, nonce-based scripts and ad-free private routes. Desktop safety tests remain separate.
 
 For Windows builds, see [deployment documentation](docs/WEB_DEPLOYMENT.md) and the release workflow.

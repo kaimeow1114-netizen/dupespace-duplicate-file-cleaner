@@ -3,6 +3,7 @@
 import { productFaq } from "../../lib/product-copy";
 
 import {
+  AlertTriangle,
   BarChart3,
   CheckCircle2,
   ChevronDown,
@@ -11,9 +12,7 @@ import {
   Database,
   Download,
   FileCheck2,
-  FolderLock,
   Lock,
-  Settings2,
   ShieldCheck,
   TrendingUp,
   type LucideIcon,
@@ -29,17 +28,17 @@ import {
 } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 
-const causes = [
-  { label: "跨資料夾複製", value: 46, color: "teal" },
-  { label: "重複下載", value: 31, color: "emerald" },
-  { label: "通訊軟體暫存", value: 15, color: "amber" },
-  { label: "其他來源", value: 8, color: "slate" },
+const pipeline = [
+  { zh: "按容量排除不可能相同", en: "Eliminate impossible sizes", value: 100, color: "teal" },
+  { zh: "樣本指紋縮小候選", en: "Narrow with sample fingerprints", value: 58, color: "emerald" },
+  { zh: "完整內容逐段確認", en: "Verify complete content", value: 27, color: "amber" },
+  { zh: "標出用途風險", en: "Flag context risks", value: 12, color: "slate" },
 ] as const;
 
-const profiles: Array<{ icon: LucideIcon; title: string; status: string }> = [
-  { icon: Code2, title: "軟體專案模式", status: "專案與套件硬性排除" },
-  { icon: FolderLock, title: "影音備份模式", status: "備份來源持續保護" },
-  { icon: Settings2, title: "自訂白名單", status: "3 個路徑受到保護" },
+const priorities: Array<{ icon: LucideIcon; zh: string; en: string; zhStatus: string; enStatus: string }> = [
+  { icon: AlertTriangle, zh: "版本衝突", en: "Version conflicts", zhStatus: "相同路徑、不同內容，優先處理", enStatus: "Same path, different content: resolve first" },
+  { icon: ShieldCheck, zh: "用途風險", en: "Context review", zhStatus: "專案、程式與備份先保留", enStatus: "Keep project, app and backup copies by default" },
+  { icon: FileCheck2, zh: "改名後的相同內容", en: "Renamed exact matches", zhStatus: "避免再次複製，保留決策權", enStatus: "Avoid copying again without deleting anything" },
 ];
 
 const comparisons = [
@@ -73,7 +72,8 @@ const reveal = {
   visible: { opacity: 1, y: 0, transition: { type: "spring" as const, stiffness: 150, damping: 22 } },
 };
 
-export function StorageIntelligenceMotion() {
+export function StorageIntelligenceMotion({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" }) {
+  const en = locale === "en";
   const reducedMotion = useReducedMotion();
   return (
     <motion.div
@@ -84,32 +84,32 @@ export function StorageIntelligenceMotion() {
       variants={{ visible: { transition: { staggerChildren: 0.11 } } }}
     >
       <motion.article className="intelligence-card health-trend-card" variants={reveal}>
-        <div className="intelligence-card-head"><span><TrendingUp size={18} aria-hidden="true" /></span><div><small>HEALTH TREND</small><h3>整理成果趨勢 · 規劃中</h3></div><strong><CountUp from={28} to={98} /><small>/100</small></strong></div>
-        <div className="trend-visual" aria-label="整理後健康指標由 28 分提升至 98 分">
+        <div className="intelligence-card-head"><span><TrendingUp size={18} aria-hidden="true" /></span><div><small>MERGE READINESS</small><h3>{en ? "From unknown relationships to a reviewable map" : "從關係未知，到合併地圖完成"}</h3></div><strong><CountUp from={24} to={96} /><small>/100</small></strong></div>
+        <div className="trend-visual" aria-label={en ? "Illustrative merge readiness rises from 24 to 96 after analysis" : "分析後的合併準備度示意由 24 分提升至 96 分"}>
           <svg viewBox="0 0 620 190" role="img" aria-hidden="true">
             <defs><linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#14b8a6" stopOpacity=".38" /><stop offset="1" stopColor="#14b8a6" stopOpacity="0" /></linearGradient></defs>
             <path className="trend-gridline" d="M0 42H620M0 96H620M0 150H620" />
             <motion.path className="trend-area" d="M0 154 C70 150 94 137 142 140 S225 126 270 130 S350 102 394 105 S469 58 515 68 S574 28 620 22 V190 H0Z" initial={reducedMotion ? false : { opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true }} transition={{ duration: .8, delay: .3 }} />
             <motion.path className="trend-line" d="M0 154 C70 150 94 137 142 140 S225 126 270 130 S350 102 394 105 S469 58 515 68 S574 28 620 22" initial={reducedMotion ? false : { pathLength: 0 }} whileInView={{ pathLength: 1 }} viewport={{ once: true }} transition={{ duration: 1.25, delay: .2, ease: "easeOut" }} />
           </svg>
-          <div className="trend-labels"><span>首次掃描</span><span>整理目標（示意）</span></div>
+          <div className="trend-labels"><span>{en ? "Before comparison" : "尚未核對"}</span><span>{en ? "Merge map ready" : "合併地圖完成"}</span></div>
         </div>
-        <div className="trend-summary"><span><CheckCircle2 size={15} aria-hidden="true" />候選示例 <b>18.6 GB</b></span><span>介面示意 <b>非實測</b></span></div>
+        <div className="trend-summary"><span><CheckCircle2 size={15} aria-hidden="true" />{en ? "Renamed matches exposed" : "改名重複已標出"}</span><span>{en ? "Visual example" : "介面示意"} <b>{en ? "not device data" : "非裝置數據"}</b></span></div>
       </motion.article>
 
       <motion.article className="intelligence-card cause-card" variants={reveal}>
-        <div className="intelligence-card-head"><span><BarChart3 size={18} aria-hidden="true" /></span><div><small>CAUSE ANALYSIS</small><h3>重複成因分析 · 規劃中</h3></div></div>
-        <p>方向示意：從路徑線索整理可能來源，不把猜測當作事實。</p>
+        <div className="intelligence-card-head"><span><BarChart3 size={18} aria-hidden="true" /></span><div><small>CONTENT PIPELINE</small><h3>{en ? "Fast filtering, complete verification" : "快速縮小範圍，再完整確認"}</h3></div></div>
+        <p>{en ? "The interface stays simple while multiple verification layers run locally. Bars illustrate the narrowing pipeline, not your data." : "介面保持簡單，裝置端仍執行多層內容核對。長條呈現候選逐步縮小的流程，不是你的數據。"}</p>
         <div className="cause-bars">
-          {causes.map((cause, index) => <div key={cause.label}><div><span>{cause.label}</span><b>{cause.value}%</b></div><i><motion.em className={cause.color} initial={reducedMotion ? { width: `${cause.value}%` } : { width: 0 }} whileInView={{ width: `${cause.value}%` }} viewport={{ once: true }} transition={{ duration: .7, delay: .28 + index * .1, ease: [0.22, 1, 0.36, 1] }} /></i></div>)}
+          {pipeline.map((item, index) => <div key={item.en}><div><span>{en ? item.en : item.zh}</span><b>0{index + 1}</b></div><i><motion.em className={item.color} initial={reducedMotion ? { width: `${item.value}%` } : { width: 0 }} whileInView={{ width: `${item.value}%` }} viewport={{ once: true }} transition={{ duration: .7, delay: .28 + index * .1, ease: [0.22, 1, 0.36, 1] }} /></i></div>)}
         </div>
       </motion.article>
 
       <motion.article className="intelligence-card profile-card" variants={reveal}>
-        <div className="intelligence-card-head"><span><ShieldCheck size={18} aria-hidden="true" /></span><div><small>PROTECTED PROFILES</small><h3>自訂防護設定檔</h3></div><em>Windows 示意</em></div>
-        <p>把常用位置與保護子資料夾存成設定檔，下次選取即可套用。</p>
+        <div className="intelligence-card-head"><span><ShieldCheck size={18} aria-hidden="true" /></span><div><small>DECISION PRIORITY</small><h3>{en ? "The risky items surface first" : "真正危險的項目，排在最前面"}</h3></div><em>{en ? "Actual logic" : "實際邏輯"}</em></div>
+        <p>{en ? "DUPESPACE separates byte equality from purpose. The report prioritizes what needs a human decision." : "DUPESPACE 將「內容相同」與「用途相同」分開判斷，先呈現真正需要人決定的項目。"}</p>
         <div className="profile-list">
-          {profiles.map(({ icon: Icon, title, status }, index) => <motion.div key={title} initial={reducedMotion ? false : { opacity: 0, x: 18 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} transition={{ delay: .3 + index * .1 }}><span><Icon size={17} aria-hidden="true" /></span><div><b>{title}</b><small>{status}</small></div><CheckCircle2 size={17} aria-hidden="true" /></motion.div>)}
+          {priorities.map(({ icon: Icon, zh, en: english, zhStatus, enStatus }, index) => <motion.div key={english} initial={reducedMotion ? false : { opacity: 0, x: 18 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} transition={{ delay: .3 + index * .1 }}><span><Icon size={17} aria-hidden="true" /></span><div><b>{en ? english : zh}</b><small>{en ? enStatus : zhStatus}</small></div><CheckCircle2 size={17} aria-hidden="true" /></motion.div>)}
         </div>
         <div className="protection-scan" aria-hidden="true"><motion.i animate={reducedMotion ? undefined : { x: ["-15%", "540%"] }} transition={{ duration: 3.4, repeat: Infinity, repeatDelay: 1.5, ease: "easeInOut" }} /></div>
       </motion.article>
@@ -127,8 +127,8 @@ export function PrivacyFlowMotion() {
         <div className="flow-route"><span>大小 · 分塊指紋</span><i /><motion.em animate={reducedMotion ? undefined : { left: ["8%", "88%"], opacity: [0, 1, 1, 0] }} transition={{ duration: 2.7, repeat: Infinity, repeatDelay: .7, ease: "easeInOut" }} /></div>
         <div className="flow-node safe"><ShieldCheck size={25} aria-hidden="true" /><b>你的瀏覽器</b><small>只產生本機報告</small></div>
       </div>
-      <div className="content-stays"><FileCheck2 size={18} aria-hidden="true" /><span><b>零上傳、零帳號、零刪除權限</b><small>檔案清單與分析結果只留在這台裝置</small></span></div>
-      <div className="privacy-badges"><span><Lock size={13} aria-hidden="true" /> 零上傳</span><span><Database size={13} aria-hidden="true" /> 裝置端計算</span><span><ShieldCheck size={13} aria-hidden="true" /> 唯讀分析</span></div>
+      <div className="content-stays"><FileCheck2 size={18} aria-hidden="true" /><span><b>不上傳至伺服器、不需帳號、沒有刪除權限</b><small>檔案清單與分析結果只留在這台裝置</small></span></div>
+      <div className="privacy-badges"><span><Lock size={13} aria-hidden="true" /> 不傳送至伺服器</span><span><Database size={13} aria-hidden="true" /> 裝置端計算</span><span><ShieldCheck size={13} aria-hidden="true" /> 唯讀分析</span></div>
       <div className="limited-use-copy"><b>清楚的權限邊界</b><p>DUPESPACE 網頁版只能讀取你在檔案選擇器中主動交付的檔案，無法瀏覽其他位置，也無法刪除或移動檔案。關閉分頁後，未匯出的分析結果即從記憶體移除。</p></div>
     </motion.div>
   );

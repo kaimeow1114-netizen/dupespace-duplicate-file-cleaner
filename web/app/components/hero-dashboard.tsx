@@ -1,14 +1,14 @@
 "use client";
 
 import { animate, motion, useReducedMotion } from "framer-motion";
-import { AlertTriangle, CheckCircle2, Copy, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Copy, FileCheck2, ShieldCheck, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 
 const files = [
   { name: "海邊.jpg", path: "旅行相片 / 2025 / 海邊.jpg", keeper: true },
-  { name: "海邊.jpg", path: "備份整理 / 海邊.jpg", keeper: false },
+  { name: "IMG_3482.jpg", path: "待合併 / IMG_3482.jpg", keeper: false },
   { name: "報告-final.pdf", path: "文件 / 報告-final.pdf", keeper: true },
-  { name: "報告-final (1).pdf", path: "下載 / 報告-final (1).pdf", keeper: false },
+  { name: "客戶提案.pdf", path: "待合併 / 客戶提案.pdf", keeper: false },
 ] as const;
 
 const particles = [
@@ -21,9 +21,9 @@ export function HeroDashboard({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" })
   const en = locale === "en";
   const demoFiles = en ? [
     { name: "Beach.jpg", path: "Photos / Travel / Beach.jpg", keeper: true },
-    { name: "Beach.jpg", path: "Downloads / Beach.jpg", keeper: false },
+    { name: "IMG_3482.jpg", path: "Incoming / IMG_3482.jpg", keeper: false },
     { name: "Report.pdf", path: "Documents / Report.pdf", keeper: true },
-    { name: "Report (1).pdf", path: "Downloads / Report (1).pdf", keeper: false },
+    { name: "Client-brief.pdf", path: "Incoming / Client-brief.pdf", keeper: false },
   ] : files;
   const reducedMotion = useReducedMotion();
   const [score, setScore] = useState(reducedMotion ? 72 : 0);
@@ -54,7 +54,7 @@ export function HeroDashboard({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" })
       initial={reducedMotion ? false : { opacity: 0, scale: 0.9, y: 28 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       transition={reducedMotion ? { duration: 0 } : { type: "spring", stiffness: 145, damping: 18, mass: 0.85 }}
-      aria-label={en ? "DUPESPACE illustrative duplicate scan dashboard, not your files" : "DUPESPACE 儲存空間健康與重複檔案掃描儀表板示意"}
+      aria-label={en ? "DUPESPACE illustrative folder intelligence dashboard, not your files" : "DUPESPACE 資料夾合併情報儀表板示意"}
     >
       <svg className="hash-particles" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
         <path d="M3 79 C26 48 35 64 52 35 S80 25 98 9" />
@@ -71,19 +71,19 @@ export function HeroDashboard({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" })
             <div><strong>{score}</strong><small>/100</small></div>
           </div>
           <div className="health-demo-copy">
-            <small>{en ? "Organization score · Example" : "空間整理指數 · 示意"}</small>
-            <b>{en ? (urgent ? "Duplicate candidates found" : "Review plan ready") : (urgent ? "發現可檢查的重複項目" : "整理報告已建立")}</b>
-            <span>{urgent ? <AlertTriangle size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}{en ? (urgent ? "Review before taking action" : "Analysis complete") : (urgent ? "先檢查，再決定如何處理" : "分析完成，檔案未被修改")}</span>
+            <small>{en ? "Merge readiness · Example" : "合併準備度 · 示意"}</small>
+            <b>{en ? (urgent ? "Relationships still unknown" : "Merge map ready") : (urgent ? "檔案關係尚未釐清" : "合併地圖已建立")}</b>
+            <span>{urgent ? <AlertTriangle size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}{en ? (urgent ? "Compare before copying" : "Conflicts are visible") : (urgent ? "複製之前先核對內容" : "改名重複與衝突已標出")}</span>
           </div>
         </div>
         <div className="scan-heading"><div><small>LOCAL CONTENT ANALYSIS</small><b>{en ? (cleaned ? "Report ready" : "Matching file contents") : (cleaned ? "本機分析報告完成" : "正在精確比對內容")}</b></div><strong>{cleaned ? "100%" : "82%"}</strong></div>
         <div className="scan-progress"><motion.i initial={{ width: 0 }} animate={{ width: cleaned ? "100%" : "82%" }} transition={{ duration: reducedMotion ? 0 : 1.1 }} /></div>
         <div className="hash-stream" aria-hidden="true"><span>LOCAL HASH</span><i>8f14e45fceea...</i><i>c9f0f895fb98...</i><i>45c48cce2e2d...</i></div>
-        <div className="dashboard-columns"><span>{en ? "FILE · REFERENCE" : "參考檔案 · REFERENCE"}</span><span>{en ? "COPY · DUPLICATE" : "待清理副本 · DUPLICATE"}</span></div>
+        <div className="dashboard-columns"><span>{en ? "DESTINATION · EXISTING" : "目的資料夾 · EXISTING"}</span><span>{en ? "INCOMING · EXACT MATCH" : "待合併資料夾 · EXACT MATCH"}</span></div>
         <div className="dashboard-files">
-          {demoFiles.map((file, index) => <motion.div key={file.path} className={`demo-file ${file.keeper ? "safe" : "duplicate"} ${cleaned && !file.keeper ? "cleaned" : ""}`} initial={reducedMotion ? false : { opacity: 0, x: index % 2 ? 14 : -14 }} animate={{ opacity: cleaned && !file.keeper ? .5 : 1, x: 0 }} transition={{ delay: reducedMotion ? 0 : .45 + index * .09 }}><i>{file.keeper ? <ShieldCheck size={15} aria-hidden="true" /> : cleaned ? <CheckCircle2 size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}</i><span><b>{file.name}</b><small>{file.path}</small></span><em>{en ? (file.keeper ? "Keep" : cleaned ? "Matched" : "Review") : (file.keeper ? "保留" : cleaned ? "已比對" : "待清")}</em></motion.div>)}
+          {demoFiles.map((file, index) => <motion.div key={file.path} className={`demo-file ${file.keeper ? "safe" : "duplicate"}`} initial={reducedMotion ? false : { opacity: 0, x: index % 2 ? 14 : -14 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: reducedMotion ? 0 : .45 + index * .09 }}><i>{file.keeper ? <ShieldCheck size={15} aria-hidden="true" /> : cleaned ? <CheckCircle2 size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}</i><span><b>{file.name}</b><small>{file.path}</small></span><em>{en ? (file.keeper ? "Exists" : cleaned ? "Matched" : "Compare") : (file.keeper ? "已存在" : cleaned ? "內容相同" : "核對中")}</em></motion.div>)}
         </div>
-        <div className="dashboard-savings"><div><small>{en ? "Demo · Potential savings" : "儀表板示意 · 可整理容量"}</small><strong>{savings.toFixed(1)} GB</strong></div><span>{cleaned ? <Sparkles size={18} aria-hidden="true" /> : <Trash2 size={18} aria-hidden="true" />}<small>{en ? (cleaned ? "Report generated" : "Keep one per group") : (cleaned ? "報告已產生" : "每組保留一份")}</small></span></div>
+        <div className="dashboard-savings"><div><small>{en ? "Demo · Copy avoided" : "儀表板示意 · 可避免重複複製"}</small><strong>{savings.toFixed(1)} GB</strong></div><span>{cleaned ? <Sparkles size={18} aria-hidden="true" /> : <FileCheck2 size={18} aria-hidden="true" />}<small>{en ? (cleaned ? "Decision report ready" : "Matching full content") : (cleaned ? "決策報告已完成" : "正在核對完整內容")}</small></span></div>
       </div>
     </motion.div>
   );

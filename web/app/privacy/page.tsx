@@ -6,14 +6,14 @@ export const metadata = chineseMetadata("privacy", "隱私權政策", "DUPESPACE
 
 export default function PrivacyPage() {
   return <main><SiteHeader pagePath="privacy" /><article className="legal shell">
-    <span className="eyebrow"><CalendarDays size={15} aria-hidden="true" /> 最後更新：2026 年 9 月 2 日</span>
+    <span className="eyebrow"><CalendarDays size={15} aria-hidden="true" /> 最後更新：2026 年 9 月 4 日</span>
     <h1>隱私權政策</h1>
     <p className="lead">DUPESPACE 採本機優先設計：檔案分析盡量留在你的裝置，檔名、路徑與內容不應成為伺服器或廣告資料。</p>
     <h2>網頁版資料夾分析</h2>
     <p>網頁版只可讀取你透過瀏覽器檔案選擇器或拖放動作主動交付的檔案。檔名、相對路徑、檔案內容、內容指紋與分析結果都在瀏覽器記憶體中處理，不會上傳到 DUPESPACE 伺服器。網頁版沒有移動、覆寫或刪除本機檔案的權限。</p>
     <p>圖片群組只為目前顯示的建議保留檔建立裝置端 Blob 縮圖網址，不會上傳圖片。關閉頁面或更換結果時會釋放縮圖網址；關閉分頁後，未匯出的分析結果會從頁面記憶體移除。</p>
     <h2>分析工作區的網路邊界</h2>
-    <p><code>/local</code> 與 <code>/en/local/</code> 使用較嚴格的 Content Security Policy，只允許本站程式、裝置端 Blob 圖片及本站連線。分析工作區不載入 AdSense、第三方分析、外部框架或社群追蹤程式。</p>
+    <p><code>/local</code>、<code>/merge</code> 與對應英文頁面使用較嚴格的 Content Security Policy，只允許本站程式、裝置端 Blob 圖片及本站連線。分析與合併核對工作區不載入 AdSense、第三方分析、外部框架或社群追蹤程式。</p>
     <h2>CSV 報告</h2>
     <p>CSV 報告由瀏覽器在裝置端建立並下載，可能包含私人檔名、相對路徑、大小、修改時間與內容指紋。DUPESPACE 不接收報告內容；請勿把未遮蔽的報告貼到公開 Issues 或分享給不信任的對象。</p>
     <h2>Windows 桌面版</h2>

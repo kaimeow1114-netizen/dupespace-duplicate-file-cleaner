@@ -10,5 +10,5 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function NotFound() {
   if ((await headers()).get("x-dupespace-locale") === "en") return <main lang="en"><SiteHeader locale="en" /><section className="not-found shell"><span>404</span><h1>This page could not be found.</h1><p>The address may have changed. Return home or open the private local folder analyzer.</p><div><a className="button primary" href="/en/">Back to home</a><a className="button secondary" href="/en/local/">Open local analyzer</a></div></section><SiteFooter locale="en" /></main>;
-  return <main><SiteHeader /><section className="not-found shell"><span>404</span><h1>這裡沒有重複檔案，連頁面也不在。</h1><p>網址可能已變更。回到首頁，或直接開啟零上傳的本機資料夾分析器。</p><div><a className="button primary" href="/">返回首頁</a><a className="button secondary" href="/local">開啟本機分析器</a></div></section><SiteFooter /></main>;
+  return <main><SiteHeader /><section className="not-found shell"><span>404</span><h1>這裡沒有重複檔案，連頁面也不在。</h1><p>網址可能已變更。回到首頁，或直接開啟不把檔案傳送至伺服器的本機資料夾分析器。</p><div><a className="button primary" href="/">返回首頁</a><a className="button secondary" href="/local">開啟本機分析器</a></div></section><SiteFooter /></main>;
 }

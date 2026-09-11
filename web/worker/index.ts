@@ -19,7 +19,7 @@ const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    const legacyHost = url.hostname === "dupesweep.app" || url.hostname === "www.dupesweep.app" || url.hostname.endsWith(".chatgpt.site");
+    const legacyHost = url.hostname.endsWith(".chatgpt.site");
     const canonicalWww = url.hostname === "www.dupespace.app";
     if (legacyHost || canonicalWww) {
       if (request.method !== "GET" && request.method !== "HEAD") {
@@ -55,24 +55,24 @@ const worker = {
     // Derive locale from our route, never from a visitor-controlled request header.
     headers.set("x-dupespace-locale", english ? "en" : "zh-TW");
     if (english && url.pathname.endsWith("/")) url.pathname = url.pathname.slice(0, -1);
-    const localAnalyzer = /^\/(?:en\/)?local\/?$/.test(url.pathname);
+    const privateWorkspace = /^\/(?:en\/)?(?:local|merge)\/?$/.test(url.pathname);
     const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(18))));
     headers.set("x-dupespace-nonce", nonce);
-    headers.set("content-security-policy", contentSecurityPolicy(nonce, localAnalyzer));
-    const response = withSecurityHeaders(await handler.fetch(new Request(url, new Request(request, { headers })), env, ctx), localAnalyzer, nonce);
+    headers.set("content-security-policy", contentSecurityPolicy(nonce, privateWorkspace));
+    const response = withSecurityHeaders(await handler.fetch(new Request(url, new Request(request, { headers })), env, ctx), privateWorkspace, nonce);
     if (response.headers.get("content-type")?.includes("text/html")) response.headers.set("cache-control", "no-store");
     return response;
   },
 };
 
-function withSecurityHeaders(response: Response, localAnalyzer = false, nonce?: string): Response {
+function withSecurityHeaders(response: Response, privateWorkspace = false, nonce?: string): Response {
   const headers = new Headers(response.headers);
   headers.set("x-content-type-options", "nosniff");
   headers.set("referrer-policy", "strict-origin-when-cross-origin");
   headers.set("x-frame-options", "DENY");
   headers.set("strict-transport-security", "max-age=31536000; includeSubDomains");
   headers.set("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=()");
-  headers.set("content-security-policy", nonce ? contentSecurityPolicy(nonce, localAnalyzer) : localAnalyzer
+  headers.set("content-security-policy", nonce ? contentSecurityPolicy(nonce, privateWorkspace) : privateWorkspace
     ? "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
     : "default-src 'self'; script-src 'self' 'unsafe-inline' https://pagead2.googlesyndication.com https://www.googletagservices.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https://api.github.com https://pagead2.googlesyndication.com; frame-src https://googleads.g.doubleclick.net https://tpc.googlesyndication.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });

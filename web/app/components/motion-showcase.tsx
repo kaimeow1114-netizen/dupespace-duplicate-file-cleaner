@@ -4,27 +4,26 @@ import {
   ArrowRight,
   Clock3,
   Code2,
-  HardDriveDownload,
   Files,
+  ListChecks,
   ScanSearch,
   ShieldCheck,
-  Trash2,
   type LucideIcon,
 } from "lucide-react";
 import { motion, useMotionValue, useReducedMotion, useSpring } from "framer-motion";
 import type { PointerEvent, ReactNode } from "react";
 
 const safetyCards: Array<{ icon: LucideIcon; eyebrow: string; title: string; body: string }> = [
-  { icon: Trash2, eyebrow: "01 · RECOVERABLE", title: "清理預設可以復原", body: "瀏覽器只分析、不刪檔；Windows 完整版預設移至資源回收筒，失敗不會降級成永久刪除。" },
-  { icon: ShieldCheck, eyebrow: "02 · PROTECTED", title: "每組至少保留一份", body: "保護規則優先，再依建立時間與路徑選出保留檔；使用者指定的保護子資料夾永遠不可勾選。" },
-  { icon: Code2, eyebrow: "03 · CONTEXT AWARE", title: "代碼專案自動排除", body: "Git、SVN、套件目錄、虛擬環境、程式資源、備份及同步情境不會成為整體清理候選。" },
-  { icon: Clock3, eyebrow: "04 · REVALIDATED", title: "變更即中止", body: "操作前再次複驗 ID、權限、檔案數、容量、最新修改時間與內容校驗碼；任何變化都取消。" },
+  { icon: ShieldCheck, eyebrow: "01 · READ ONLY", title: "先核對，不動檔案", body: "網頁不複製、不覆蓋也不刪除檔案，只建立合併前可以檢查與匯出的差異地圖。" },
+  { icon: Files, eyebrow: "02 · CONTENT MATCH", title: "改名也能找出相同內容", body: "不同檔名與不同位置不會遮住重複內容；同一路徑但內容不同則獨立標示為版本衝突。" },
+  { icon: Code2, eyebrow: "03 · CONTEXT AWARE", title: "用途風險明確標示", body: "偵測專案、套件、程式與備份情境；位元相同仍可能各有用途，不會把它當成刪除建議。" },
+  { icon: Clock3, eyebrow: "04 · FAIL CLOSED", title: "檔案變更就停止", body: "核對期間重新檢查大小與修改時間；檔案被改動或讀取不完整時立即停止，不回傳不完整結論。" },
 ];
 
 const workflowSteps: Array<{ icon: LucideIcon; title: string; body: string }> = [
-  { icon: ScanSearch, title: "選擇", body: "只讀取你主動選取的本機資料夾" },
-  { icon: Files, title: "比對", body: "先按大小篩選，再做分塊內容指紋" },
-  { icon: Trash2, title: "整理", body: "網頁產生報告；Windows 版可移至資源回收筒" },
+  { icon: ScanSearch, title: "選擇", body: "指定待合併與目的資料夾" },
+  { icon: Files, title: "核對", body: "完整內容找出改名與搬移檔案" },
+  { icon: ListChecks, title: "判讀", body: "先檢查合併地圖，再自行決定動作" },
 ];
 
 function setGlow(event: PointerEvent<HTMLElement>) {
@@ -54,8 +53,8 @@ function MagneticLink({ href, className, children }: { href: string; className: 
 export function MotionHeroActions() {
   return (
     <div className="hero-actions">
-      <MagneticLink className="button primary hero-primary" href="/local"><span>免費分析本機資料夾</span><ArrowRight size={18} aria-hidden="true" /></MagneticLink>
-      <MagneticLink className="button secondary" href="/download"><HardDriveDownload size={18} aria-hidden="true" /><span>下載 Windows 用戶端</span></MagneticLink>
+      <MagneticLink className="button primary hero-primary" href="/merge"><span>合併資料夾前先核對</span><ArrowRight size={18} aria-hidden="true" /></MagneticLink>
+      <MagneticLink className="button secondary" href="/local"><ScanSearch size={18} aria-hidden="true" /><span>搜尋單一資料夾重複檔</span></MagneticLink>
     </div>
   );
 }

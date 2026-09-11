@@ -10,21 +10,21 @@ async function render(path = "/") {
 test("home purpose is server rendered, local-first, full bleed and preserves motion", async () => {
   const response = await render(); assert.equal(response.status, 200);
   const html = await response.text();
-  for (const value of ["DUPESPACE", "免費", "免登入", "免上傳", "hero-grid", "dashboard-demo", "motion-steps", "FAQPage", "SoftwareApplication", "href=\"/privacy\""]) assert.ok(html.includes(value), value);
+  for (const value of ["DUPESPACE", "免費", "免登入", "不上傳到伺服器", "功能特色", "線上檔案工具", "hero-grid", "dashboard-demo", "motion-steps", "FAQPage", "SoftwareApplication", "href=\"/privacy\""]) assert.ok(html.includes(value), value);
   assert.doesNotMatch(html, /Google Drive|DUPESWEEP|DupeSpace/);
   assert.match(html, /href="\/local"/);
   assert.match(html, /rel="canonical" href="https:\/\/dupespace\.app\/?"/);
   assert.match(html, /translate="no"/);
 });
 test("all English content pages are real localized HTML with canonical alternates", async () => {
-  for (const path of ["/en/", "/en/local/", "/en/download/", "/en/support/", "/en/privacy/", "/en/terms/"]) {
+  for (const path of ["/en/", "/en/merge/", "/en/local/", "/en/download/", "/en/support/", "/en/privacy/", "/en/terms/"]) {
     const response = await render(path); assert.equal(response.status, 200, path);
     const html = await response.text(); assert.match(html, /<html lang="en"/, path); assert.ok(html.includes(`href="https://dupespace.app${path}"`), path);
     assert.match(html, /hreflang="zh-TW"/i, path); assert.doesNotMatch(html, /Google Drive duplicate file cleaner/, path);
   }
 });
 test("private analyzer routes including trailing slash exclude ads and external scripts", async () => {
-  for (const path of ["/local", "/local/", "/en/local/"]) {
+  for (const path of ["/local", "/local/", "/en/local/", "/merge", "/en/merge/"]) {
     const response = await render(path);
     const csp = response.headers.get("content-security-policy"); assert.match(csp, /connect-src 'self';/); assert.match(csp, /frame-src 'none'/); assert.doesNotMatch(csp, /strict-dynamic|unsafe-inline.*script-src/);
     if (path === "/local/") { assert.equal(response.status, 308); assert.equal(response.headers.get("location"), "/local"); continue; }
@@ -32,7 +32,7 @@ test("private analyzer routes including trailing slash exclude ads and external 
     const html = await response.text(); assert.doesNotMatch(html, /src="https:\/\/pagead2|src="https:\/\/.*\.js/); assert.match(html, /webkitdirectory/);
   }
 });
-test("ads are enabled only on marketing, downloads and guides with fresh CSP nonces", async () => {
+test("ads on public content routes use fresh CSP nonces", async () => {
   for (const path of ["/", "/download", "/support", "/en/", "/en/download/", "/en/support/"]) {
     const response = await render(path); const html = await response.text();
     assert.match(html, /adsbygoogle\.js\?client=ca-pub-7998471640181666/, path);
@@ -53,12 +53,25 @@ test("old cleaner is noindex migration, not a working cloud client", async () =>
 });
 test("PWA, crawler and publisher assets retain correct declarations", async () => {
   assert.equal((await readFile(new URL("../public/ads.txt", import.meta.url), "utf8")).trim(), "google.com, pub-7998471640181666, DIRECT, f08c47fec0942fa0");
-  const sitemap = await readFile(new URL("../public/sitemap.xml", import.meta.url), "utf8"); assert.match(sitemap, /dupespace.app\/local/); assert.match(sitemap, /dupespace.app\/en\/local/); assert.doesNotMatch(sitemap, /dupesweep|\/cleaner/);
-  const manifest = JSON.parse(await readFile(new URL("../public/site.webmanifest", import.meta.url), "utf8")); assert.equal(manifest.start_url, "/local");
+  const sitemap = await readFile(new URL("../public/sitemap.xml", import.meta.url), "utf8"); assert.match(sitemap, /dupespace.app\/merge/); assert.match(sitemap, /dupespace.app\/en\/merge/); assert.match(sitemap, /dupespace.app\/local/); assert.match(sitemap, /dupespace.app\/en\/local/); assert.doesNotMatch(sitemap, /dupesweep|\/cleaner/);
+  const manifest = JSON.parse(await readFile(new URL("../public/site.webmanifest", import.meta.url), "utf8")); assert.equal(manifest.start_url, "/merge");
 });
 test("bounded previews, pagination and cancellation remain explicit", async () => {
   const source = await readFile(new URL("../app/components/local-analyzer.tsx", import.meta.url), "utf8");
   assert.match(source, /groups\.slice\(page \* 20, \(page \+ 1\) \* 20\)/); assert.match(source, /controller.current \|\| !selected.length/); assert.match(source, /loading="lazy"/); assert.match(source, /12 \* 1024 \* 1024/);
+  assert.doesNotMatch(source, /<video|fetch\(/);
+});
+test("folder merge preview is server rendered, bilingual, private and clearly read-only", async () => {
+  for (const [path, phrase] of [["/merge", "合併資料夾前"], ["/en/merge/", "before you merge"]]) {
+    const response = await render(path); assert.equal(response.status, 200, path);
+    const html = await response.text(); assert.ok(html.includes(phrase), path);
+    assert.equal((html.match(/webkitdirectory/g) ?? []).length, 2, path);
+    assert.doesNotMatch(html, /adsbygoogle\.js|Google Drive/, path);
+    assert.match(html, /唯讀預演|Read-only preview/, path);
+  }
+  const source = await readFile(new URL("../app/components/merge-analyzer.tsx", import.meta.url), "utf8");
+  assert.match(source, /shown\.slice\(page \* PAGE_SIZE, \(page \+ 1\) \* PAGE_SIZE\)/);
+  assert.match(source, /12 \* 1024 \* 1024/);
   assert.doesNotMatch(source, /<video|fetch\(/);
 });
 test("English 404 remains English, noindex, and safely framed", async () => {
@@ -99,8 +112,36 @@ test("each Chinese content page has its own share URL and purpose-specific descr
 test("marketing stays accurate and vendor details stay in the privacy policy", async () => {
   const home = await (await render()).text();
   assert.doesNotMatch(home, /也不載入 AdSense 或第三方分析程式|本機檔案智慧工具|傳統清理工具/);
-  assert.match(home, /重複檔案搜尋與清理工具/);
+  assert.match(home, /資料夾合併核對與重複檔案工具/);
+  assert.match(home, /FILE INTELLIGENCE/);
+  assert.doesNotMatch(home, /規劃中/);
   assert.match(home, /目前不提供相似照片搜尋/);
+  assert.match(await (await render("/en/")).text(), /Not another duplicate list/);
   const privacy = await (await render("/privacy")).text();
   assert.match(privacy, /AdSense/); assert.match(privacy, /Cookie/);
+});
+
+test("Space Notes routes render bilingual articles, metadata, disclosure and ads", async () => {
+  const paths = [
+    ["/blog", "把檔案與軟體問題"],
+    ["/en/blog/", "Practical guidance"],
+    ["/blog/find-renamed-duplicate-files", "檔案改名後還是同一份"],
+    ["/en/blog/find-renamed-duplicate-files/", "Are renamed files still duplicates"],
+    ["/blog/editorial-policy", "信任不是口號"],
+    ["/en/blog/editorial-policy/", "Trust starts with a visible method"],
+  ];
+  for (const entry of paths) {
+    const response = await render(entry[0]);
+    assert.equal(response.status, 200, entry[0]);
+    const html = await response.text();
+    assert.ok(html.includes(entry[1]), entry[0]);
+    assert.match(html, /adsbygoogle\.js\?client=ca-pub-7998471640181666/, entry[0]);
+    assert.match(html, /href="\/(?:en\/)?blog/, entry[0]);
+  }
+  const article = await (await render("/blog/find-renamed-duplicate-files")).text();
+  assert.match(article, /BlogPosting/);
+  assert.match(article, /BreadcrumbList/);
+  assert.match(article, /網站所有權與廣告揭露/);
+  assert.match(article, /hreflang="en"/i);
+  assert.doesNotMatch(article, /property="og:image"|name="twitter:image"/);
 });
