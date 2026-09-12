@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import dupespace.local as local_module
 from dupespace.desktop.state import validate_roots
 from dupespace.grouping import (
     default_selection,
@@ -85,6 +86,64 @@ def test_local_scan_hashes_content_not_just_name_or_size(tmp_path: Path) -> None
         "first.txt",
         "renamed.bin",
     }
+
+
+def test_folder_comparison_reuses_verified_file_hashes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "photos"
+    for name in ("original", "copy"):
+        folder = root / name
+        folder.mkdir(parents=True)
+        (folder / "image.jpg").write_bytes(b"same-image" * 100)
+    actual_hash = local_module._hash_file
+    hashed_paths: list[Path] = []
+
+    def record_hash(path, expected, chunk_size, *, cancel_event=None):
+        hashed_paths.append(path)
+        return actual_hash(path, expected, chunk_size, cancel_event=cancel_event)
+
+    monkeypatch.setattr(local_module, "_hash_file", record_hash)
+    report = LocalScanner(safety_policy=TEST_POLICY).scan((ScanRoot(str(root), "clean"),))
+
+    assert report.hashed_files == 2
+    assert len(hashed_paths) == 2
+    assert any(group.records[0].item_kind == "folder" for group in report.groups)
+
+
+def test_folder_hash_cache_does_not_reuse_changed_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "photos"
+    folder = root / "original"
+    folder.mkdir(parents=True)
+    file = folder / "image.jpg"
+    file.write_bytes(b"old")
+    old_token = local_module._metadata_token(file.stat())
+    file.write_bytes(b"new")
+    updated = file.stat()
+    if local_module._metadata_token(updated) == old_token:
+        os.utime(file, ns=(updated.st_atime_ns, updated.st_mtime_ns + 2_000_000_000))
+    actual_hash = local_module._hash_file
+    calls = 0
+
+    def record_hash(path, expected, chunk_size, *, cancel_event=None):
+        nonlocal calls
+        calls += 1
+        return actual_hash(path, expected, chunk_size, cancel_event=cancel_event)
+
+    monkeypatch.setattr(local_module, "_hash_file", record_hash)
+    result = local_module._folder_snapshot(
+        folder,
+        root,
+        safety_policy=TEST_POLICY,
+        chunk_size=1024,
+        ignore_system_metadata=False,
+        checksum_cache={old_token: "sha256:not-the-current-file"},
+    )
+
+    assert calls == 1
+    assert "sha256:not-the-current-file" not in result.tree_entries[0]
 
 
 @pytest.mark.parametrize("has_birth_time", [True, False])

@@ -278,7 +278,7 @@ def _folder_snapshot(
     safety_policy: WindowsSafetyPolicy,
     chunk_size: int,
     ignore_system_metadata: bool,
-    checksum_cache: dict[tuple[int, int], str] | None = None,
+    checksum_cache: dict[str, str] | None = None,
     hash_content: bool = True,
     allow_root: bool = False,
     cancel_event: threading.Event | None = None,
@@ -351,15 +351,17 @@ def _folder_snapshot(
                     or candidate.suffix.casefold() in _SHORTCUT_SUFFIXES
                 ):
                     raise UnsafePathError("資料夾含程式、專案標記或捷徑。")
-                identity = _identity(stat_result)
-                file_checksum = cache.get(identity)
+                # Reuse a full hash only for the exact file snapshot that was
+                # verified earlier. An identity alone remains stable across edits.
+                snapshot_token = _metadata_token(stat_result)
+                file_checksum = cache.get(snapshot_token)
                 if file_checksum is None:
                     file_checksum = (
                         _hash_file(candidate, stat_result, chunk_size, cancel_event=cancel_event)
                         if hash_content
                         else "metadata-only"
                     )
-                    cache[identity] = file_checksum
+                    cache[snapshot_token] = file_checksum
                 relative = candidate.relative_to(folder).as_posix()
                 rows.append(f"{relative}\0{stat_result.st_size}\0{file_checksum}")
 
@@ -386,11 +388,12 @@ def _folder_records(
     chunk_size: int,
     ignore_system_metadata: bool,
     warnings: list[str],
+    verified_file_hashes: dict[str, str] | None = None,
     cancel_event: threading.Event | None = None,
     progress: ProgressCallback | None = None,
 ) -> tuple[FileRecord, ...]:
     records: list[FileRecord] = []
-    checksum_cache: dict[tuple[int, int], str] = {}
+    checksum_cache: dict[str, str] = dict(verified_file_hashes or {})
     for scan_root in roots:
         root = Path(scan_root.physical_path)
         protected_roots = _nested_protected_roots(scan_root, roots)
@@ -704,6 +707,11 @@ class LocalScanner:
                     chunk_size=self.chunk_size,
                     ignore_system_metadata=ignore_system_metadata,
                     warnings=warnings,
+                    verified_file_hashes={
+                        record.metadata_token: record.checksum
+                        for record in records
+                        if record.metadata_token and record.checksum.startswith("sha256:")
+                    },
                     cancel_event=cancel_event,
                     progress=progress,
                 )
