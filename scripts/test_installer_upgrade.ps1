@@ -45,4 +45,4 @@ if ($uninstall.ExitCode -ne 0) { throw "Uninstaller failed" }
 if (-not (Test-Path -LiteralPath $report) -or -not (Test-Path -LiteralPath $preferences)) {
     throw "Uninstaller removed user reports or preferences"
 }
-Write-Output "Isolated $BaselineVersion to v1.7.0 upgrade, launch, desktop shortcut, and uninstall preservation passed."
+Write-Output "Isolated $BaselineVersion to v1.7.1 upgrade, launch, desktop shortcut, and uninstall preservation passed."

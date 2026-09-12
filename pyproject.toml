@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dupespace"
-version = "1.7.0"
+version = "1.7.1"
 description = "A local-first duplicate file cleaner for Windows with protected cleanup and audit reports."
 readme = "README.md"
 requires-python = ">=3.10"

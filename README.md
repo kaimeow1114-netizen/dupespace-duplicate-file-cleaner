@@ -69,7 +69,7 @@ entry is not proof of deletion. Files in the Recycle Bin still occupy disk space
 The installer offers an optional desktop shortcut. Built-in updates check the public release,
 verify installer size and SHA-256, and require confirmation before installation.
 
-The v1.7.0 source removes desktop cloud navigation, startup authentication and cloud operations,
+The v1.7.1 source removes desktop cloud navigation, startup authentication and cloud operations,
 and adds verified `.dupejob` handoff from the browser analyzer.
 Its executable excludes OAuth clients and credentials. Earlier installed versions are unchanged
 until the user updates; see GitHub Releases for the actually published installer version.

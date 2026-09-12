@@ -4,7 +4,7 @@ This phase proves the existing product instead of adding another utility.
 
 ## Release gates
 
-- The Windows release workflow installs the published v1.5.1 and v1.6.0 packages, places
+- The Windows release workflow installs the published v1.5.1, v1.6.0 and v1.7.0 packages, places
   synthetic preferences and an audit report in the user-data directory, upgrades in place,
   starts the packaged app, verifies the optional desktop shortcut, uninstalls it and confirms
   that user data remains.

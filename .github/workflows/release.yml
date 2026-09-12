@@ -46,7 +46,7 @@ jobs:
       - name: Download supported upgrade baselines
         shell: pwsh
         run: |
-          foreach ($version in @("v1.5.1", "v1.6.0")) {
+          foreach ($version in @("v1.5.1", "v1.6.0", "v1.7.0")) {
             gh release download $version --pattern DupeSpace-Setup.exe --dir "previous-installer/$version"
           }
         env:
@@ -54,7 +54,7 @@ jobs:
       - name: Validate supported upgrades and uninstall in disposable Windows runner
         shell: pwsh
         run: |
-          foreach ($version in @("v1.5.1", "v1.6.0")) {
+          foreach ($version in @("v1.5.1", "v1.6.0", "v1.7.0")) {
             ./scripts/test_installer_upgrade.ps1 `
               -PreviousInstaller "previous-installer/$version/DupeSpace-Setup.exe" `
               -NewInstaller "release/DupeSpace-Setup.exe" `

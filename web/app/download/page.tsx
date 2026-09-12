@@ -20,7 +20,7 @@ export default async function DownloadPage() {
     operatingSystem: "Windows 10, Windows 11",
     description: "本機重複檔案清理工具，提供完整內容比對、保護規則、資源回收筒與 CSV 稽核報告。",
     downloadUrl: installer,
-    softwareVersion: "1.7.0",
+    softwareVersion: "1.7.1",
     offers: { "@type": "Offer", price: "0", priceCurrency: "TWD" },
   };
   return (
