@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$PreviousInstaller,
-    [Parameter(Mandatory=$true)][string]$NewInstaller
+    [Parameter(Mandatory=$true)][string]$NewInstaller,
+    [Parameter(Mandatory=$true)][ValidatePattern('^v[0-9]+\.[0-9]+\.[0-9]+$')][string]$BaselineVersion
 )
 $ErrorActionPreference = "Stop"
 if ($env:GITHUB_ACTIONS -ne "true" -or [string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
@@ -12,7 +13,7 @@ if ([IO.Path]::GetExtension($previous) -ne ".exe" -or [IO.Path]::GetExtension($c
     throw "Both installer inputs must be executable files"
 }
 $runnerTemp = (Resolve-Path -LiteralPath $env:RUNNER_TEMP).Path
-$installDir = [IO.Path]::GetFullPath((Join-Path $runnerTemp "DupeSpace-Upgrade-QA"))
+$installDir = [IO.Path]::GetFullPath((Join-Path $runnerTemp "DupeSpace-Upgrade-QA-$BaselineVersion"))
 if (-not $installDir.StartsWith($runnerTemp.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
     throw "Invalid isolated installer target"
 }
@@ -44,4 +45,4 @@ if ($uninstall.ExitCode -ne 0) { throw "Uninstaller failed" }
 if (-not (Test-Path -LiteralPath $report) -or -not (Test-Path -LiteralPath $preferences)) {
     throw "Uninstaller removed user reports or preferences"
 }
-Write-Output "Isolated v0.6.0 to V1 upgrade, launch, desktop shortcut, and uninstall preservation passed."
+Write-Output "Isolated $BaselineVersion to v1.7.0 upgrade, launch, desktop shortcut, and uninstall preservation passed."

@@ -7,20 +7,19 @@ from dataclasses import replace
 
 import pytest
 
-from dupespace import retirement
+from dupespace import legacy_grant, retirement
 from dupespace.desktop.operations import run_cleanup
 from dupespace.models import FileRecord, OperationItem
 
 
 @pytest.mark.parametrize("mode", ["trash", "permanent"])
-def test_cloud_cleanup_is_rejected_before_journaling_or_mutation(tmp_path, mode):
+def test_nonlocal_cleanup_is_rejected_before_journaling_or_mutation(tmp_path, mode):
     keeper = FileRecord("keep", "drive", "a.jpg", "cloud/a.jpg", 20, "hash")
     item = OperationItem(replace(keeper, key="copy"), keeper)
     with pytest.raises(ValueError, match="只接受本機"):
         run_cleanup(
             (item,),
             mode,
-            service=object(),
             directory=tmp_path,
             cancel_event=threading.Event(),
             progress=lambda _: None,
@@ -36,9 +35,9 @@ def test_explicit_revocation_never_refreshes_tokens_or_follows_redirects(
 ):
     removals = []
     monkeypatch.setattr(
-        retirement, "load_protected_token", lambda: '{"refresh_token":"synthetic-only"}'
+        retirement, "load_legacy_grant", lambda: '{"refresh_token":"synthetic-only"}'
     )
-    monkeypatch.setattr(retirement, "clear_tokens", lambda: removals.append(True))
+    monkeypatch.setattr(retirement, "clear_legacy_grant", lambda: removals.append(True))
 
     class Opener:
         def open(self, request, timeout):
@@ -71,8 +70,25 @@ def test_explicit_revocation_never_refreshes_tokens_or_follows_redirects(
 
 
 def test_no_saved_grant_requires_no_network(monkeypatch):
-    monkeypatch.setattr(retirement, "load_protected_token", lambda: None)
+    monkeypatch.setattr(retirement, "load_legacy_grant", lambda: None)
     monkeypatch.setattr(
         retirement.urllib.request, "build_opener", lambda *_: pytest.fail("network")
     )
     assert retirement.revoke_legacy_tokens()
+
+
+def test_failed_revocation_keeps_only_protected_legacy_grant(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    plaintext = legacy_grant.plaintext_grant_path()
+    plaintext.parent.mkdir(parents=True)
+    plaintext.write_text('{"refresh_token":"synthetic-only"}', encoding="utf-8")
+    monkeypatch.setattr(legacy_grant, "_protect", lambda _: b"synthetic-encrypted")
+
+    class OfflineOpener:
+        def open(self, *_args, **_kwargs):
+            raise TimeoutError()
+
+    monkeypatch.setattr(retirement.urllib.request, "build_opener", lambda *_: OfflineOpener())
+    assert not retirement.revoke_legacy_tokens()
+    assert not plaintext.exists()
+    assert legacy_grant.protected_grant_path().read_bytes() == b"synthetic-encrypted"

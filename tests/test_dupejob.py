@@ -135,3 +135,95 @@ def test_dupejob_changed_file_fails_closed(tmp_path: Path) -> None:
     assert not report.groups
     assert report.skipped_files == 1
     assert report.warnings
+
+
+def test_dupejob_same_size_content_tampering_fails_closed(tmp_path: Path) -> None:
+    root = tmp_path / "photos"
+    root.mkdir()
+    original = b"same-size-original"
+    files = []
+    for name in ("a.bin", "b.bin"):
+        path = root / name
+        path.write_bytes(original)
+        files.append(
+            {
+                "role": "reference_only" if not files else "duplicate_candidate",
+                "relativePath": name,
+                "size": len(original),
+                "lastModified": path.stat().st_mtime_ns // 1_000_000,
+            }
+        )
+    job = tmp_path / "scan.dupejob"
+    write_job(job, browser_fingerprint(original), files)
+    (root / "b.bin").write_bytes(b"changed-but-same!!")
+    assert len((root / "b.bin").read_bytes()) == len(original)
+
+    report = load_dupejob(job, root, safety_policy=TEST_POLICY)
+
+    assert not report.groups
+    assert report.skipped_files == 1
+    assert any("b.bin" in warning for warning in report.warnings)
+
+
+def test_dupejob_reads_only_manifest_candidates(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "photos"
+    root.mkdir()
+    content = b"manifest-candidate"
+    files = []
+    candidate_paths = set()
+    for name in ("a.bin", "b.bin"):
+        path = root / name
+        path.write_bytes(content)
+        candidate_paths.add(path.resolve())
+        files.append(
+            {
+                "role": "reference_only" if not files else "duplicate_candidate",
+                "relativePath": name,
+                "size": len(content),
+                "lastModified": path.stat().st_mtime_ns // 1_000_000,
+            }
+        )
+    for index in range(1_000):
+        (root / f"unrelated-{index:04d}.txt").write_text("not in manifest", encoding="utf-8")
+    job = tmp_path / "scan.dupejob"
+    write_job(job, browser_fingerprint(content), files)
+    opened: set[Path] = set()
+    original_open = Path.open
+
+    def tracked_open(path: Path, *args, **kwargs):
+        resolved = path.resolve()
+        if resolved.parent == root.resolve():
+            opened.add(resolved)
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", tracked_open)
+    report = load_dupejob(job, root, safety_policy=TEST_POLICY)
+
+    assert len(report.groups) == 1
+    assert opened == candidate_paths
+
+
+def test_dupejob_rejects_split_fingerprint_groups(tmp_path: Path) -> None:
+    root = tmp_path / "photos"
+    root.mkdir()
+    content = b"same"
+    for name in ("a.txt", "b.txt"):
+        (root / name).write_bytes(content)
+    job = tmp_path / "scan.dupejob"
+    fingerprint = browser_fingerprint(content)
+    entries = [
+        {
+            "role": "reference_only" if index == 0 else "duplicate_candidate",
+            "relativePath": name,
+            "size": len(content),
+            "lastModified": (root / name).stat().st_mtime_ns // 1_000_000,
+        }
+        for index, name in enumerate(("a.txt", "b.txt"))
+    ]
+    write_job(job, fingerprint, entries)
+    payload = json.loads(job.read_text(encoding="utf-8"))
+    payload["groups"].append(dict(payload["groups"][0]))
+    job.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="拆成多個群組"):
+        load_dupejob(job, root, safety_policy=TEST_POLICY)

@@ -1,6 +1,7 @@
-export interface GoogleDriveEnv {
-  GOOGLE_CLIENT_ID?: string;
-  GOOGLE_CLIENT_SECRET?: string;
+/** Temporary, revoke-only compatibility surface. Remove after this date. */
+export const LEGACY_REVOCATION_SUNSET = "Wed, 31 Mar 2027 00:00:00 GMT";
+
+export interface LegacyRevocationEnv {
   SESSION_SECRET?: string;
 }
 
@@ -57,7 +58,12 @@ async function decryptLegacySession(value: string | undefined, secret: string | 
 }
 
 function json(body: unknown, status: number, request: Request, clear = false): Response {
-  const headers = new Headers({ "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+  const headers = new Headers({
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    "deprecation": "true",
+    "sunset": LEGACY_REVOCATION_SUNSET,
+  });
   if (clear) {
     headers.append("set-cookie", clearCookie(sessionCookie, request));
     headers.append("set-cookie", clearCookie(oauthCookie, request));
@@ -70,7 +76,7 @@ function sameOrigin(request: Request): boolean {
   return !origin || origin === new URL(request.url).origin;
 }
 
-async function revokeLegacySession(request: Request, env: GoogleDriveEnv): Promise<Response> {
+async function revokeLegacySession(request: Request, env: LegacyRevocationEnv): Promise<Response> {
   if (!sameOrigin(request)) return json({ error: "來源驗證失敗", retired: true }, 403, request);
   const legacy = await decryptLegacySession(parseCookies(request)[sessionCookie], env.SESSION_SECRET);
   const token = legacy?.refreshToken ?? legacy?.accessToken;
@@ -88,7 +94,7 @@ async function revokeLegacySession(request: Request, env: GoogleDriveEnv): Promi
   return json({ connected: false, retired: true, revoked }, 200, request, !token || revoked);
 }
 
-export async function handleGoogleDriveApi(request: Request, env: GoogleDriveEnv): Promise<Response | null> {
+export async function handleLegacyCloudRetirement(request: Request, env: LegacyRevocationEnv): Promise<Response | null> {
   const url = new URL(request.url);
   const sessionStatus = url.pathname === "/api/auth/session" || url.pathname === "/api/google/status";
   if (!url.pathname.startsWith("/api/google/") && !sessionStatus) return null;
@@ -100,7 +106,12 @@ export async function handleGoogleDriveApi(request: Request, env: GoogleDriveEnv
     return revokeLegacySession(request, env);
   }
   if (url.pathname === "/api/google/callback" && request.method === "GET") {
-    const headers = new Headers({ location: `${url.origin}/local`, "cache-control": "no-store" });
+    const headers = new Headers({
+      location: `${url.origin}/local`,
+      "cache-control": "no-store",
+      "deprecation": "true",
+      "sunset": LEGACY_REVOCATION_SUNSET,
+    });
     headers.append("set-cookie", clearCookie(oauthCookie, request));
     return new Response(null, { status: 302, headers });
   }

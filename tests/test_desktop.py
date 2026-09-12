@@ -296,19 +296,11 @@ def test_progress_displays_current_full_folder_path(window):
     assert "42" in window.progress_count.text()
 
 
-def test_retired_entry_points_never_launch_oauth_or_scan(window, monkeypatch):
-    def forbidden(*args, **kwargs):
-        pytest.fail("Retired cloud functionality must not start a worker")
-
-    monkeypatch.setattr(window, "_launch", forbidden)
-    window.connect_drive(interactive=True)
-    window.connect_drive(interactive=False, silent=True)
-    window.start_drive_scan()
-    window.navigate("drive")
-    assert window.current_page == "safety"
-    window.account_chip.click()
-    assert window.current_page == "safety"
-    assert window.service is None
+def test_removed_cloud_entry_points_are_not_present(window):
+    assert not hasattr(window, "connect_drive")
+    assert not hasattr(window, "start_drive_scan")
+    assert "drive" not in window.nav_buttons
+    assert "drive" not in window.pages
 
 
 def test_cleanup_result_plays_one_batch_sound_and_never_claims_trash_frees_disk(

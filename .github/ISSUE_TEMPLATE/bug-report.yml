@@ -1,12 +1,12 @@
 name: 問題回報
-description: 回報掃描、登入、介面或清理結果異常
+description: 回報選取、掃描、接續檔、介面或清理結果異常
 title: "[Bug] "
 labels: ["bug", "needs-triage"]
 body:
   - type: markdown
     attributes:
       value: |
-        感謝協助改善 DUPESPACE。請勿貼上 OAuth Token、Client Secret、密碼或私人檔案內容。CSV 可能包含完整路徑，上傳前請先移除敏感資訊。
+        感謝協助改善 DUPESPACE。請勿貼上密碼、憑證、私人檔案內容或未遮蔽的完整路徑。CSV 與 .dupejob 都可能包含檔案名稱和路徑，上傳前請先移除敏感資訊。
   - type: input
     id: version
     attributes:
@@ -28,8 +28,8 @@ body:
       options:
         - 本機資料夾選取
         - 本機掃描
-        - Google Drive 登入
-        - Google Drive 掃描
+        - 網頁分析
+        - .dupejob 接續
         - 移至垃圾桶
         - 永久刪除
         - 更新程式
@@ -65,5 +65,5 @@ body:
     attributes:
       label: 隱私檢查
       options:
-        - label: 我已確認內容不含 OAuth Token、Secret、密碼或不願公開的檔案內容與路徑。
+        - label: 我已確認內容不含密碼、憑證或不願公開的檔案內容、名稱與路徑。
           required: true

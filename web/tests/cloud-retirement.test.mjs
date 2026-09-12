@@ -4,7 +4,7 @@ import test from "node:test";
 import ts from "typescript";
 const source = await readFile(new URL("../worker/google-drive.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-const { handleGoogleDriveApi: handle } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { handleLegacyCloudRetirement: handle } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const env = { SESSION_SECRET: "synthetic-test-secret-never-production" };
 async function session() {
   const key = await crypto.subtle.importKey("raw", await crypto.subtle.digest("SHA-256", new TextEncoder().encode(env.SESSION_SECRET)), "AES-GCM", false, ["encrypt"]);
@@ -21,6 +21,8 @@ test("all previous file access and mutation routes return 410 without network ac
 test("status never refreshes tokens and retains legacy cookie for later revocation", async () => {
   const response = await handle(new Request("https://dupespace.app/api/auth/session"), env);
   assert.equal((await response.json()).connected, false); assert.equal(response.headers.get("set-cookie"), null);
+  assert.equal(response.headers.get("deprecation"), "true");
+  assert.equal(response.headers.get("sunset"), "Wed, 31 Mar 2027 00:00:00 GMT");
 });
 test("same-origin disconnect revokes only a legacy grant and never uses Web Secret", async (t) => {
   let calls = 0;
@@ -36,4 +38,7 @@ test("failed revocation does not discard a usable grant before retry", async (t)
 test("cross-origin disconnect cannot revoke or clear a session", async () => {
   const response = await handle(new Request("https://dupespace.app/api/google/disconnect", { method: "POST", headers: { origin: "https://untrusted.test" } }), env);
   assert.equal(response.status, 403); assert.equal(response.headers.get("set-cookie"), null);
+});
+test("revoke-only worker contains no OAuth client configuration", () => {
+  assert.doesNotMatch(source, /GOOGLE_CLIENT_(?:ID|SECRET)/);
 });

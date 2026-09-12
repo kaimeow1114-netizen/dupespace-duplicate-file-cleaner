@@ -3,7 +3,6 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from ..local import LocalPermanentDeleteExecutor, LocalTrashExecutor
 from ..models import ActionOutcome, ActionReport, OperationItem, OperationMode, ProgressUpdate
@@ -24,7 +23,6 @@ def run_cleanup(
     *,
     cancel_event: threading.Event,
     progress,
-    service: Any = None,
     directory: Path | None = None,
     local_executor=None,
 ) -> CleanupResult:

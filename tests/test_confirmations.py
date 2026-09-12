@@ -34,6 +34,6 @@ def test_trash_reminder_is_session_only_and_invalidates_on_selection_change() ->
 
 
 def test_large_permanent_delete_uses_exact_phrase_and_countdown() -> None:
-    high_risk = ConfirmationSnapshot(500, 5, 1024, "permanent", "drive")
+    high_risk = ConfirmationSnapshot(500, 5, 1024, "permanent", "local")
     assert needs_large_operation_countdown(high_risk)
     assert permanent_confirmation_phrase(500) == "永久刪除 500 個檔案"

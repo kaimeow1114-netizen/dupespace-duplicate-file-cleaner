@@ -29,9 +29,12 @@ from .windows_safety import (
 DUPEJOB_SCHEMA = "https://dupespace.app/schemas/dupejob-v1"
 DUPEJOB_ALGORITHM = "DUPESPACE-CHUNK-SHA256-v1"
 DUPEJOB_DOMAIN = b"DUPESPACE-CHUNK-SHA256-v1"
-MAX_JOB_BYTES = 8 * 1024 * 1024
+# A 100,000-file report with ordinary Windows paths can exceed 8 MiB. Keep a
+# bounded ceiling without making a valid large browser analysis impossible.
+MAX_JOB_BYTES = 32 * 1024 * 1024
 MAX_JOB_FILES = 100_000
 JOB_CHUNK_BYTES = 4 * 1024 * 1024
+JOB_CATEGORIES = {"video", "image", "pdf", "document", "archive", "audio", "other"}
 
 ProgressCallback = Callable[[ProgressUpdate], None]
 
@@ -59,6 +62,15 @@ def _read_job(path: Path) -> dict:
         raise _fail("版本或指紋演算法不受支援")
     if not isinstance(value.get("groups"), list):
         raise _fail("缺少重複群組")
+    source_root_name = value.get("sourceRootName")
+    if (
+        not isinstance(source_root_name, str)
+        or not source_root_name.strip()
+        or len(source_root_name) > 255
+        or source_root_name in {".", ".."}
+        or any(separator in source_root_name for separator in ("/", "\\", "\x00"))
+    ):
+        raise _fail("來源資料夾名稱錯誤")
     return value
 
 
@@ -116,19 +128,27 @@ def load_dupejob(
     root = safety_policy.validate_scan_root(selected_root)
     entries: list[tuple[str, int, int, str]] = []
     seen_paths: set[str] = set()
+    seen_fingerprints: set[str] = set()
     for group in job["groups"]:
         if not isinstance(group, dict):
             raise _fail("群組格式錯誤")
         fingerprint = group.get("fingerprint")
         files = group.get("files")
+        category = group.get("category")
+        context_review = group.get("contextReview")
         if (
             not isinstance(fingerprint, str)
             or len(fingerprint) != 64
             or any(character not in "0123456789abcdef" for character in fingerprint)
             or not isinstance(files, list)
             or len(files) < 2
+            or category not in JOB_CATEGORIES
+            or type(context_review) is not bool
         ):
-            raise _fail("群組指紋或檔案數量錯誤")
+            raise _fail("群組指紋、分類或檔案數量錯誤")
+        if fingerprint in seen_fingerprints:
+            raise _fail("同一個內容指紋被拆成多個群組")
+        seen_fingerprints.add(fingerprint)
         references = 0
         for entry in files:
             if not isinstance(entry, dict):
@@ -154,6 +174,10 @@ def load_dupejob(
 
     records: list[FileRecord] = []
     warnings: list[str] = []
+    if Path(job["sourceRootName"]).name.casefold() != root.name.casefold():
+        warnings.append(
+            "選取的資料夾名稱與網頁分析時不同；已改以完整內容重新驗證每個候選檔案"
+        )
     examined_bytes = 0
     project_cache: dict[Path, tuple[str, bool]] = {}
     for index, (relative, expected_size, expected_modified, manifest_fingerprint) in enumerate(

@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal
 
-SourceKind = Literal["local", "drive"]
+SourceKind = Literal["local"]
 OperationMode = Literal["trash", "permanent"]
 OutcomeStatus = Literal["trashed", "deleted", "failed", "skipped", "cancelled"]
 RootRole = Literal["keep", "clean"]
@@ -75,9 +75,6 @@ class FileRecord:
     can_trash: bool = True
     can_delete: bool = False
     mime_type: str | None = None
-    web_url: str | None = None
-    thumbnail_url: str | None = None
-    parent_ids: tuple[str, ...] = ()
     source_root: str | None = None
     root_role: RootRole | None = None
     selectable: bool = True

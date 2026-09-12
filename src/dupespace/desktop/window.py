@@ -140,7 +140,6 @@ class MainWindow(QMainWindow):
         self.preferences = read_preferences()
         self.reduced_motion = bool(self.preferences.get("reduced_motion", False))
         self.restore_session = restore_session
-        self.service = None
         self.account_name = ""
         self.account_email = ""
         self.busy = False
@@ -222,7 +221,7 @@ class MainWindow(QMainWindow):
         side.addWidget(self.workspace_label)
         side.addSpacing(8)
         for key, title, glyph in (
-            ("local", "本機清理", "drive"),
+            ("local", "本機清理", "hard-drive"),
             ("history", "清理紀錄", "history"),
             ("safety", "安全中心", "shield"),
             ("github", "GitHub 與回報", "github"),
@@ -738,8 +737,8 @@ class MainWindow(QMainWindow):
         report.box.addWidget(
             label(
                 "請附上 DUPESPACE 版本、Windows 版本、加入的掃描位置數量、"
-                "發生問題的階段與畫面上的完整錯誤訊息。不要公開 OAuth Token、"
-                "憑證或私人檔案內容；CSV 可能包含完整路徑，上傳前務必先檢查。",
+                "發生問題的階段與畫面上的完整錯誤訊息。不要公開密碼、憑證或"
+                "私人檔案內容；CSV 與 .dupejob 可能包含名稱和完整路徑，上傳前務必先檢查。",
                 "muted",
                 wrap=True,
             )
@@ -754,8 +753,6 @@ class MainWindow(QMainWindow):
     def navigate(self, key: str) -> None:
         if self.busy:
             return
-        if key == "drive":
-            key = "safety"
         if key == "history":
             self._refresh_history()
         if key == "local" and self.session.source == "local" and self.session.report:
@@ -1101,23 +1098,17 @@ class MainWindow(QMainWindow):
             "只重新驗證報告內的候選檔案，不會走訪其他檔案。",
         )
 
-    def start_drive_scan(self) -> None:
-        self.global_notice.setText("雲端清理已停止。請選擇本機資料夾；不需要登入帳號。")
-
     def rescan(self) -> None:
         if self.busy:
             return
-        if self.session.source == "drive":
-            self.start_drive_scan()
-        else:
-            self.start_local_scan()
+        self.start_local_scan()
 
     def _change_locations(self) -> None:
         if self.busy:
             return
         self.session.clear_scan()
         self.model.refresh()
-        self._show_page("local" if self.session.source == "local" else "drive")
+        self._show_page("local")
 
     def _start_fresh_cleanup(self) -> None:
         if self.busy:
@@ -1163,9 +1154,9 @@ class MainWindow(QMainWindow):
             f"{Path(locations[0]).name}"
             + (f" 等 {len(locations)} 個位置" if len(locations) > 1 else "")
             if locations
-            else "Google Drive"
+            else "尚未選擇資料夾"
         )
-        self.review_source.setToolTip("\n".join(locations) if locations else "Google Drive")
+        self.review_source.setToolTip("\n".join(locations) if locations else "尚未選擇資料夾")
         self._layout_review_toolbar()
         report = self.session.report
         if report:
@@ -1313,13 +1304,9 @@ class MainWindow(QMainWindow):
         if self.busy or not self.session.selected:
             return
         snapshot = self.session.snapshot()
-        locations = (
-            "Google Drive / 我的雲端硬碟"
-            if self.session.source == "drive"
-            else "\n".join(
-                f"{'保護子資料夾' if root.role == 'keep' else '整理位置'}：{root.physical_path}"
-                for root in self.session.roots
-            )
+        locations = "\n".join(
+            f"{'保護子資料夾' if root.role == 'keep' else '整理位置'}：{root.physical_path}"
+            for root in self.session.roots
         )
         if snapshot.operation_mode == "permanent":
             self.sound.play("permanent_warning")
@@ -1335,7 +1322,7 @@ class MainWindow(QMainWindow):
         self._close_details()
         self._launch(
             lambda emit: run_cleanup(
-                items, mode, cancel_event=self.cancel_event, progress=emit, service=self.service
+                items, mode, cancel_event=self.cancel_event, progress=emit
             ),
             self._accept_cleanup,
             "正在永久刪除已確認的副本" if mode == "permanent" else "正在把副本移至垃圾桶",
@@ -1535,13 +1522,7 @@ class MainWindow(QMainWindow):
             self.cancel_event.set()
             self.stop_button.setEnabled(False)
             self.stop_button.setText("正在安全停止…")
-            self.progress_subtitle.setText("正在等目前檔案或網路請求完成；之後不再開始新的批次。")
-
-    def connect_drive(self, *, interactive: bool, silent: bool = False) -> None:
-        # Compatibility guard: stale entry points must never restart OAuth.
-        if interactive and not silent:
-            self.global_notice.setText("此版本不再提供雲端登入。本機清理無需帳號。")
-
+            self.progress_subtitle.setText("正在等目前檔案操作安全結束；之後不再開始新的批次。")
 
     def _auto_update_check(self) -> None:
         if self.busy:
@@ -1894,9 +1875,7 @@ class MainWindow(QMainWindow):
                 QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def _open_trash(self) -> None:
-        if self.session.source == "drive":
-            self._open_url("https://drive.google.com/drive/trash")
-        elif sys.platform == "win32":
+        if sys.platform == "win32":
             import subprocess
 
             subprocess.Popen(["explorer.exe", "shell:RecycleBinFolder"])

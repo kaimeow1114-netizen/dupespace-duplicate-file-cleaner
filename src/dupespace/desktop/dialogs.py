@@ -62,7 +62,7 @@ class ConfirmationDialog(QDialog):
             Notice(
                 "這不是資源回收筒。即使只有一個檔案，刪除後也無法復原。"
                 if self.permanent
-                else "可從 Windows 資源回收筒或 Google Drive 垃圾桶復原；失敗時不會改用永久刪除。",
+                else "可從 Windows 資源回收筒復原；失敗時不會改用永久刪除。",
                 "warning" if self.permanent else "info",
             )
         )
@@ -249,22 +249,9 @@ class DetailsDialog(QDialog):
         copy = button("複製完整路徑", "copy")
         copy.clicked.connect(lambda: QApplication.clipboard().setText(record.location))
         buttons.addWidget(copy)
-        if record.source == "local":
-            open_folder = button("開啟所在資料夾", "folder")
-            open_folder.clicked.connect(lambda: self._open_parent(record))
-            buttons.addWidget(open_folder)
-        elif (
-            record.web_url
-            and QUrl(record.web_url).scheme() == "https"
-            and QUrl(record.web_url).host()
-            in {
-                "drive.google.com",
-                "docs.google.com",
-            }
-        ):
-            open_drive = button("在 Google Drive 查看", "external")
-            open_drive.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(record.web_url)))
-            buttons.addWidget(open_drive)
+        open_folder = button("開啟所在資料夾", "folder")
+        open_folder.clicked.connect(lambda: self._open_parent(record))
+        buttons.addWidget(open_folder)
         buttons.addStretch()
         close = button("完成檢查", "check", "primary")
         close.clicked.connect(self.accept)

@@ -30,19 +30,3 @@ def test_native_media_preview_does_not_use_video_playback():
     from dupespace.desktop.review import SHELL_SUFFIXES
 
     assert {".mp4", ".mov", ".psd", ".heic"} <= SHELL_SUFFIXES
-
-
-def test_cloud_thumbnail_never_accepts_other_origins_or_local_paths():
-    from dupespace.desktop.cloud_thumbnail import allowed_url, read_thumbnail
-
-    assert allowed_url("https://lh3.googleusercontent.com/fixture=s220")
-    for value in (
-        None,
-        "file:///C:/private.png",
-        "http://lh3.googleusercontent.com/x",
-        "https://evil.test/x",
-        "https://user:secret@drive.google.com/x",
-        "https://lh3.googleusercontent.com:123/x",
-    ):
-        assert not allowed_url(value)
-        assert read_thumbnail(value).isNull()

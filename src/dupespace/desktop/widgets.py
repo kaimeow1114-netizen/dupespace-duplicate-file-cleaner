@@ -35,7 +35,7 @@ ICON_PATHS = {
     "image": '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
     "video": '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m10 8 6 4-6 4Z"/>',
     "edit": '<path d="m16 3 5 5L8 21H3v-5Zm-2 2 5 5"/>',
-    "drive": '<rect x="2" y="12" width="20" height="8" rx="2"/><path d="m2 12 3-8h14l3 8M6 16h.01M10 16h.01"/>',
+    "hard-drive": '<rect x="2" y="12" width="20" height="8" rx="2"/><path d="m2 12 3-8h14l3 8M6 16h.01M10 16h.01"/>',
     "cloud": '<path d="M20 16.2A4.5 4.5 0 0 0 18 7.5a6 6 0 0 0-11.6-1A4.5 4.5 0 0 0 6.5 16H8m4-4v9m-3-3 3 3 3-3"/>',
     "shield": '<path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11"/><path d="m9 12 2 2 4-4"/>',
     "folder": '<path d="M20 20H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2Z"/>',

@@ -1,10 +1,10 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
-import { handleGoogleDriveApi, type GoogleDriveEnv } from "./google-drive";
+import { handleLegacyCloudRetirement, type LegacyRevocationEnv } from "./google-drive";
 import { contentSecurityPolicy } from "../lib/security-policy";
 
-interface Env extends GoogleDriveEnv {
+interface Env extends LegacyRevocationEnv {
   ASSETS: Fetcher;
   IMAGES: ImagesBinding;
 }
@@ -31,8 +31,8 @@ const worker = {
       return Response.redirect(`https://dupespace.app${url.pathname}${url.search}`, 301);
     }
 
-    const googleResponse = await handleGoogleDriveApi(request, env);
-    if (googleResponse) return withSecurityHeaders(googleResponse);
+    const retirementResponse = await handleLegacyCloudRetirement(request, env);
+    if (retirementResponse) return withSecurityHeaders(retirementResponse);
 
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];

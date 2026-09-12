@@ -16,8 +16,8 @@ encrypted login cookie. Status checks never refresh a token. Disconnect is same-
 revocation first and retains a still-usable grant when revocation fails so the user can retry. These
 endpoints must never be expanded into listing, scanning, trash or permanent-delete operations.
 
-After the migration window ends and existing grants have been revoked, remove the compatibility
-cookie code and delete the unused hosting secrets. Until then, never print a token, cookie,
+The endpoint publishes an HTTP `Sunset` date of **2027-03-31**. On or before that release boundary,
+remove the compatibility cookie code and delete the unused hosting secrets. Until then, never print a token, cookie,
 `GOOGLE_CLIENT_SECRET` or `SESSION_SECRET` in builds, logs, diagnostics or error pages.
 
 ## Browser analysis safety

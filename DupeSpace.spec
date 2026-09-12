@@ -30,8 +30,7 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         "tkinter", "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtWebEngineCore",
-        "dupespace.drive", "dupespace.desktop_oauth", "dupespace._desktop_oauth",
-        "dupespace.desktop.cloud_thumbnail", "googleapiclient", "google_auth_oauthlib",
+        "googleapiclient", "google_auth_httplib2", "google_auth_oauthlib",
     ],
     noarchive=False,
 )

@@ -1,0 +1,39 @@
+name: stress-windows-local-scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      file_count:
+        description: Number of disposable files to generate
+        required: true
+        default: "10000"
+        type: choice
+        options:
+          - "10000"
+          - "100000"
+          - "500000"
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-local-scan:
+    runs-on: windows-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - name: Generate fixtures and run read-only scanner stress test
+        shell: pwsh
+        run: |
+          $workspace = Join-Path $env:RUNNER_TEMP "dupespace-stress-${{ inputs.file_count }}"
+          $report = Join-Path $env:RUNNER_TEMP "dupespace-stress-${{ inputs.file_count }}.json"
+          python scripts/stress_local_scan.py --workspace $workspace --files ${{ inputs.file_count }} --report $report
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dupespace-stress-${{ inputs.file_count }}
+          path: ${{ runner.temp }}/dupespace-stress-${{ inputs.file_count }}.json

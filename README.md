@@ -81,6 +81,10 @@ scan, thumbnail, trash, restore and permanent-delete APIs return HTTP 410. No ne
 login or permission expansion is performed. The old entry attempts to revoke a previous grant
 using the encrypted session and then sends visitors to the local analyzer.
 
+The revoke-only compatibility endpoint has a published sunset date of **2027-03-31**. It contains
+no OAuth client ID or client secret and cannot scan, list, preview or change cloud files. After that
+date it will be removed; users can always revoke the old grant directly from their Google Account.
+
 Revocation cannot be guaranteed while the external service is unreachable or when a user never
 returns. Users can revoke the old grant in their account's third-party access settings.
 No Web Client Secret is needed by the new analyzer. Never commit credentials, tokens or user reports.
@@ -100,7 +104,7 @@ automatic merge execution and browser storage-history charts are not part of the
 Desktop: Python 3.10+; Windows 10/11 for the native application.
 
 ```powershell
-python -m pip install -e ".[dev,legacy-tests]"
+python -m pip install -e ".[dev]"
 pytest
 ruff check .
 ```
@@ -121,8 +125,8 @@ matches, bounded reads, 5,001 synthetic files, cancellation, CSV injection, reti
 pages, nonce-based scripts and ad-free private routes. Desktop safety tests remain separate.
 
 For Windows builds, see [deployment documentation](docs/WEB_DEPLOYMENT.md) and the release workflow.
-The installer retains its upgrade AppId. Google libraries are only needed to test legacy source,
-not to run or package the new desktop app. The release workflow no longer injects OAuth secrets.
+The installer retains its upgrade AppId. The release workflow validates upgrades from v1.5.1 and
+v1.6.0, and it neither installs Google client libraries nor injects OAuth secrets.
 
 MIT License. Please report issues with reproduction steps and redacted diagnostics, never private
 file names, raw audit reports, credentials or tokens.

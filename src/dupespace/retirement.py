@@ -7,7 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from .token_store import clear_tokens, load_protected_token
+from .legacy_grant import clear_legacy_grant, load_legacy_grant
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -21,7 +21,7 @@ def revoke_legacy_tokens() -> bool:
     Keep local encrypted credentials on network failure so revocation can be retried.
     A 400 invalid_token response means the grant no longer needs revocation.
     """
-    saved = load_protected_token()
+    saved = load_legacy_grant()
     if not saved:
         return True
     data = json.loads(saved)
@@ -50,5 +50,5 @@ def revoke_legacy_tokens() -> bool:
             return False
     except OSError:
         return False
-    clear_tokens()
+    clear_legacy_grant()
     return True

@@ -68,8 +68,6 @@ class PreviewJob(QRunnable):
     def run(self):
         image = QImage()
         try:
-            if self.record.source == "drive":
-                return
             path = DEFAULT_WINDOWS_SAFETY_POLICY.validate_regular_file(self.record.location)
             if is_cloud_placeholder(path):
                 return
@@ -230,9 +228,7 @@ class DetailsPane(QFrame):
         for key, value in values.items():
             self.fields[key].setPlainText(value)
             self.fields[key].setToolTip(value)
-        self.open_button.setText(
-            "開啟所在資料夾" if record.source == "local" else "在 Google Drive 查看"
-        )
+        self.open_button.setText("開啟所在資料夾")
         self.tree_button.setVisible(record.item_kind == "folder")
         self._preview()
         self.show()
@@ -241,18 +237,10 @@ class DetailsPane(QFrame):
         if self.record is None:
             return
         try:
-            if self.record.source == "local":
-                path = DEFAULT_WINDOWS_SAFETY_POLICY.validate_scan_root(
-                    Path(self.record.location).parent
-                )
-                QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
-            else:
-                url = QUrl(self.record.web_url or "")
-                if url.scheme() == "https" and url.host() in {
-                    "drive.google.com",
-                    "docs.google.com",
-                }:
-                    QDesktopServices.openUrl(url)
+            path = DEFAULT_WINDOWS_SAFETY_POLICY.validate_scan_root(
+                Path(self.record.location).parent
+            )
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
         except (ValueError, OSError):
             self.open_button.setToolTip("此位置目前無法開啟；可複製完整路徑檢查。")
 

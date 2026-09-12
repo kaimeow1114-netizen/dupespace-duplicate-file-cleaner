@@ -24,12 +24,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-legacy-tests = [
-  "google-api-python-client>=2.170,<3",
-  "google-auth-httplib2>=0.2,<1",
-  "google-auth-oauthlib>=1.2,<2",
-  "protobuf>=5,<7",
-]
 dev = [
   "pytest>=8.3,<10",
   "pytest-cov>=6,<8",

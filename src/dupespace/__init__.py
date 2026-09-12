@@ -1,4 +1,4 @@
-"""DupeSpace: exact duplicate cleanup for local files and Google Drive."""
+"""DupeSpace: local-first exact duplicate analysis and protected Windows cleanup."""
 
 from .models import ActionOutcome, ActionReport, DuplicateGroup, FileRecord, ScanReport
 
