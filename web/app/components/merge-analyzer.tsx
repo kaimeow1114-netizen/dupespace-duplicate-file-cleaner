@@ -13,6 +13,7 @@ import {
   type MergeRecord, type MergeResult, type MergeSide,
 } from "../../lib/folder-merge";
 import { compareFoldersInWorker } from "../../lib/folder-merge-worker";
+import { WorkerStartupError } from "../../lib/analysis-worker-error";
 
 type FolderSelection = { files: File[]; records: MergeRecord[]; name: string; bytes: number };
 type ScanState = "idle" | "scanning" | "done" | "stopped" | "error";
@@ -132,10 +133,14 @@ export function MergeAnalyzer({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" })
       });
       if (controller.current !== run) return;
       setResult(compared); setProgress(100); setState("done"); setStatus(en ? "Comparison complete. No files were changed." : "比較完成，沒有變更任何檔案。");
-    } catch {
+    } catch (error) {
       if (controller.current !== run) return;
       setState(run.signal.aborted ? "stopped" : "error");
-      setStatus(run.signal.aborted ? (en ? "Comparison stopped safely. Nothing was changed." : "核對已安全停止，沒有變更任何檔案。") : (en ? "A file changed or could not be read. Choose the folders again and retry." : "檔案在核對時發生變更或無法讀取。請重新選擇資料夾後再試。"));
+      setStatus(run.signal.aborted
+        ? (en ? "Comparison stopped safely. Nothing was changed." : "核對已安全停止，沒有變更任何檔案。")
+        : error instanceof WorkerStartupError
+          ? (en ? "The browser could not start the comparison. No files were changed. Reload this page and try again; if it persists, try another browser." : "瀏覽器無法啟動資料夾比較，檔案沒有被更動。請重新整理頁面再試；若仍失敗，可換一個瀏覽器。")
+          : (en ? "A file changed or could not be read. Choose the folders again and retry." : "檔案在核對時發生變更或無法讀取。請重新選擇資料夾後再試。"));
     } finally { if (controller.current === run) controller.current = null; }
   }
 

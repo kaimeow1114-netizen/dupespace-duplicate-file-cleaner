@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { analysisCsv, localInsights, type DuplicateGroup, type LocalRecord } from "../../lib/local-analysis";
 import { findLocalDuplicatesInWorker } from "../../lib/local-analysis-worker";
+import { WorkerStartupError } from "../../lib/analysis-worker-error";
 import { dupeJobJson } from "../../lib/dupejob";
 
 type ScanState = "idle" | "scanning" | "done" | "stopped" | "error";
@@ -75,10 +76,14 @@ export function LocalAnalyzer({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" })
       if (controller.current !== run) return;
       setGroups(found); setProgress(100); setState("done");
       setStatus(en ? "Analysis complete. No files were modified." : "分析完成，沒有任何檔案被修改。");
-    } catch {
+    } catch (error) {
       if (controller.current !== run) return;
       setState(run.signal.aborted ? "stopped" : "error");
-      setStatus(run.signal.aborted ? (en ? "Analysis stopped safely. No files were changed." : "分析已安全停止，沒有任何檔案被修改。") : (en ? "Analysis stopped because a file could not be read or changed during the scan. Your files are safe. Choose the folder again, or use the Windows app for a large folder." : "有檔案無法讀取，或在分析時被修改，所以這次分析已停止。檔案沒有被變更；請重新選擇資料夾再試，檔案很多時也可以改用 Windows 版。"));
+      setStatus(run.signal.aborted
+        ? (en ? "Analysis stopped safely. No files were changed." : "分析已安全停止，沒有任何檔案被修改。")
+        : error instanceof WorkerStartupError
+          ? (en ? "The browser could not start the analysis. Your files were not changed. Reload this page and try again; if it persists, try another browser." : "瀏覽器無法啟動分析程式，檔案沒有被更動。請重新整理頁面再試；若仍失敗，可換一個瀏覽器。")
+          : (en ? "A file could not be read or changed during analysis. Your files are safe. Choose the folder again, or use the Windows app for a large folder." : "有檔案無法讀取，或在分析時被修改，所以這次分析已停止。檔案沒有被變更；請重新選擇資料夾再試，檔案很多時也可以改用 Windows 版。"));
     } finally { if (controller.current === run) controller.current = null; }
   }
 

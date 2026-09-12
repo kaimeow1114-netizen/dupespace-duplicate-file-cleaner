@@ -1,4 +1,6 @@
 import type { DuplicateGroup, LocalRecord, ScanProgress } from "./local-analysis";
+import { WorkerStartupError } from "./analysis-worker-error";
+import workerAssetUrl from "../workers/local-analysis.worker.ts?worker&url";
 
 type CompactGroup = Omit<DuplicateGroup, "files"> & { recordIndexes: number[] };
 type WorkerReply =
@@ -17,7 +19,14 @@ export function findLocalDuplicatesInWorker(
       return;
     }
 
-    const worker = new Worker(new URL("../workers/local-analysis.worker.ts", import.meta.url), { type: "module", name: "dupespace-local-analysis" });
+    // Vite bundles ?worker&url as executable JavaScript, not a raw .ts asset.
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL(workerAssetUrl, window.location.origin), { type: "module", name: "dupespace-local-analysis" });
+    } catch {
+      reject(new WorkerStartupError());
+      return;
+    }
     let settled = false;
     const finish = (callback: () => void) => {
       if (settled) return;
@@ -29,7 +38,8 @@ export function findLocalDuplicatesInWorker(
     const stop = () => finish(() => reject(new DOMException("Analysis aborted", "AbortError")));
 
     signal.addEventListener("abort", stop, { once: true });
-    worker.onerror = () => finish(() => reject(new Error("The analysis worker could not start")));
+    worker.onerror = () => finish(() => reject(new WorkerStartupError()));
+    worker.onmessageerror = () => finish(() => reject(new WorkerStartupError()));
     worker.onmessage = (event: MessageEvent<WorkerReply>) => {
       const reply = event.data;
       if (reply.type === "progress") {
@@ -45,6 +55,10 @@ export function findLocalDuplicatesInWorker(
         files: recordIndexes.map((index) => records[index]),
       }))));
     };
-    worker.postMessage({ type: "analyze", records });
+    try {
+      worker.postMessage({ type: "analyze", records });
+    } catch {
+      finish(() => reject(new WorkerStartupError()));
+    }
   });
 }

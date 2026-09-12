@@ -1,4 +1,6 @@
 import type { MergeFinding, MergeProgress, MergeRecord, MergeResult } from "./folder-merge";
+import { WorkerStartupError } from "./analysis-worker-error";
+import workerAssetUrl from "../workers/folder-merge.worker.ts?worker&url";
 
 type CompactFinding = Omit<MergeFinding, "incoming" | "destination"> & {
   incomingIndexes: number[];
@@ -22,7 +24,13 @@ export function compareFoldersInWorker(
       return;
     }
 
-    const worker = new Worker(new URL("../workers/folder-merge.worker.ts", import.meta.url), { type: "module", name: "dupespace-folder-merge" });
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL(workerAssetUrl, window.location.origin), { type: "module", name: "dupespace-folder-merge" });
+    } catch {
+      reject(new WorkerStartupError());
+      return;
+    }
     let settled = false;
     const finish = (callback: () => void) => {
       if (settled) return;
@@ -34,7 +42,8 @@ export function compareFoldersInWorker(
     const stop = () => finish(() => reject(new DOMException("Comparison aborted", "AbortError")));
 
     signal.addEventListener("abort", stop, { once: true });
-    worker.onerror = () => finish(() => reject(new Error("The comparison worker could not start")));
+    worker.onerror = () => finish(() => reject(new WorkerStartupError()));
+    worker.onmessageerror = () => finish(() => reject(new WorkerStartupError()));
     worker.onmessage = (event: MessageEvent<WorkerReply>) => {
       const reply = event.data;
       if (reply.type === "progress") {
@@ -54,6 +63,10 @@ export function compareFoldersInWorker(
         })),
       }));
     };
-    worker.postMessage({ type: "compare", incoming, destination });
+    try {
+      worker.postMessage({ type: "compare", incoming, destination });
+    } catch {
+      finish(() => reject(new WorkerStartupError()));
+    }
   });
 }
