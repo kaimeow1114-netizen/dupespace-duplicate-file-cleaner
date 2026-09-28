@@ -17,7 +17,7 @@ test("home purpose is server rendered, local-first, full bleed and preserves mot
   assert.match(html, /translate="no"/);
 });
 test("all English content pages are real localized HTML with canonical alternates", async () => {
-  for (const path of ["/en/", "/en/merge/", "/en/local/", "/en/download/", "/en/support/", "/en/privacy/", "/en/terms/", "/en/about/", "/en/solutions/"]) {
+  for (const path of ["/en/", "/en/merge/", "/en/local/", "/en/download/", "/en/support/", "/en/privacy/", "/en/terms/", "/en/about/", "/en/solutions/", "/en/use-cases/"]) {
     const response = await render(path); assert.equal(response.status, 200, path);
     const html = await response.text(); assert.match(html, /<html lang="en"/, path); assert.ok(html.includes(`href="https://dupespace.app${path}"`), path);
     assert.match(html, /hreflang="zh-TW"/i, path); assert.doesNotMatch(html, /Google Drive duplicate file cleaner/, path);
@@ -53,7 +53,7 @@ test("old cleaner is noindex migration, not a working cloud client", async () =>
 });
 test("PWA, crawler and publisher assets retain correct declarations", async () => {
   assert.equal((await readFile(new URL("../public/ads.txt", import.meta.url), "utf8")).trim(), "google.com, pub-7998471640181666, DIRECT, f08c47fec0942fa0");
-  const sitemap = await readFile(new URL("../public/sitemap.xml", import.meta.url), "utf8"); assert.match(sitemap, /dupespace.app\/merge/); assert.match(sitemap, /dupespace.app\/en\/merge/); assert.match(sitemap, /dupespace.app\/local/); assert.match(sitemap, /dupespace.app\/en\/local/); assert.match(sitemap, /dupespace.app\/solutions\/photo-library-cleanup/); assert.match(sitemap, /dupespace.app\/about/); assert.doesNotMatch(sitemap, /dupesweep|\/cleaner/);
+  const sitemap = await readFile(new URL("../public/sitemap.xml", import.meta.url), "utf8"); assert.match(sitemap, /dupespace.app\/merge/); assert.match(sitemap, /dupespace.app\/en\/merge/); assert.match(sitemap, /dupespace.app\/local/); assert.match(sitemap, /dupespace.app\/en\/local/); assert.match(sitemap, /dupespace.app\/solutions\/old-pc-file-migration/); assert.match(sitemap, /dupespace.app\/use-cases\/renamed-photo-merge/); assert.match(sitemap, /dupespace.app\/en\/use-cases\/project-files-must-stay/); assert.match(sitemap, /dupespace.app\/guides\/which-duplicate-file-should-i-keep/); assert.match(sitemap, /dupespace.app\/about/); assert.doesNotMatch(sitemap, /dupesweep|\/cleaner/);
   const manifest = JSON.parse(await readFile(new URL("../public/site.webmanifest", import.meta.url), "utf8")); assert.equal(manifest.start_url, "/merge");
 });
 test("download pages expose accurate SoftwareApplication data without invented ratings", async () => {
@@ -96,7 +96,7 @@ test("English 404 remains English, noindex, and safely framed", async () => {
 });
 
 test("bilingual guides have article-specific metadata, breadcrumbs and reciprocal language links", async () => {
-  for (const slug of ["duplicate-photos", "safe-windows-cleanup", "merge-folders-without-duplicates"]) {
+  for (const slug of ["duplicate-photos", "safe-windows-cleanup", "merge-folders-without-duplicates", "which-duplicate-file-should-i-keep"]) {
     for (const prefix of ["", "/en"]) {
       const path = `${prefix}/guides/${slug}${prefix ? "/" : ""}`;
       const response = await render(path); assert.equal(response.status, 200, path);
@@ -170,6 +170,8 @@ test("solution hub, practical solutions and About pages are bilingual, substanti
     ["/en/solutions/photo-library-cleanup/", "Photos scattered across folders"],
     ["/solutions/downloads-folder-cleanup", "下載資料夾太亂"],
     ["/en/solutions/downloads-folder-cleanup/", "A crowded Downloads folder"],
+    ["/solutions/old-pc-file-migration", "換新電腦後檔案散成好幾份"],
+    ["/en/solutions/old-pc-file-migration/", "Files scattered after a PC move"],
     ["/about", "整理檔案之前"],
     ["/en/about/", "File cleanup should begin"],
   ]) {
@@ -179,11 +181,39 @@ test("solution hub, practical solutions and About pages are bilingual, substanti
     assert.match(html, /hreflang="zh-TW"/i, path); assert.match(html, /hreflang="en"/i, path);
     assert.ok((html.match(/<h2/g) ?? []).length >= 3, path);
   }
-  for (const slug of ["photo-library-cleanup", "downloads-folder-cleanup"]) {
+  for (const slug of ["photo-library-cleanup", "downloads-folder-cleanup", "old-pc-file-migration"]) {
     const html = await (await render(`/solutions/${slug}`)).text();
     assert.match(html, /FAQPage/); assert.match(html, /BreadcrumbList/);
     assert.ok(html.includes(`href="/en/solutions/${slug}/"`));
     assert.doesNotMatch(html, /safe to delete|可以安全刪除/);
   }
   assert.equal((await render("/solutions/not-real")).status, 404);
+});
+
+test("tested use cases publish reproducible scope, redacted evidence and bilingual structured data", async () => {
+  for (const [path, phrase] of [
+    ["/use-cases", "不只說明功能"],
+    ["/en/use-cases/", "See the result"],
+    ["/use-cases/renamed-photo-merge", "同一張照片改了名稱"],
+    ["/en/use-cases/renamed-photo-merge/", "same photo has a different name"],
+    ["/use-cases/project-files-must-stay", "兩個程式專案"],
+    ["/en/use-cases/project-files-must-stay/", "Two projects share a configuration file"],
+  ]) {
+    const response = await render(path); assert.equal(response.status, 200, path);
+    const html = await response.text(); assert.ok(html.includes(phrase), path);
+    assert.match(html, /adsbygoogle\.js\?client=ca-pub-7998471640181666/, path);
+    assert.match(html, /hreflang="zh-TW"/i, path); assert.match(html, /hreflang="en"/i, path);
+  }
+  for (const slug of ["renamed-photo-merge", "project-files-must-stay"]) {
+    const html = await (await render(`/use-cases/${slug}`)).text();
+    assert.match(html, /"@type":"Article"/); assert.match(html, /FAQPage/); assert.match(html, /BreadcrumbList/);
+    assert.match(html, /DUPESPACE v1\.7\.1/); assert.match(html, /download=""/);
+    assert.ok(html.includes(`href="/en/use-cases/${slug}/"`));
+    assert.doesNotMatch(html, /safe to delete|可以安全刪除/);
+  }
+  const photoCsv = await readFile(new URL("../public/examples/renamed-photo-merge-redacted.csv", import.meta.url), "utf8");
+  const projectCsv = await readFile(new URL("../public/examples/project-files-must-stay-redacted.csv", import.meta.url), "utf8");
+  assert.match(photoCsv, /renamed_or_moved/); assert.match(projectCsv, /context_review/); assert.match(projectCsv, /node_modules/);
+  assert.doesNotMatch(`${photoCsv}\n${projectCsv}`, /C:\\Users|h0961|@gmail/i);
+  assert.equal((await render("/use-cases/not-real")).status, 404);
 });

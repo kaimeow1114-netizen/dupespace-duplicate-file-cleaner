@@ -1,0 +1,7 @@
+"group","role","path","size_bytes","modified_time","fingerprint_algorithm","fingerprint","context_review"
+"1","reference_only","Workspace/Project-A/config/theme.json","384","2026-02-01T09:00:00.000Z","DUPESPACE-CHUNK-SHA256-v1","384:[redacted]","required"
+"1","duplicate_candidate","Workspace/Project-B/config/theme.json","384","2026-02-01T09:00:00.000Z","DUPESPACE-CHUNK-SHA256-v1","384:[redacted]","required"
+"2","reference_only","Workspace/Project-A/node_modules/demo-plugin/index.js","2410","2026-02-01T09:02:00.000Z","DUPESPACE-CHUNK-SHA256-v1","2410:[redacted]","required"
+"2","duplicate_candidate","Workspace/Project-B/node_modules/demo-plugin/index.js","2410","2026-02-01T09:02:00.000Z","DUPESPACE-CHUNK-SHA256-v1","2410:[redacted]","required"
+"3","reference_only","Downloads/setup.exe","84213760","2026-02-05T11:30:00.000Z","DUPESPACE-CHUNK-SHA256-v1","84213760:[redacted]","review_usage_before_removal"
+"3","duplicate_candidate","Downloads/setup (1).exe","84213760","2026-02-05T11:31:00.000Z","DUPESPACE-CHUNK-SHA256-v1","84213760:[redacted]","review_usage_before_removal"

@@ -6,6 +6,7 @@ import {
   Download,
   FileCheck2,
   FolderSearch,
+  HardDriveDownload,
   Images,
   SearchCheck,
   ShieldCheck,
@@ -54,7 +55,9 @@ export function solutionMetadata(solution: Solution, locale: SolutionLocale): Me
 }
 
 function CardIcon({ slug }: { slug: string }) {
-  return slug === "photo-library-cleanup" ? <Images aria-hidden="true" /> : <Download aria-hidden="true" />;
+  if (slug === "photo-library-cleanup") return <Images aria-hidden="true" />;
+  if (slug === "old-pc-file-migration") return <HardDriveDownload aria-hidden="true" />;
+  return <Download aria-hidden="true" />;
 }
 
 export async function SolutionsHome({ locale }: { locale: SolutionLocale }) {
@@ -79,7 +82,7 @@ export async function SolutionsHome({ locale }: { locale: SolutionLocale }) {
       <div><span className="eyebrow light"><FolderSearch size={16} aria-hidden="true" />{en ? "REAL FOLDER PROBLEMS" : "從實際資料夾問題開始"}</span><h1>{en ? <>Choose a workflow that <span className="gradient-text">fits the folder.</span></> : <>不是每個重複檔案，<span className="gradient-text">都適合同一種整理方式。</span></>}</h1><p>{en ? "Start with the situation you recognize. Each solution explains what the tool can confirm, what still needs your judgment and the safest next step." : "先找到和你相似的情境。每個方案都會說清楚工具能確認什麼、哪些仍需要你判斷，以及下一步怎麼做比較穩妥。"}</p></div>
       <aside><SearchCheck aria-hidden="true" /><strong>{en ? "Answer first, tool second" : "先解決問題，再推薦工具"}</strong><p>{en ? "These pages remain useful even if you never install DUPESPACE. Product links appear only where they complete the workflow." : "即使不安裝 DUPESPACE，內容也必須能幫你完成判斷；只有在工具能接續流程時才提供入口。"}</p></aside>
     </div></section>
-    <section className="solution-hub-list shell"><div className="solution-heading"><span className="eyebrow">{en ? "CHOOSE A SITUATION" : "選擇目前遇到的情況"}</span><h2>{en ? "Begin with a folder you understand." : "先從用途最清楚的資料夾開始。"}</h2><p>{en ? "A smaller, well-defined scope is easier to review than an entire drive." : "範圍清楚的小資料夾，比直接掃描整顆磁碟更容易確認結果。"}</p></div><div className="solution-card-grid">{items.map((item, index) => <a className="solution-card" href={`${prefix}/solutions/${item.slug}${end}`} key={item.slug}><span className={`solution-card-icon tone-${index}`}><CardIcon slug={item.slug} /></span><small>{item.kicker}</small><h2>{item.title}</h2><p>{item.answer}</p><b>{en ? "Open the solution" : "查看完整做法"}<ArrowRight size={18} aria-hidden="true" /></b></a>)}</div></section>
+    <section className="solution-hub-list shell"><div className="solution-heading"><span className="eyebrow">{en ? "CHOOSE A SITUATION" : "選擇目前遇到的情況"}</span><h2>{en ? "Begin with a folder you understand." : "先從用途最清楚的資料夾開始。"}</h2><p>{en ? "A smaller, well-defined scope is easier to review than an entire drive." : "範圍清楚的小資料夾，比直接掃描整顆磁碟更容易確認結果。"}</p></div><div className="solution-card-grid">{items.map((item, index) => <a className="solution-card" href={`${prefix}/solutions/${item.slug}${end}`} key={item.slug}><span className={`solution-card-icon tone-${index}`}><CardIcon slug={item.slug} /></span><small>{item.kicker}</small><h2>{item.title}</h2><p>{item.answer}</p><b>{en ? "Open the solution" : "查看完整做法"}<ArrowRight size={18} aria-hidden="true" /></b></a>)}</div><a className="solution-evidence-link" href={`${prefix}/use-cases${end}`}><SearchCheck aria-hidden="true" /><span><b>{en ? "Prefer a reproducible example?" : "想先看可重現的實際案例？"}</b><em>{en ? "Review the inputs, expected classifications, limitations and redacted CSV samples." : "查看測試資料、預期分類、限制與去識別化 CSV 範例。"}</em></span><ArrowRight aria-hidden="true" /></a></section>
     <section className="solution-method"><div className="shell solution-method-grid"><div><span className="eyebrow light">{en ? "THE SAME SAFETY BOUNDARY" : "所有情境共用的安全界線"}</span><h2>{en ? "Matching content is evidence, not a cleanup decision." : "內容相同是證據，不是清理決定。"}</h2></div><div><article><span>01</span><h3>{en ? "Understand the folder" : "先了解資料夾用途"}</h3><p>{en ? "Projects, backups and synchronized locations can need identical copies." : "專案、備份與同步位置可能都需要內容相同的副本。"}</p></article><article><span>02</span><h3>{en ? "Create a read-only view" : "先建立唯讀結果"}</h3><p>{en ? "See names, paths, sizes and relationships before changing anything." : "先看名稱、路徑、容量與檔案關係，不立即更動內容。"}</p></article><article><span>03</span><h3>{en ? "Revalidate before action" : "執行前重新確認"}</h3><p>{en ? "Changed or unreadable files are skipped instead of being forced through." : "檔案若被修改或無法讀取，就跳過而不是強制處理。"}</p></article></div></div></section>
     <AdPanel /><SiteFooter locale={locale} />
   </main>;

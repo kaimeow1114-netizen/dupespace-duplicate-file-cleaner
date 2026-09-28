@@ -67,6 +67,11 @@ safety limits remain identical.
 
 These are the minimum new content set before requesting another AdSense review.
 
+Implementation status on September 28, 2026: all six topics and `/about` are implemented in
+Traditional Chinese and English. The two tested use cases publish reproducible synthetic inputs,
+visible limitations and downloadable redacted CSV samples. They intentionally do not publish
+screenshots or benchmark numbers that have not been captured from a controlled test run.
+
 | Priority | URL | Reader problem | Original value required |
 | --- | --- | --- | --- |
 | 1 | `/solutions/photo-library-cleanup` | Photo folders contain exports, downloads and backups | A decision tree separating exact copies, similar photos and intentional backups; one real sample folder walkthrough |
@@ -166,10 +171,10 @@ the editorial policy. “Reviewed” must identify what was checked; it is not a
 
 ### Publication cadence and review gate
 
-Week 1 publishes two solution pages and `/about`; week 2 publishes the other two solution pages; week 3
-publishes the two evidence-backed use cases; week 4 upgrades the existing six articles and submits the
-updated sitemap. This pacing supports careful testing and internal linking rather than a mass-generated
-content dump.
+Release 1 and `/about` were completed in two reviewed batches on September 28, 2026. The next editorial
+cycle upgrades the existing six articles and submits the refreshed sitemap after the new bilingual URLs
+are deployed. Further Release 2 pages remain gated on controlled test evidence; they are not created in
+bulk merely to increase page count.
 
 Request AdSense re-review only when:
 

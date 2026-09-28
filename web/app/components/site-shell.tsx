@@ -38,6 +38,7 @@ export function SiteHeader({ locale = "zh-TW", privateWorkspace = false, pagePat
             <div>
               <a href={home + "#features"}>{en ? "Features" : "功能特色"}</a>
               <a href={en ? "/en/solutions/" : "/solutions"}>{en ? "Solutions" : "整理情境"}</a>
+              <a href={en ? "/en/use-cases/" : "/use-cases"}>{en ? "Tested use cases" : "實際案例"}</a>
               <b>{en ? "Online file tools" : "線上檔案工具"}</b>
               <a href={en ? "/en/merge/" : "/merge"}>{en ? "Folder merge preview" : "資料夾合併前核對"}</a>
               <a href={en ? "/en/local/" : "/local"}>{en ? "Duplicate file finder" : "重複檔案搜尋"}</a>
@@ -57,14 +58,14 @@ export function SiteFooter({ locale = "zh-TW" }: { locale?: "zh-TW" | "en" }) {
   if (locale === "en") return <footer className="footer"><div className="shell footer-grid">
     <div><a className="brand inverse notranslate" href="/en/" translate="no" lang="en">DUPESPACE</a><p>Find duplicate files. Make room for what matters.</p></div>
     <div><b>Product</b><a href="/en/merge/">Folder merge preview</a><a href="/en/local/">Duplicate file finder</a><a href="/en/download/">Windows download</a><a href={repo}>Source code on GitHub</a></div>
-    <div><b>Information</b><a href="/en/solutions/">Solutions</a><a href="/en/blog/">Space Notes</a><a href="/en/about/">About DUPESPACE</a><a href="/en/blog/editorial-policy/">Editorial policy</a><a href="/en/support/">Safety guide</a><a href="/en/privacy/">Privacy policy</a><a href="/en/terms/">Terms of service</a><a href="/" hrefLang="zh-TW" lang="zh-TW">繁體中文</a></div>
+    <div><b>Information</b><a href="/en/solutions/">Solutions</a><a href="/en/use-cases/">Tested use cases</a><a href="/en/blog/">Space Notes</a><a href="/en/about/">About DUPESPACE</a><a href="/en/blog/editorial-policy/">Editorial policy</a><a href="/en/support/">Safety guide</a><a href="/en/privacy/">Privacy policy</a><a href="/en/terms/">Terms of service</a><a href="/" hrefLang="zh-TW" lang="zh-TW">繁體中文</a></div>
   </div><div className="shell footer-bottom"><span>© 2026 DUPESPACE · MIT License</span><span>Local-first · Free and open source</span></div></footer>;
   return (
     <footer className="footer">
       <div className="shell footer-grid">
         <div><a className="brand inverse" href="/" aria-label="DUPESPACE 首頁"><Image src="/dupespace-icon.png" alt="DUPESPACE 雲朵文件標誌" width={38} height={38} unoptimized /><span className="brand-name notranslate" translate="no" lang="en">DUPE<em>SPACE</em></span></a><p>看清楚檔案差異，再安心整理空間。</p></div>
         <div><b>產品</b><a href="/merge">比較兩個資料夾</a><a href="/local">尋找重複檔案</a><a href="/download">下載 Windows 清理工具</a><a href={repo}>GitHub 原始碼</a></div>
-        <div><b>資訊</b><a href="/solutions">整理情境</a><a href="/blog">Space Notes</a><a href="/about">關於 DUPESPACE</a><a href="/blog/editorial-policy">編輯與比較原則</a><a href="/support">整理指南</a><a href="/privacy">隱私權政策</a><a href="/terms">服務條款</a></div>
+        <div><b>資訊</b><a href="/solutions">整理情境</a><a href="/use-cases">實際案例</a><a href="/blog">Space Notes</a><a href="/about">關於 DUPESPACE</a><a href="/blog/editorial-policy">編輯與比較原則</a><a href="/support">整理指南</a><a href="/privacy">隱私權政策</a><a href="/terms">服務條款</a></div>
       </div>
       <div className="shell footer-bottom"><span>© 2026 <span className="notranslate" translate="no" lang="en">DUPESPACE</span> · MIT License</span><span>本機優先 · 免費開源</span></div>
     </footer>

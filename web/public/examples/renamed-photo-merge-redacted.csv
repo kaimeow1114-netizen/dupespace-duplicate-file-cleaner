@@ -1,0 +1,7 @@
+"finding","category","side","relative_path","size_bytes","modified_time","fingerprint_algorithm","fingerprint","context_review"
+"1","renamed_or_moved","incoming","DCIM/IMG_1842.JPG","4128933","2026-01-08T03:15:00.000Z","DUPESPACE-CHUNK-SHA256-v1","4128933:[redacted]","review_before_merge"
+"1","renamed_or_moved","destination","2024/Kyoto Station.jpg","4128933","2026-01-08T03:15:00.000Z","DUPESPACE-CHUNK-SHA256-v1","4128933:[redacted]","review_before_merge"
+"2","same_path_conflict","incoming","Pictures/album-cover.jpg","1248620","2026-01-09T02:00:00.000Z","not_required","","review_before_merge"
+"2","same_path_conflict","destination","Pictures/album-cover.jpg","1294200","2026-01-10T04:30:00.000Z","not_required","","review_before_merge"
+"3","incoming_only","incoming","DCIM/IMG_1843.JPG","3904221","2026-01-08T03:17:00.000Z","not_required","","review_before_merge"
+"4","destination_only","destination","2023/family.jpg","5321044","2025-12-21T08:40:00.000Z","not_required","","review_before_merge"

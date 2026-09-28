@@ -159,6 +159,73 @@ export const solutions: Record<SolutionLocale, Solution[]> = {
         { question: "網頁分析後能直接釋放空間嗎？", answer: "不能。網頁只建立唯讀報告。需要實際整理時，請使用 Windows 版重新驗證候選檔案並移至資源回收筒。" },
       ],
     },
+    {
+      slug: "old-pc-file-migration",
+      kicker: "OLD PC FILE MIGRATION",
+      title: "換新電腦後檔案散成好幾份？先核對，再合併",
+      description: "比較舊電腦備份與新電腦資料夾，找出改名後仍相同的內容、只存在一邊的檔案，以及不能直接覆蓋的版本衝突。全程只讀且不上傳。",
+      answer: "不要先把舊電腦所有資料直接覆蓋到新電腦。先比較兩邊內容，把『已經有了』『需要補進來』『同位置但版本不同』分開，才不會製造更多副本或蓋掉新版本。",
+      suitable: [
+        "從舊電腦、外接硬碟或手動備份搬資料到新電腦",
+        "同一份檔案在兩邊名稱不同，無法只靠檔名判斷",
+        "想確認哪些檔案只存在舊電腦，避免搬移時漏掉",
+        "擔心相同資料夾結構中混有不同版本的文件",
+      ],
+      avoid: [
+        "舊磁碟已有異音、讀取錯誤或 SMART 警告",
+        "搬移的是程式安裝目錄、系統設定檔或可開機磁碟",
+        "其中一邊仍在同步、備份、解壓縮或大量寫入",
+        "唯一備份尚未完成，或從未實際測試過還原",
+      ],
+      scenario: {
+        title: "範例：舊電腦備份與新電腦文件各自都有修改",
+        introduction: "假設舊備份有 2,400 個檔案，新電腦文件夾有 1,900 個。直接複製無法回答哪些已存在、哪些被改名，以及同一路徑是否已經換成新版。",
+        steps: [
+          { label: "內容相同、名稱不同", detail: "舊端的 IMG_2048.JPG 與新端的 京都車站.jpg 完整內容相同，可避免再次複製，但兩個位置仍需人工確認用途。" },
+          { label: "只在舊電腦", detail: "舊端獨有的合約附件與照片是搬移候選；先確認它不是已淘汰或損壞的版本。" },
+          { label: "只在新電腦", detail: "新端新增的工作檔不應被舊備份覆蓋，也不需要反向複製，除非你正在補做新備份。" },
+          { label: "同路徑、內容不同", detail: "兩邊都有 Documents/plan.docx，但內容不同。這是版本衝突，必須分別開啟或改名保存後再決定。" },
+        ],
+      },
+      sections: [
+        {
+          title: "先建立兩份不再變動的來源",
+          paragraphs: [
+            "先停止同步與自動備份，讓舊電腦備份和新電腦資料夾保持穩定。若舊磁碟狀況不佳，優先製作可驗證的備份，不要讓完整內容比對增加它的讀取負擔。",
+            "不要比較整個 Windows 使用者目錄。從照片、文件或明確的工作資料夾開始，排除 AppData、應用程式安裝目錄、套件環境與系統管理位置。",
+          ],
+          checklist: ["停止兩邊的同步與寫入", "先備份狀況不明的舊磁碟", "一次只核對一種用途", "保留原始來源直到驗收完成"],
+        },
+        {
+          title: "把『相同內容』和『相同路徑』分開看",
+          paragraphs: [
+            "名稱不同但完整內容相同，代表新電腦可能已經有那份資料；相同路徑但內容不同，則代表兩邊各自修改過，不能以較新的日期直接覆蓋。檔案時間可能因複製、解壓或還原而重設。",
+            "DUPESPACE 會把結果分成改名或搬動、同路徑同內容、同路徑衝突、只在搬入端，以及只在保留端。分類是合併前的地圖，不是自動複製指令。",
+          ],
+        },
+        {
+          title: "先處理缺漏，再處理可避免的重複複製",
+          paragraphs: [
+            "先檢查只存在舊電腦的項目，確定需要搬入的位置；再逐一處理版本衝突。最後才查看內容已經存在的檔案，避免在同一輪操作中同時新增、覆蓋與清理。",
+            "網頁版不會移動檔案。匯出 CSV 後，使用你熟悉的檔案管理工具進行小批次複製，每一批完成後都重新開啟幾個文件與照片確認。",
+          ],
+          checklist: ["先補只存在舊端的必要檔案", "衝突檔保留兩版並改名", "相同內容不再重複搬入", "每一批完成後抽查檔案"],
+        },
+        {
+          title: "搬完不代表可以立刻刪除舊資料",
+          paragraphs: [
+            "完成搬移後，重新統計重要資料夾的檔案數與容量，抽查不同檔案類型，並實際測試備份還原。至少保留舊來源一段合理的驗收期，再決定如何封存或抹除舊電腦。",
+            "DUPESPACE 能確認完整內容是否相同，不能證明應用程式資料已完整遷移、雲端同步已結束，或備份一定可還原。這些仍需要對應軟體與備份工具的驗證。",
+          ],
+        },
+      ],
+      faq: [
+        { question: "比較兩個資料夾會修改或上傳檔案嗎？", answer: "不會。比較在目前瀏覽器分頁中執行，只讀取你選擇的資料夾；不會上傳、複製、覆蓋或刪除檔案。" },
+        { question: "日期比較新的檔案一定要保留嗎？", answer: "不一定。複製、下載與還原都可能改變檔案時間。遇到同路徑內容不同時，應查看實際內容與用途，不只看日期。" },
+        { question: "可以直接比較整顆舊硬碟嗎？", answer: "不建議。先按照片、文件與其他明確用途分批比較；系統、應用程式與專案資料需要另外處理。" },
+        { question: "比較完成後，DUPESPACE 會自動合併嗎？", answer: "不會。網頁只建立唯讀比較結果。這能避免工具在不了解版本用途時自動覆蓋或刪除檔案。" },
+      ],
+    },
   ],
   en: [
     {
@@ -231,6 +298,37 @@ export const solutions: Record<SolutionLocale, Solution[]> = {
         { question: "Is every file ending in (1) removable?", answer: "No. The suffix only records a filename conflict during download. The content may match, or it may be a newer revision. Verify complete content and purpose." },
         { question: "Is a ZIP duplicate of the extracted folder?", answer: "No. An archive and extracted files have different bytes and structures, so they are not exact duplicate files." },
         { question: "Does a browser analysis immediately free space?", answer: "No. It creates a read-only report. Use the Windows app to revalidate reviewed candidates and move them to the Recycle Bin." },
+      ],
+    },
+    {
+      slug: "old-pc-file-migration",
+      kicker: "OLD PC FILE MIGRATION",
+      title: "Files scattered after a PC move? Compare first, then merge",
+      description: "Compare an old-computer backup with a new folder to find renamed exact matches, one-sided files and same-path version conflicts. The browser workflow is read-only and upload-free.",
+      answer: "Do not overwrite the new computer with everything from the old one. First separate content that already exists, files that still need to move and same-path files whose versions differ.",
+      suitable: ["You are moving data from an old PC, external drive or manual backup", "The same file has different names on each side", "You need to find items that exist only in the old backup", "Matching folder structures may contain different document versions"],
+      avoid: ["The old drive clicks, reports read errors or has a SMART warning", "You are moving application folders, operating-system data or a bootable drive", "Either side is still syncing, backing up, extracting or receiving large writes", "Your only backup is incomplete or has never been restore-tested"],
+      scenario: {
+        title: "Example: an old backup and a new Documents folder both changed",
+        introduction: "Imagine 2,400 files in the old backup and 1,900 on the new PC. A blind copy cannot show what already exists, what was renamed or whether a familiar path now contains a newer version.",
+        steps: [
+          { label: "Same bytes, new name", detail: "IMG_2048.JPG on the old side and Kyoto Station.jpg on the new side match completely. You can avoid copying it again, but still review why each location exists." },
+          { label: "Old side only", detail: "A contract attachment or photograph found only in the backup is a migration candidate after you confirm it is not obsolete or damaged." },
+          { label: "New side only", detail: "New work on the current PC should not be overwritten by the old backup or copied backwards unless you are updating that backup." },
+          { label: "Same path, different bytes", detail: "Both sides contain Documents/plan.docx, but the content differs. Keep or rename both versions until a person resolves the conflict." },
+        ],
+      },
+      sections: [
+        { title: "Create two stable sources before comparing", paragraphs: ["Pause sync and automatic backup so the old source and new folder stop changing. If the old drive may be failing, make a verified recovery copy first instead of adding a full-content scan to its workload.", "Do not compare an entire Windows profile. Start with Photos, Documents or another clear collection, and exclude AppData, installed applications, package environments and operating-system locations."], checklist: ["Pause writes and synchronization", "Back up an uncertain old drive first", "Compare one purpose at a time", "Keep the old source through verification"] },
+        { title: "Separate matching content from matching paths", paragraphs: ["Different names with identical bytes suggest the new PC already has that content. The same path with different bytes means both sides changed and should not be resolved from the newest timestamp alone; copies, extraction and restoration can reset file times.", "DUPESPACE separates renamed or moved matches, same-path exact matches, same-path conflicts, incoming-only files and destination-only files. It is a map for review, not an automatic copy plan."] },
+        { title: "Resolve missing files before avoiding repeated copies", paragraphs: ["Review old-side-only files first and decide where required items belong. Resolve version conflicts next. Only then use exact matches to avoid copying content that is already present.", "The website never moves files. Export the CSV and use a file manager you trust for small batches. Open several documents and photographs after every batch."], checklist: ["Move required old-side-only files", "Keep and rename both conflict versions", "Do not recopy exact content", "Spot-check every completed batch"] },
+        { title: "A completed copy is not permission to erase the old source", paragraphs: ["After migration, recount important folders, compare their sizes, open multiple file formats and test restoring the new backup. Keep the old source for a reasonable verification period before archiving or erasing it.", "DUPESPACE can confirm matching bytes. It cannot prove that application data migrated, cloud sync completed or a backup is recoverable. Validate those with the relevant software and backup process."] },
+      ],
+      faq: [
+        { question: "Does the two-folder comparison upload or change files?", answer: "No. It runs in the current browser tab and only reads folders you choose. It does not upload, copy, overwrite or delete files." },
+        { question: "Should I always keep the file with the newest date?", answer: "No. Copying, downloading and restoring can change timestamps. Review the actual content and purpose of same-path conflicts." },
+        { question: "Can I compare the entire old drive at once?", answer: "It is safer to compare bounded photo, document and other user-data folders separately. System, application and project data need their own migration methods." },
+        { question: "Will DUPESPACE merge the folders automatically?", answer: "No. The browser produces a read-only comparison so the tool cannot overwrite or remove files whose version purpose it does not understand." },
       ],
     },
   ],

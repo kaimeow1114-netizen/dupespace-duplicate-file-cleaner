@@ -33,6 +33,17 @@ export const guides: Record<"zh-TW" | "en", Guide[]> = {
         { title: "網頁只整理比較結果，不替你移動檔案", paragraphs: ["瀏覽器版不會上傳、覆蓋或刪除檔案。比較完成後，先匯出 CSV 保存結果，再使用你熟悉的檔案管理工具執行合併。", "若需要實際整理重複副本，可改用 Windows 版。每次動作前仍會重新確認檔案狀態；網頁報告不能用來跳過安全檢查。"] },
       ],
     },
+    {
+      slug: "which-duplicate-file-should-i-keep", title: "重複檔案該保留哪一份？不要只看檔名或日期",
+      description: "內容完全相同時，先看保護規則、資料夾用途、備份狀態與可用時間，再決定保留哪個位置。建立時間只能當線索，不能單獨證明原始檔。",
+      sections: [
+        { title: "先說結論：保留『仍有用途的位置』", paragraphs: ["內容完全相同，只能證明檔案位元一致，不能證明其中一個路徑已經沒用。工作資料夾、離線備份、分享目錄和程式專案可能都需要自己的副本。", "因此保留順序應從用途開始，而不是從看起來最像原檔的名稱開始。任何被你標記為保護的位置都優先保留；工具不能推翻這個決定。"] },
+        { title: "第一優先：保護規則與資料夾情境", paragraphs: ["若副本位於你指定的保護子資料夾，或屬於可辨識的程式專案、套件環境、備份與同步情境，就不應自動勾選。不同專案中的同一份設定檔，可能在兩個位置都不能少。", "同步資料夾尤其需要小心。從本機移除檔案可能被同步到其他裝置；備份資料夾的副本則可能是復原流程的一部分。先確認服務行為，再處理內容相同的候選。"] },
+        { title: "第二優先：建立時間較早，但要先確認時間可信", paragraphs: ["若兩個位置用途相同，而且建立時間確實來自原始儲存媒體，可以把較早建立者列為保留建議。這是合理線索，仍不是原始性的證明。", "複製、解壓、下載、雲端還原與檔案系統轉移都可能重設建立時間。有些瀏覽器只能取得修改時間；有些檔案完全缺少可靠時間。遇到這些情況，不要假裝工具已找到『最原始』的一份。"] },
+        { title: "時間無法判定時，路徑較短只是穩定的排序方式", paragraphs: ["當時間相同、缺失或不可信時，DUPESPACE 可用路徑長度和字典順序建立穩定的保留建議，讓每次掃描結果一致。路徑較短不代表內容更重要，也不代表它一定是原始檔。", "請查看完整路徑：Downloads、Desktop 或 Copy 之類名稱是情境線索，不是自動移除規則。檔名中的 (1)、copy 或備份也只能提醒你進一步確認。"] },
+        { title: "實際判斷時，用這個順序", paragraphs: ["先保留所有受保護與用途不可替代的位置；再確認獨立備份是否應留下；其餘用途相同的副本，才參考可靠的建立時間。時間仍無法區分時，用路徑建立一致建議，最後由你核對。", "第一次整理請從少量、可捨棄的測試資料開始，使用資源回收筒並暫時不要清空。操作後重新開啟保留檔案與依賴它的工作流程，再查看 CSV 中的成功、跳過與失敗原因。"] },
+      ],
+    },
   ],
   en: [
     {
@@ -63,6 +74,17 @@ export const guides: Record<"zh-TW" | "en", Guide[]> = {
         { title: "Filter cheaply, then verify complete content", paragraphs: ["DUPESPACE groups files by exact byte size, then reads the beginning, middle and end to eliminate obvious mismatches. Only remaining candidates proceed to complete chunked SHA-256 content verification. A sample never decides that two files are equal.", "Complete verification runs in a dedicated background worker. Storage still has to read every candidate byte, but controls, progress updates and safe cancellation no longer compete with hashing on the page’s main thread."] },
         { title: "Resolve version conflicts before duplicate content", paragraphs: ["When the same relative path contains different content, compare the dates, sizes and actual purpose before choosing a version. A matching filename is not evidence that an overwrite is safe.", "Renamed or moved exact matches can be marked as copies you do not need to transfer again. Incoming-only files are new candidates. Project, application and backup contexts require separate review because identical content may be required on both sides."] },
         { title: "The browser creates a merge map, not file changes", paragraphs: ["The web tool does not upload, overwrite or delete files. Export the CSV as a decision record, then perform the merge with a file manager you trust.", "Use the Windows app when you need to organize duplicate copies. It still revalidates the current file state before any action; a browser report is never permission to skip cleanup safeguards."] },
+      ],
+    },
+    {
+      slug: "which-duplicate-file-should-i-keep", title: "Which duplicate file should you keep? Do not rely on names or dates alone",
+      description: "When content matches exactly, start with protection rules, folder purpose, backup state and trustworthy timestamps. Creation time is evidence, not proof of an original.",
+      sections: [
+        { title: "The short answer: keep every location that still has a purpose", paragraphs: ["Matching bytes prove equal content. They do not prove that one path is unused. A working folder, offline backup, shared directory and software project may each need its own copy.", "Keeper selection therefore starts with purpose, not the filename that looks most original. Any location you explicitly protect stays protected; the tool must not override that choice."] },
+        { title: "First priority: protection rules and folder context", paragraphs: ["A copy inside a protected subfolder, recognized software project, package environment, backup or sync context should not be selected automatically. The same configuration may be required independently by two projects.", "Synchronized folders need particular care: a local removal may propagate to other devices. A backup copy may be part of a recovery plan. Understand that workflow before treating matching content as redundant."] },
+        { title: "Second priority: earlier creation time, only when it is trustworthy", paragraphs: ["If the locations have the same purpose and the creation timestamps genuinely came from the original storage, the earlier item is a reasonable keeper suggestion. It is still a clue rather than proof of originality.", "Copying, extracting, downloading, cloud restoration and filesystem migration can reset creation times. Browsers may expose modification time only, and some files have no reliable timestamp. In those cases, the tool should not pretend it found the original."] },
+        { title: "When time cannot decide, a shorter path is only a stable tie-breaker", paragraphs: ["If timestamps match, are missing or cannot be trusted, DUPESPACE can use path length and lexical order to keep recommendations stable between scans. A shorter path is not automatically more valuable or more original.", "Review the complete path. Downloads, Desktop, Copy and Backup are useful context clues, not automatic removal rules. Suffixes such as (1) or copy also require review."] },
+        { title: "Use this order for a real decision", paragraphs: ["Keep protected and irreplaceable-purpose locations first. Confirm whether an independent backup must remain. Only among copies with the same purpose should you use trustworthy creation time, followed by a stable path tie-breaker and manual review.", "Begin with a small set of disposable test files, use the Recycle Bin and do not empty it immediately. Reopen retained files and their dependent workflows, then review every success, skip and failure in the CSV report."] },
       ],
     },
   ],
